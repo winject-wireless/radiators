@@ -8,6 +8,9 @@ let runs = [], active = null, field = null, mode = "combined", requestVersion = 
 const DEFAULT_CAMERA={up:{x:0,y:0,z:1},center:{x:0,y:0,z:0},eye:{x:1.55,y:1.55,z:1.1}};
 let sceneCamera=null,cameraEventsBound=false;
 let orbitCenter=null; // Track the current pan target while orbiting.
+let activePanAxis=null;
+let selectedRunVersion=0;
+let selectedPatternVersion=0;
 let sceneRendering=false,sceneDirty=false,sceneFrameScheduled=false;
 const POSE_AXIS_IDS=["px","py","pz","roll","pitch","yaw"];
 const POSE_PRESETS={xy:[0,0,0],xz:[90,0,0],yz:[90,0,90]};
@@ -16,7 +19,24 @@ const sliderOffsets={px:0,py:0,pz:0,roll:0,pitch:0,yaw:0};
 
 function status(message){el("status").textContent = message}
 function format(number,places=2){return Number.isFinite(number) ? Number(number).toFixed(places) : "—"}
-async function getJSON(url){const r = await fetch(url,{cache:"no-store"}); if(!r.ok) throw Error(url + ": HTTP " + r.status); return r.json()}
+async function getJSON(url){
+ // GitHub Pages and mobile connections can transiently stall. Never leave the
+ // viewer in "Loading simulation…" indefinitely; retry once, then report.
+ let failure;
+ for(let attempt=0;attempt<2;attempt++){
+  const controller=new AbortController();
+  const deadline=setTimeout(()=>controller.abort(),12000);
+  try{
+   const response=await fetch(url,{cache:"no-store",signal:controller.signal});
+   if(!response.ok)throw Error("HTTP "+response.status+" for "+url);
+   return await response.json();
+  }catch(error){
+   failure=error;
+   if(attempt===0)await new Promise(resolve=>setTimeout(resolve,200));
+  }finally{clearTimeout(deadline);}
+ }
+ throw Error("Unable to load "+url+" ("+String(failure?.message||failure)+"); retry by reselecting the antenna");
+}
 const add = (a,b)=>a.map((v,i)=>v+b[i]);
 const scale = (a,s)=>a.map(v=>v*s);
 const cross = (a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
@@ -365,6 +385,48 @@ function planeTraces(){
    line:{width:4,color:"#f6b45c"},hoverinfo:"skip",showlegend:false}
  ];
 }
+// The Plotly camera center is dimensionless scene space. Use the SAME
+// display-space normalization for axis panning, the reticle and its readout.
+function cameraTargetMm(camera=sceneCamera||DEFAULT_CAMERA){
+ const r=radiatingScale();
+ return ["x","y","z"].map(axis=>Number(camera?.center?.[axis]||0)*r);
+}
+function panPlaneName(axis){return {x:"YZ",y:"XZ",z:"XY"}[axis]||"—";}
+function panAxisTraces(){
+ if(!activePanAxis)return [];
+ const axis=activePanAxis,at="xyz".indexOf(axis),center=cameraTargetMm();
+ const foot=center.slice();foot[at]=0;
+ const radius=Math.max(10,radiatingScale()),span=radius*.68;
+ const point=center.slice(),start=center.slice(),end=center.slice();
+ start[at]-=span;end[at]+=span;
+ const color={x:"#f18484",y:"#78dca5",z:"#82baff"}[axis];
+ const orth=[0,1,2].filter(i=>i!==at);
+ const corners=[];
+ for(const [u,v] of [[-1,-1],[1,-1],[1,1],[-1,1]]){
+  const p=foot.slice();p[orth[0]]=u*span*.65;p[orth[1]]=v*span*.65;
+  corners.push(p);
+ }
+ const line={type:"scatter3d",mode:"lines",name:"Pan "+axis.toUpperCase()+" axis",
+  x:[start[0],end[0]],y:[start[1],end[1]],z:[start[2],end[2]],
+  line:{color,width:7},hoverinfo:"skip",showlegend:false};
+ const connector={type:"scatter3d",mode:"lines+markers",
+  name:"Pan center → "+panPlaneName(axis)+" intersection",
+  x:[center[0],foot[0]],y:[center[1],foot[1]],z:[center[2],foot[2]],
+  line:{color:"#eaf2fe",width:3,dash:"dot"},
+  marker:{size:[5,7],color:[color,"#fff6ac"]},
+  text:["Camera center",panPlaneName(axis)+" intersection"],
+  hovertemplate:"%{text}<br>X=%{x:.2f}, Y=%{y:.2f}, Z=%{z:.2f} mm<extra></extra>",
+  showlegend:false};
+ return [meshTrace(panPlaneName(axis)+" reference plane",corners,[[0,1,2],[0,2,3]],color,.075),line,connector];
+}
+function centerPointTrace(){
+ const p=cameraTargetMm();
+ return {type:"scatter3d",name:"Camera center",mode:"markers",
+  x:[p[0]],y:[p[1]],z:[p[2]],
+  marker:{color:"#c7fbff",size:5,symbol:"circle"},
+  hovertemplate:"Camera center (mm)<br>X=%{x:.2f}, Y=%{y:.2f}, Z=%{z:.2f}<extra></extra>",
+  showlegend:false};
+}
 function sceneTraces(){
  const geom=el("showGeometry").checked,rad=el("showRadiation").checked,plane=el("showPlane").checked;
  const traces=[];
@@ -379,6 +441,7 @@ function sceneTraces(){
    traces.push(...patternPlaneIntersection(grid,p.position,p.angles));
   }
  }
+ traces.push(centerPointTrace(),...panAxisTraces());
  return traces;
 }
 // Plotly's _fullLayout.scene.camera can lag the live WebGL camera
@@ -418,6 +481,62 @@ function rememberCamera(event){
  if(orbitCenter)next.center={...orbitCenter};
  sceneCamera=next;
  updateAxisGizmo(next);
+ updateCenterStats(next);
+ updatePanStatus();
+}
+// Angle-domain far-field samples (theta from +Z, phi from +X). The gain
+// at the view target direction is NOT a local radiated-power measurement;
+// radiation efficiency applies to the antenna globally.
+function bilinearPatternValue(pattern,values,thetaDeg,phiDeg){
+ const thetas=pattern.theta_deg,phis=pattern.phi_deg;
+ if(!Array.isArray(values)||!thetas?.length||!phis?.length)return NaN;
+ const theta=Math.max(Number(thetas[0]),Math.min(Number(thetas[thetas.length-1]),thetaDeg));
+ let i=0;while(i+1<thetas.length-1&&Number(thetas[i+1])<theta)i++;
+ const i2=Math.min(i+1,thetas.length-1),a=Number(thetas[i]),b=Number(thetas[i2]);
+ const wt=a===b?0:(theta-a)/(b-a);
+ const phi=((phiDeg%360)+360)%360;
+ let j=0,phiAdjusted=phi;
+ while(j+1<phis.length&&Number(phis[j+1])<=phi)j++;
+ let j2;
+ if(j>=phis.length-1){j=phis.length-1;j2=0;if(phiAdjusted<Number(phis[j]))phiAdjusted+=360;}
+ else j2=j+1;
+ const p0=Number(phis[j]),p1=j2===0?Number(phis[0])+360:Number(phis[j2]);
+ const wp=p1===p0?0:(phiAdjusted-p0)/(p1-p0);
+ const q11=Number(values[i]?.[j]),q12=Number(values[i]?.[j2]);
+ const q21=Number(values[i2]?.[j]),q22=Number(values[i2]?.[j2]);
+ return (1-wt)*((1-wp)*q11+wp*q12)+wt*((1-wp)*q21+wp*q22);
+}
+function centerPatternDirection(camera){
+ const target=cameraTargetMm(camera);
+ // At the antenna origin no propagation direction exists; use the
+ // camera's sightline as a direction for an honest directional estimate.
+ const source=magnitude(target)>1e-8?target:[camera.eye.x,camera.eye.y,camera.eye.z];
+ const unit=normalize(source);
+ return {theta:Math.acos(Math.max(-1,Math.min(1,unit[2])))/DEG,
+         phi:((Math.atan2(unit[1],unit[0])/DEG)%360+360)%360,
+         atOrigin:magnitude(target)<=1e-8,target};
+}
+function updateCenterStats(camera=sceneCamera||DEFAULT_CAMERA){
+ if(!field||!active)return;
+ const direction=centerPatternDirection(camera);
+ const d=bilinearPatternValue(field,field.directivity_dbi,direction.theta,direction.phi);
+ const efficiency=Number(field.radiation_efficiency);
+ const gain=efficiency>0&&Number.isFinite(d)?d+10*Math.log10(efficiency):NaN;
+ el("centerGain").textContent=(direction.atOrigin?"View-ray":"Center")+" gain "+format(gain)+" dBi";
+ el("centerGain").title="Interpolated far-field gain toward "+(direction.atOrigin?"camera view ray":"camera target")+
+    " (θ="+format(direction.theta,1)+"°, φ="+format(direction.phi,1)+"°). Includes radiation efficiency; excludes mismatch loss.";
+ el("eff").textContent=Number.isFinite(efficiency)?"Radiation η "+format(efficiency*100,1)+"% (global)":"Radiation η n/a";
+ const point=direction.target;
+ el("centerPoint").textContent="Center "+point.map(v=>format(v,1)).join(", ")+" mm";
+}
+function updatePanStatus(){
+ const label=el("panStatus");
+ if(!activePanAxis){label.hidden=true;return;}
+ const p=cameraTargetMm(),foot=p.slice(),n="xyz".indexOf(activePanAxis);
+ foot[n]=0;
+ label.hidden=false;
+ label.textContent="Pan "+activePanAxis.toUpperCase()+" · "+panPlaneName(activePanAxis)+
+  " intersection: ("+foot.map(v=>format(v,1)).join(", ")+") mm";
 }
 function zoomCamera(factor){
  if(!(factor>0))return Promise.resolve();
@@ -481,9 +600,13 @@ function updateSceneLegend(){
 function axisPanAmount(camera,axis,dx,dy,viewPixels){
  const [sx,sy]=axisDragDirection(camera,axis);
  const projected=dx*sx+dy*sy;
+ const p=projectWorldAxis(camera,axis);
+ const projectionSq=p.x*p.x+p.y*p.y;
  const eyeDistance=magnitude(Object.values(camera.eye));
- const scaleFactor=Math.max(.6,Math.min(3,eyeDistance));
- return -projected*1.6*scaleFactor/Math.max(160,viewPixels);
+ // Invert the projected axis (not just its screen direction): moving
+ // diagonally or at grazing camera angles must not accelerate the pan.
+ if(projectionSq<.025)return -(dy/Math.max(180,viewPixels))*eyeDistance*1.2;
+ return -((dx*p.x+dy*p.y)/projectionSq)*eyeDistance*1.2/Math.max(180,viewPixels);
 }
 function setupAxisPan(){
  for(const button of document.querySelectorAll("[data-pan-axis]")){
@@ -499,6 +622,9 @@ function setupAxisPan(){
   const queue=next=>{
    frameCamera=next;sceneCamera=next;
    orbitCenter={...next.center};
+   updatePanStatus();
+   updateCenterStats(next);
+   scheduleSceneRender();
    if(!framePending){framePending=true;requestAnimationFrame(apply);}
   };
   button.addEventListener("pointerdown",event=>{
@@ -506,6 +632,9 @@ function setupAxisPan(){
    event.preventDefault();
    gesture={pointer:event.pointerId,x:event.clientX,y:event.clientY,
             camera:captureCamera()};
+   activePanAxis=axis;
+   updatePanStatus();
+   scheduleSceneRender();
    button.setPointerCapture(event.pointerId);
    button.classList.add("dragging");
   });
@@ -522,6 +651,9 @@ function setupAxisPan(){
   const release=event=>{
    if(!gesture||gesture.pointer!==event.pointerId)return;
    gesture=null;
+   activePanAxis=null;
+   updatePanStatus();
+   scheduleSceneRender();
    button.classList.remove("dragging");
    if(button.hasPointerCapture(event.pointerId))button.releasePointerCapture(event.pointerId);
   };
@@ -563,7 +695,10 @@ async function renderScene(){
     el("farfield").on("plotly_relayout",rememberCamera);
     cameraEventsBound=true;
    }
-   updateAxisGizmo(captureCamera());
+   const camera=captureCamera();
+   updateAxisGizmo(camera);
+   updateCenterStats(camera);
+   updatePanStatus();
    updateSceneLegend();
   }while(sceneDirty);
  }finally{
@@ -587,6 +722,9 @@ async function resetCamera(){
  };
  orbitCenter={...sceneCamera.center};
  updateAxisGizmo(sceneCamera);
+ updateCenterStats(sceneCamera);
+ updatePanStatus();
+ scheduleSceneRender();
  if(el("farfield")._fullLayout)
   await Plotly.relayout("farfield",{"scene.camera":sceneCamera});
 }
@@ -601,7 +739,7 @@ function fillRoundRect(ctx,x,y,w,h,r,color){
 function drawExportMetrics(ctx){
  ctx.save();ctx.font="600 11px system-ui, sans-serif";ctx.textBaseline="middle";
  let x=10;
- for(const str of [el("peak").textContent,el("eff").textContent]){
+ for(const str of [el("peak").textContent,el("centerGain").textContent,el("eff").textContent,el("centerPoint").textContent]){
   if(!str||str==="—")continue;
   const width=ctx.measureText(str).width+15;
   fillRoundRect(ctx,x,9,width,24,5,"rgba(12,27,46,.82)");
@@ -806,9 +944,8 @@ async function renderPattern(){
   const f=await getJSON(path+pattern.file);
   if(seq!==requestVersion)return;
   field=f;
-  el("peak").textContent="Peak "+format(f.max_directivity_dbi)+" dBi";
-  el("eff").textContent=Number.isFinite(f.radiation_efficiency) ?
-   "Efficiency "+format(100*f.radiation_efficiency,1)+"%" : "Efficiency n/a";
+  el("peak").textContent="Peak D "+format(f.max_directivity_dbi)+" dBi";
+  updateCenterStats(sceneCamera||DEFAULT_CAMERA);
   await renderScene();
   status("Ready · "+format(f.frequency_hz/1e9,3)+" GHz");
  }catch(error){status("Pattern error: "+error.message);console.error(error)}
@@ -824,6 +961,8 @@ async function renderRun(){
   // frequency changes and plane edits retain the existing view.
   sceneCamera=null;
   orbitCenter=null;
+  activePanAxis=null;
+  updatePanStatus();
   updateAxisGizmo(DEFAULT_CAMERA);
   cachedField=null;
   resetIncrementalSliders();
