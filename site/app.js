@@ -5,6 +5,7 @@ const PALETTE = {paper_bgcolor:"#101c2e",plot_bgcolor:"#101c2e",font:{color:"#d6
 const PLOT_CFG = {responsive:true,displaylogo:false};
 const DEG = Math.PI / 180;
 let runs = [], active = null, field = null, mode = "combined", requestVersion = 0;
+let planarZoom = 1; // Radial zoom only; 6-DOF pose is controlled elsewhere.
 
 function status(message){el("status").textContent = message}
 function format(number,places=2){return Number.isFinite(number) ? Number(number).toFixed(places) : "—"}
@@ -235,8 +236,9 @@ async function renderPlanar(){
   line:{color:"#5fd8e2",width:2},fill:"toself",fillcolor:"rgba(51,193,218,.13)",
   hovertemplate:"Angle %{theta:.0f}°<br>Directivity %{customdata:.2f} dBi<extra></extra>"
  }],{...PALETTE,margin:{l:34,r:34,t:12,b:23},showlegend:false,
-  polar:{bgcolor:"#101c2e",radialaxis:{range:[0,1],gridcolor:"#304762",tickfont:{size:9}},
-   angularaxis:{direction:"counterclockwise",gridcolor:"#304762",tickfont:{size:9}}}},PLOT_CFG);
+  polar:{bgcolor:"#101c2e",radialaxis:{range:[0,1/planarZoom],gridcolor:"#304762",tickfont:{size:9}},
+   angularaxis:{direction:"counterclockwise",rotation:0,gridcolor:"#304762",tickfont:{size:9}}},
+  dragmode:false}, {...PLOT_CFG,displayModeBar:false,scrollZoom:false,doubleClick:false});
 }
 async function renderS11(){
  const s=active.s11,x=s.frequency_hz.map(f=>f/1e9);
@@ -306,6 +308,24 @@ function setTimeoutResize(){
  });
 }
 (function setupControls(){
+ // The polar plot never changes pose; only these buttons change its radial view scale.
+ const zoomButtons = [
+  ["planarZoomIn",()=>Math.min(8,planarZoom*1.25)],
+  ["planarZoomOut",()=>Math.max(0.5,planarZoom/1.25)],
+  ["planarZoomReset",()=>1]
+ ];
+ function updatePlanarZoomButtons(){
+  el("planarZoomIn").disabled=planarZoom>=8;
+  el("planarZoomOut").disabled=planarZoom<=0.5;
+ }
+ for(const [id,next] of zoomButtons){
+  el(id).addEventListener("click",()=>{
+   planarZoom=next();
+   updatePlanarZoomButtons();
+   renderPlanar();
+  });
+ }
+ updatePlanarZoomButtons();
  for(const button of document.querySelectorAll(".view-tabs button")){
   button.addEventListener("click",()=>setMode(button.dataset.mode));
  }
