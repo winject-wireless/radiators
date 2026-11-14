@@ -54,6 +54,9 @@ def main():
     ap.add_argument("--output", type=Path, required=True)
     args = ap.parse_args()
     cfg = json.loads(args.config.read_text())
+    if cfg.get("schema_version") == 2:
+        from simulate_v2 import output_data
+        return output_data(cfg, args.output.resolve())
     require(cfg.get("schema_version") == 1, "Unsupported schema_version")
     require(cfg.get("units") == "mm", "Only mm units supported in v1")
     name = cfg["name"]
@@ -184,7 +187,7 @@ def main():
     phi = np.linspace(0, 360, round(360 / phi_step), endpoint=False)
     require(theta.size * phi.size <= 30000, "Far field sampling grid too large")
     for f in pattern_freqs:
-        ff = nf2ff.CalcNF2FF(str(sim_dir), f, theta, phi, verbose=True)
+        ff = nf2ff.CalcNF2FF(str(sim_dir), f, theta, phi, outfile=f"nf2ff_{int(f)}.h5", read_cached=False, verbose=True)
         norm = np.asarray(ff.E_norm[0], dtype=float)
         norm = np.reshape(norm, (len(theta), len(phi)))
         max_e = max(float(np.max(norm)), 1e-300)
