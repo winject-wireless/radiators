@@ -27,33 +27,46 @@
 </nav>
 <main class="workspace">
   <section class="viewport panel">
-    <div class="panel-heading scene-heading">
-      <h2>3D view · Geometry + radiation</h2>
-      <div class="scene-actions" role="group" aria-label="3D camera controls">
-        <button type="button" id="orbitView" class="active" aria-pressed="true" title="Rotate around the model; Z stays vertical">Orbit</button>
-        <button type="button" id="panView" aria-pressed="false" title="Move the camera target without changing orientation">Pan</button>
-        <button type="button" id="zoomIn" title="Zoom in without changing orientation">Zoom +</button>
-        <button type="button" id="zoomOut" title="Zoom out without changing orientation">Zoom −</button>
-        <button type="button" id="resetView" title="Reset 3D camera position and zoom">Reset view</button>
+    <div class="panel-heading scene-heading"><h2>3D view · Geometry + radiation</h2></div>
+    <div id="sceneStage" class="scene-stage">
+      <div id="farfield" class="scene" aria-label="Interactive Z-up 3D radiation pattern; drag to orbit the current pan center"></div>
+      <div class="scene-toolbar" role="group" aria-label="View and export controls">
+        <button type="button" id="zoomIn" aria-label="Zoom in" title="Zoom in">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M10.5 7v7m-3.5-3.5h7M15.5 15.5 21 21"></path></svg>
+        </button>
+        <button type="button" id="zoomOut" aria-label="Zoom out" title="Zoom out">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="M7 10.5h7m1.5 5L21 21"></path></svg>
+        </button>
+        <button type="button" id="resetView" aria-label="Reset camera view" title="Reset camera view">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9a8 8 0 1 1-.6 5M4 4v5h5"></path></svg>
+        </button>
+        <button type="button" id="saveImage" aria-label="Save high-resolution PNG" title="Save high-resolution PNG with XYZ axes and plane">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"></path></svg>
+        </button>
       </div>
-      <div class="scene-metrics"><span id="peak">—</span><span id="eff">—</span></div>
-    </div>
-    <div class="scene-stage">
-      <div id="farfield" class="scene" aria-label="Interactive 3D geometry, radiation pattern and continuous plane intersection"></div>
-      <div id="viewAxes" class="view-axes" role="group" aria-label="Camera-aligned XYZ axis unit vectors; drag an axis handle to pan along it">
-        <div class="view-axes-title">XYZ <span>WORLD AXES</span></div>
-        <svg id="viewAxesSvg" class="view-axes-svg" width="144" height="125" viewBox="0 0 144 125" aria-hidden="true" focusable="false">
-          <circle cx="72" cy="70" r="4" fill="#e5edf7" stroke="#15243b" stroke-width="1.5"></circle>
-          <line id="axisLineX" x1="72" y1="70" x2="115" y2="70" stroke="#f18484" stroke-width="3.2" stroke-linecap="round"></line>
-          <line id="axisLineY" x1="72" y1="70" x2="72" y2="30" stroke="#78dca5" stroke-width="3.2" stroke-linecap="round"></line>
-          <line id="axisLineZ" x1="72" y1="70" x2="72" y2="22" stroke="#82baff" stroke-width="3.2" stroke-linecap="round"></line>
+      <div class="scene-metrics" aria-label="Radiation pattern statistics">
+        <span id="peak">—</span><span id="eff">—</span>
+      </div>
+      <div id="viewCenter" class="view-center" aria-hidden="true"></div>
+      <div id="viewAxes" class="view-axes" role="group" aria-label="Drag an X Y or Z handle to pan along that world axis">
+        <svg id="viewAxesSvg" class="view-axes-svg" width="112" height="112" viewBox="0 0 112 112" aria-hidden="true" focusable="false">
+          <circle cx="56" cy="56" r="3" fill="#f3f8fe" stroke="#17243a" stroke-width="1.2"></circle>
+          <line id="axisLineX" x1="56" y1="56" x2="87" y2="56" stroke="#f18484" stroke-width="3" stroke-linecap="round"></line>
+          <line id="axisLineY" x1="56" y1="56" x2="56" y2="25" stroke="#78dca5" stroke-width="3" stroke-linecap="round"></line>
+          <line id="axisLineZ" x1="56" y1="56" x2="56" y2="18" stroke="#82baff" stroke-width="3" stroke-linecap="round"></line>
         </svg>
         <button class="axis-grip" type="button" data-pan-axis="x" aria-label="Drag to pan along world X" title="World X · press and drag">X</button>
         <button class="axis-grip" type="button" data-pan-axis="y" aria-label="Drag to pan along world Y" title="World Y · press and drag">Y</button>
         <button class="axis-grip" type="button" data-pan-axis="z" aria-label="Drag to pan along world Z" title="World Z · press and drag">Z</button>
       </div>
+      <div id="graphLegend" class="graph-legend" role="group" aria-label="Graph legend">
+        <span class="legend-entry"><i class="axis-key axis-x"></i>X</span>
+        <span class="legend-entry"><i class="axis-key axis-y"></i>Y</span>
+        <span class="legend-entry"><i class="axis-key axis-z"></i>Z</span>
+        <span class="legend-entry" data-legend="plane"><i class="key-plane"></i>Plane</span>
+        <span class="legend-entry" data-legend="intersection"><i class="key-section"></i>Intersection</span>
+      </div>
     </div>
-    <div class="scene-foot"><span>Orbit around pan center · Drag XYZ handles for world-axis pan · Wheel / +/−: Zoom</span><span class="graph-legend"><i class="axis-key axis-x"></i>X <i class="axis-key axis-y"></i>Y <i class="axis-key axis-z"></i>Z <i class="key-plane"></i>Plane <i class="key-section"></i>Intersection</span></div>
   </section>
 
   <section class="slice-control panel">

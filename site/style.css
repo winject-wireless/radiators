@@ -103,3 +103,36 @@ button{cursor:pointer}
 .slice-control .panel-heading{min-height:32px;padding:5px 9px}
 .pose-row .pose-number{box-sizing:border-box;min-width:0;max-width:100%;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 .pose-row .pose-jog{display:block;justify-self:stretch}
+
+/* 3D canvas owns its toolbar, statistics, world-axis legend and pan gizmo. */
+.scene-stage{position:relative;flex:1;min-height:0;overflow:hidden;isolation:isolate}
+.scene-stage .scene{position:absolute;inset:0;width:100%;height:100%}
+.scene-heading{min-height:32px;padding:5px 10px}
+.scene-toolbar{position:absolute;top:9px;right:10px;z-index:6;display:flex;gap:4px;align-items:center}
+.scene-toolbar button{height:31px;width:31px;padding:6px;border:1px solid #3b5674;border-radius:7px;background:rgba(17,37,60,.84);color:#e0edfa;cursor:pointer}
+.scene-toolbar button:hover,.scene-toolbar button:focus-visible{color:white;background:#205d7a;border-color:#78cde7}
+.scene-toolbar button:focus-visible{outline:2px solid #68dbe8;outline-offset:2px}
+.scene-toolbar button:disabled{opacity:.5;cursor:wait}
+.scene-toolbar button svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.scene-metrics{position:absolute;z-index:4;top:9px;left:10px;max-width:calc(100% - 158px);display:flex;flex-wrap:wrap;gap:7px;align-items:center;font-size:11px;color:#d9eafb;pointer-events:none}
+.scene-metrics span{padding:4px 7px;background:rgba(12,27,46,.7);border-radius:5px}
+.view-center{position:absolute;left:50%;top:50%;width:12px;height:12px;transform:translate(-50%,-50%);border:1px solid rgba(248,251,255,.72);border-radius:50%;z-index:3;pointer-events:none;box-shadow:0 0 5px rgba(6,12,24,.65)}
+.view-center:after{content:"";position:absolute;left:50%;top:50%;width:3px;height:3px;transform:translate(-50%,-50%);border-radius:50%;background:#fff;box-shadow:0 0 5px #3ccfe8}
+.view-axes{position:absolute;z-index:4;bottom:9px;left:8px;width:112px;height:112px;background:transparent;border:0;border-radius:0;box-shadow:none;user-select:none;pointer-events:none}
+.view-axes-svg{display:block;width:112px;height:112px;pointer-events:none}
+.view-axes .axis-grip{pointer-events:auto;position:absolute;width:23px;height:23px;padding:0;border-radius:50%;text-align:center;line-height:21px;transform:translate(-50%,-50%);background:rgba(10,24,41,.9);font-size:11px;border:1px solid currentColor;touch-action:none}
+.view-axes .axis-grip[data-pan-axis=x]{color:#f18484}
+.view-axes .axis-grip[data-pan-axis=y]{color:#78dca5}
+.view-axes .axis-grip[data-pan-axis=z]{color:#82baff}
+.view-axes .axis-grip.dragging{color:white;background:#176b89}
+.graph-legend{position:absolute;right:10px;bottom:9px;z-index:4;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px 8px;max-width:calc(100% - 130px);padding:5px 8px;border-radius:6px;background:rgba(12,27,46,.64);font-size:10px;color:#bed4ec;pointer-events:none}
+.graph-legend [hidden]{display:none}
+.legend-entry{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.legend-entry .key-plane,.legend-entry .key-section{display:inline-block;width:14px;margin:0}
+.legend-entry .axis-key{width:12px;height:3px}
+@media(max-width:700px){
+ .view-axes{left:6px;bottom:6px;transform:scale(.86);transform-origin:bottom left}
+ .graph-legend{right:6px;bottom:6px;padding:4px 6px;gap:3px 6px;max-width:calc(100% - 112px);font-size:9px}
+ .scene-toolbar{top:6px;right:6px}
+ .scene-metrics{top:6px;left:6px;gap:3px;font-size:10px}
+}
