@@ -100,6 +100,7 @@ jobs:
           node --check site/dist/plotly.min.js
           node site/check_viewer.js site/dist
           node site/check_camera.js site/dist
+          node site/check_intersection.js site/dist
           python3 - <<'PY'
           import json
           from pathlib import Path
