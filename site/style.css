@@ -81,3 +81,15 @@ button{cursor:pointer}
  .plane-helper{margin:10px}
  .s11-plot,.vswr-plot{min-height:0}
 }
+
+/* Camera pan gizmo is independent of Plotly drag mode and zoom. */
+.scene-stage{position:relative;flex:1;min-height:0;overflow:hidden}
+.scene-stage .scene{position:absolute;inset:0;width:100%;height:100%}
+.pan-gizmo{position:absolute;bottom:12px;left:12px;display:flex;align-items:center;gap:5px;padding:6px 8px;border:1px solid #36506f;border-radius:7px;background:#0b172ae8;z-index:2}
+.gizmo-caption{font-size:10px;color:#b6cce3;margin-right:3px}
+.pan-gizmo button{width:29px;height:29px;border:1px solid #56708c;border-radius:5px;color:#fff;background:#19344e;font-weight:700;touch-action:none;user-select:none;cursor:grab}
+.pan-gizmo button[data-pan-axis=x]{color:#ff9797}
+.pan-gizmo button[data-pan-axis=y]{color:#9be8a2}
+.pan-gizmo button[data-pan-axis=z]{color:#99c6ff}
+.pan-gizmo button.dragging{background:#276e8d;cursor:grabbing}
+@media(max-width:700px){.gizmo-caption{display:none}.pan-gizmo{bottom:7px;left:7px}}
