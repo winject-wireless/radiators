@@ -201,8 +201,10 @@ function sceneTraces(){
 async function renderScene(){
  if(!active || !field)return;
  await Plotly.react("farfield",sceneTraces(),
-  {...PALETTE,margin:{l:0,r:0,t:0,b:0},uirevision:"camera",
+  {...PALETTE,margin:{l:0,r:0,t:0,b:0},uirevision:"camera-z-up-v2",
    scene:{aspectmode:"data",bgcolor:"#101c2e",
+    dragmode:"turntable", // Constrain orbit: global +Z is always up
+    camera:{up:{x:0,y:0,z:1},eye:{x:1.55,y:1.55,z:1.1}},
     xaxis:{title:"X (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"},
     yaxis:{title:"Y (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"},
     zaxis:{title:"Z (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"}}},PLOT_CFG);
@@ -221,23 +223,53 @@ function sampleDirectivity(p,direction){
  const v1=(1-ff)*vals[ti+1][fi]+ff*vals[ti+1][fj];
  return v0*(1-tt)+v1*tt;
 }
+function signedAxisLabel(direction, localName){
+ const principal=["X","Y","Z"];
+ for(let i=0;i<3;i++){
+  if(Math.abs(Math.abs(direction[i])-1)<1e-5 &&
+     direction.every((v,k)=>k===i||Math.abs(v)<1e-5))
+   return (direction[i]>0?"+":"−")+principal[i];
+ }
+ return "+"+localName;
+}
+function reverseAxisLabel(label){
+ return label.startsWith("+")?"−"+label.slice(1):label.startsWith("−")?"+"+label.slice(1):"−"+label;
+}
+function planeAxisNotes(u,v){
+ const fmt=vec=>"("+vec.map(x=>Math.abs(x)<1e-7?"0":x.toFixed(2)).join(", ")+")";
+ return "Horizontal "+fmt(u)+" · Vertical "+fmt(v)+" (X, Y, Z)";
+}
 async function renderPlanar(){
  if(!field)return;
  const p=pose(),u=rotate([1,0,0],p.angles),v=rotate([0,1,0],p.angles);
  const angles=[],powers=[],dbi=[];
+ const horizontal=signedAxisLabel(u,"U"),vertical=signedAxisLabel(v,"V");
+ el("planeAxes").textContent=horizontal+" horizontal · "+vertical+" vertical";
+ el("planeAxes").title=planeAxisNotes(u,v);
  for(let deg=0;deg<=360;deg+=2){
   const radians=deg*DEG;
   const direction=add(scale(u,Math.cos(radians)),scale(v,Math.sin(radians)));
   const db=sampleDirectivity(field,direction);
   angles.push(deg);dbi.push(db);powers.push(Math.pow(10,(db-field.max_directivity_dbi)/10));
  }
- await Plotly.react("planarPlot",[{
-  type:"scatterpolar",theta:angles,r:powers,customdata:dbi,mode:"lines",
-  line:{color:"#5fd8e2",width:2},fill:"toself",fillcolor:"rgba(51,193,218,.13)",
-  hovertemplate:"Angle %{theta:.0f}°<br>Directivity %{customdata:.2f} dBi<extra></extra>"
- }],{...PALETTE,margin:{l:34,r:34,t:12,b:23},showlegend:false,
-  polar:{bgcolor:"#101c2e",radialaxis:{range:[0,1/planarZoom],gridcolor:"#304762",tickfont:{size:9}},
-   angularaxis:{direction:"counterclockwise",rotation:0,gridcolor:"#304762",tickfont:{size:9}}},
+ const maxRadius=1/planarZoom;
+ const guide={type:"scatterpolar",mode:"lines",hoverinfo:"skip",showlegend:false,
+              line:{color:"rgba(165,198,227,.55)",width:1.5}};
+ await Plotly.react("planarPlot",[
+  {...guide,theta:[0,0,180],r:[maxRadius,0,maxRadius]},
+  {...guide,theta:[90,90,270],r:[maxRadius,0,maxRadius]},
+  {
+   type:"scatterpolar",theta:angles,r:powers,customdata:dbi,mode:"lines",
+   line:{color:"#5fd8e2",width:2},fill:"toself",fillcolor:"rgba(51,193,218,.13)",
+   hovertemplate:"Angle %{theta:.0f}°<br>Directivity %{customdata:.2f} dBi<extra></extra>"
+  }
+ ],{...PALETTE,margin:{l:42,r:42,t:32,b:32},showlegend:false,
+  polar:{bgcolor:"#101c2e",
+   radialaxis:{range:[0,maxRadius],gridcolor:"#304762",tickfont:{size:9},showline:false},
+   angularaxis:{direction:"counterclockwise",rotation:0,
+    tickmode:"array",tickvals:[0,90,180,270],
+    ticktext:[horizontal,vertical,reverseAxisLabel(horizontal),reverseAxisLabel(vertical)],
+    tickfont:{size:11,color:"#d4eafa"},gridcolor:"#304762",showline:true,linecolor:"#405977"}},
   dragmode:false}, {...PLOT_CFG,displayModeBar:false,scrollZoom:false,doubleClick:false});
 }
 async function renderS11(){
@@ -338,7 +370,7 @@ function setTimeoutResize(){
   renderScene();renderPlanar();
  });
  // Align the angular cut to global XY, XZ or YZ planes.
- const planeRotations={xy:[0,0,0],xz:[90,0,0],yz:[0,90,0]};
+ const planeRotations={xy:[0,0,0],xz:[90,0,0],yz:[90,0,90]};
  for(const preset of document.querySelectorAll("[data-plane]")){
   preset.addEventListener("click",()=>{
    const angles=planeRotations[preset.dataset.plane];
