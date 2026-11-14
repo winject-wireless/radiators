@@ -862,6 +862,9 @@ function setTimeoutResize(){
  el("saveImage").addEventListener("click",saveSceneImage);
  el("zoomIn").addEventListener("click",()=>zoomCamera(.8));
  el("zoomOut").addEventListener("click",()=>zoomCamera(1.25));
+ // Required: selecting a different antenna or frequency must reload its data.
+ el("run").addEventListener("change",renderRun);
+ el("freq").addEventListener("change",renderPattern);
  setupAxisPan();
  // WebGL updates its live camera throughout pointer drags, but Plotly's
  // relayout event may be deferred until mouseup. Keep the axis triad live.
