@@ -1,6 +1,20 @@
-# FR4 4 × 4 inset-fed patch array, 2.4–2.5 GHz
+# FR4 4 × 4 inset-fed patch array, 2.4–2.5 GHz\n\n> **Simulation status (PR #4, 2026-11-15): FAILS the gain target.** An openEMS run completed successfully but found **−4.46 dBi realized broadside gain at 2.45 GHz**, with only **1.22% radiation efficiency**. This is an experimental simulation model for viewing and debugging, **not a validated antenna or a fabrication-ready PCB**. The very low efficiency needs model and feed-network investigation, followed by mesh convergence and physical measurements.
 
-**Status: initial openEMS schema-v2 model only. No full-wave run or antenna measurement has validated the gain or impedance bandwidth.**
+## Initial openEMS results
+
+| Frequency | S11 (dB) | Directivity (dBi) | Radiation efficiency | Realized gain (dBi) |
+|---|---:|---:|---:|---:|
+| 2.400 GHz | −13.98 | 14.94 | 1.28% | −4.17 |
+| 2.425 GHz | −13.97 | 14.88 | 1.23% | −4.39 |
+| 2.450 GHz | −14.05 | 14.84 | 1.22% | −4.46 |
+| 2.475 GHz | −14.20 | 14.82 | 1.25% | −4.37 |
+| 2.500 GHz | −14.41 | 14.83 | 1.32% | −4.14 |
+
+Source: [PR #4 openEMS simulation run](https://github.com/winject-wireless/radiators/actions/runs/43617401417), artifact `structured-openems-results`. High directivity alone does not imply high realized gain. These results must be debugged; S11 by itself is not evidence of efficient radiation.
+
+---
+
+**Status: experimental simulation, not validated for fabrication. The first full-wave run missed the gain target.**
 
 ## Objectives
 
