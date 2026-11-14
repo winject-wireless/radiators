@@ -53,52 +53,47 @@
         <button class="preset" type="button" data-plane="yz" aria-pressed="false">YZ</button>
       </div>
     </div>
-    <fieldset class="plane-group">
-      <legend>Position <span>mm</span></legend>
-      <div class="pose-row">
-        <label for="px">X</label>
-        <input id="pxSlider" type="range" min="-100" max="100" step="0.25" value="0" aria-label="Plane X position slider">
-        <input id="px" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane X position in millimetres" autocomplete="off" spellcheck="false">
-        <span class="pose-unit">mm</span>
-      </div>
-      <div class="pose-row">
-        <label for="py">Y</label>
-        <input id="pySlider" type="range" min="-100" max="100" step="0.25" value="0" aria-label="Plane Y position slider">
-        <input id="py" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Y position in millimetres" autocomplete="off" spellcheck="false">
-        <span class="pose-unit">mm</span>
-      </div>
-      <div class="pose-row">
-        <label for="pz">Z</label>
-        <input id="pzSlider" type="range" min="-100" max="100" step="0.25" value="0" aria-label="Plane Z position slider">
-        <input id="pz" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Z position in millimetres" autocomplete="off" spellcheck="false">
-        <span class="pose-unit">mm</span>
-      </div>
-    </fieldset>
-    <fieldset class="plane-group">
-      <legend>Rotation <span>degrees</span></legend>
-      <div class="pose-row">
-        <label for="roll">Roll</label>
-        <input id="rollSlider" type="range" min="-180" max="180" step="0.5" value="0" aria-label="Plane roll slider">
-        <input id="roll" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane roll in degrees" autocomplete="off" spellcheck="false">
-        <span class="pose-unit">°</span>
-      </div>
-      <div class="pose-row">
-        <label for="pitch">Pitch</label>
-        <input id="pitchSlider" type="range" min="-180" max="180" step="0.5" value="0" aria-label="Plane pitch slider">
-        <input id="pitch" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane pitch in degrees" autocomplete="off" spellcheck="false">
-        <span class="pose-unit">°</span>
-      </div>
-      <div class="pose-row">
-        <label for="yaw">Yaw</label>
-        <input id="yawSlider" type="range" min="-180" max="180" step="0.5" value="0" aria-label="Plane yaw slider">
-        <input id="yaw" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane yaw in degrees" autocomplete="off" spellcheck="false">
-        <span class="pose-unit">°</span>
-      </div>
-    </fieldset>
+    <div class="plane-groups">
+      <fieldset class="plane-group">
+        <legend>Translation <span>mm</span></legend>
+        <div class="pose-row">
+          <label for="px">X</label>
+          <div class="pose-value"><input id="px" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane X position in millimetres" autocomplete="off" spellcheck="false"><span class="pose-unit">mm</span></div>
+          <input id="pxSlider" type="range" min="-5" max="5" step="0.25" value="0" aria-label="Increment plane X position; release to center">
+        </div>
+        <div class="pose-row">
+          <label for="py">Y</label>
+          <div class="pose-value"><input id="py" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Y position in millimetres" autocomplete="off" spellcheck="false"><span class="pose-unit">mm</span></div>
+          <input id="pySlider" type="range" min="-5" max="5" step="0.25" value="0" aria-label="Increment plane Y position; release to center">
+        </div>
+        <div class="pose-row">
+          <label for="pz">Z</label>
+          <div class="pose-value"><input id="pz" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Z position in millimetres" autocomplete="off" spellcheck="false"><span class="pose-unit">mm</span></div>
+          <input id="pzSlider" type="range" min="-5" max="5" step="0.25" value="0" aria-label="Increment plane Z position; release to center">
+        </div>
+      </fieldset>
+      <fieldset class="plane-group">
+        <legend>Rotation <span>degrees</span></legend>
+        <div class="pose-row">
+          <label for="roll">Roll</label>
+          <div class="pose-value"><input id="roll" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane roll in degrees" autocomplete="off" spellcheck="false"><span class="pose-unit">°</span></div>
+          <input id="rollSlider" type="range" min="-10" max="10" step="0.5" value="0" aria-label="Increment plane roll; release to center">
+        </div>
+        <div class="pose-row">
+          <label for="pitch">Pitch</label>
+          <div class="pose-value"><input id="pitch" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane pitch in degrees" autocomplete="off" spellcheck="false"><span class="pose-unit">°</span></div>
+          <input id="pitchSlider" type="range" min="-10" max="10" step="0.5" value="0" aria-label="Increment plane pitch; release to center">
+        </div>
+        <div class="pose-row">
+          <label for="yaw">Yaw</label>
+          <div class="pose-value"><input id="yaw" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane yaw in degrees" autocomplete="off" spellcheck="false"><span class="pose-unit">°</span></div>
+          <input id="yawSlider" type="range" min="-10" max="10" step="0.5" value="0" aria-label="Increment plane yaw; release to center">
+        </div>
+      </fieldset>
+    </div>
     <div class="plane-helper">
-      <span>Slider increments: ±0.25 mm / ±0.5°</span>
-      <span>Signed manual values, e.g. −12.50 or +3.25</span>
-      <span>Arrow keys fine-adjust a focused slider</span>
+      <span>Drag from the middle to increment. Release to recenter; the numeric value stays.</span>
+      <span>Manual input supports signed decimals, e.g. −12.50 or +3.25.</span>
     </div>
   </section>
 
