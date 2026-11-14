@@ -392,32 +392,50 @@ function cameraTargetMm(camera=sceneCamera||DEFAULT_CAMERA){
  return ["x","y","z"].map(axis=>Number(camera?.center?.[axis]||0)*r);
 }
 function panPlaneName(axis){return {x:"YZ",y:"XZ",z:"XY"}[axis]||"—";}
+// World-axis guide is effectively unbounded within the fixed 3D scene bounds.
+// Thin 1px line sections fade exponentially away from the camera target.
+// Segment opacity is used instead of extending the plotted data autorange.
+const PAN_FADE_STOPS=[0,.15,.33,.60,1.0,1.65,2.7,4.5,7.5,12];
 function panAxisTraces(){
  if(!activePanAxis)return [];
- const axis=activePanAxis,at="xyz".indexOf(axis),center=cameraTargetMm();
+ const axis=activePanAxis,at="xyz".indexOf(axis);
+ // The only sampling/reticle point is the current camera orbit/pan center.
+ const center=cameraTargetMm(sceneCamera||DEFAULT_CAMERA);
  const foot=center.slice();foot[at]=0;
- const radius=Math.max(10,radiatingScale()),span=radius*.68;
- const point=center.slice(),start=center.slice(),end=center.slice();
- start[at]-=span;end[at]+=span;
- const color={x:"#f18484",y:"#78dca5",z:"#82baff"}[axis];
- const orth=[0,1,2].filter(i=>i!==at);
+ const radius=Math.max(10,radiatingScale());
+ const color={x:[241,132,132],y:[120,220,165],z:[130,186,255]}[axis];
+ const colorAt=alpha=>"rgba("+color.join(",")+","+alpha.toFixed(3)+")";
+ const traces=[];
+ for(const direction of [-1,1]){
+  for(let i=1;i<PAN_FADE_STOPS.length;i++){
+   const from=center.slice(),to=center.slice();
+   from[at]+=direction*radius*PAN_FADE_STOPS[i-1];
+   to[at]+=direction*radius*PAN_FADE_STOPS[i];
+   const alpha=.88*Math.exp(-.55*(i-1));
+   traces.push({type:"scatter3d",mode:"lines",
+    name:i===1&&direction===-1?"Pan "+axis.toUpperCase()+" axis":"Axis fade",
+    x:[from[0],to[0]],y:[from[1],to[1]],z:[from[2],to[2]],
+    line:{color:colorAt(alpha),width:1},
+    hoverinfo:"skip",showlegend:false});
+  }
+ }
+ const ortho=[0,1,2].filter(i=>i!==at),size=radius*.53;
  const corners=[];
  for(const [u,v] of [[-1,-1],[1,-1],[1,1],[-1,1]]){
-  const p=foot.slice();p[orth[0]]=u*span*.65;p[orth[1]]=v*span*.65;
-  corners.push(p);
+  const pt=foot.slice();pt[ortho[0]]+=u*size;pt[ortho[1]]+=v*size;
+  corners.push(pt);
  }
- const line={type:"scatter3d",mode:"lines",name:"Pan "+axis.toUpperCase()+" axis",
-  x:[start[0],end[0]],y:[start[1],end[1]],z:[start[2],end[2]],
-  line:{color,width:7},hoverinfo:"skip",showlegend:false};
- const connector={type:"scatter3d",mode:"lines+markers",
-  name:"Pan center → "+panPlaneName(axis)+" intersection",
+ traces.push(meshTrace(panPlaneName(axis)+" reference plane",
+    corners,[[0,1,2],[0,2,3]],colorAt(.70),.045));
+ traces.push({type:"scatter3d",mode:"lines+markers",
+  name:panPlaneName(axis)+" intersection",
   x:[center[0],foot[0]],y:[center[1],foot[1]],z:[center[2],foot[2]],
-  line:{color:"#eaf2fe",width:3,dash:"dot"},
-  marker:{size:[5,7],color:[color,"#fff6ac"]},
+  line:{color:"#c2def3",width:1,dash:"dot"},
+  marker:{size:[3,5],color:[colorAt(.98),"#fff6ac"]},
   text:["Camera center",panPlaneName(axis)+" intersection"],
   hovertemplate:"%{text}<br>X=%{x:.2f}, Y=%{y:.2f}, Z=%{z:.2f} mm<extra></extra>",
-  showlegend:false};
- return [meshTrace(panPlaneName(axis)+" reference plane",corners,[[0,1,2],[0,2,3]],color,.075),line,connector];
+  showlegend:false});
+ return traces;
 }
 function centerPointTrace(){
  const p=cameraTargetMm();
@@ -507,24 +525,28 @@ function bilinearPatternValue(pattern,values,thetaDeg,phiDeg){
  return (1-wt)*((1-wp)*q11+wp*q12)+wt*((1-wp)*q21+wp*q22);
 }
 function centerPatternDirection(camera){
- const target=cameraTargetMm(camera);
- // At the antenna origin no propagation direction exists; use the
- // camera's sightline as a direction for an honest directional estimate.
- const source=magnitude(target)>1e-8?target:[camera.eye.x,camera.eye.y,camera.eye.z];
- const unit=normalize(source);
+ // The camera's world-space orbit target is always the sampling point.
+ // There is no defined far-field direction exactly at the antenna origin.
+ const target=cameraTargetMm(camera),atOrigin=magnitude(target)<1e-8;
+ if(atOrigin)return {theta:NaN,phi:NaN,atOrigin:true,target};
+ const unit=normalize(target);
  return {theta:Math.acos(Math.max(-1,Math.min(1,unit[2])))/DEG,
          phi:((Math.atan2(unit[1],unit[0])/DEG)%360+360)%360,
-         atOrigin:magnitude(target)<=1e-8,target};
+         atOrigin:false,target};
 }
 function updateCenterStats(camera=sceneCamera||DEFAULT_CAMERA){
  if(!field||!active)return;
  const direction=centerPatternDirection(camera);
  const d=bilinearPatternValue(field,field.directivity_dbi,direction.theta,direction.phi);
  const efficiency=Number(field.radiation_efficiency);
- const gain=efficiency>0&&Number.isFinite(d)?d+10*Math.log10(efficiency):NaN;
- el("centerGain").textContent=(direction.atOrigin?"View-ray":"Center")+" gain "+format(gain)+" dBi";
- el("centerGain").title="Interpolated far-field gain toward "+(direction.atOrigin?"camera view ray":"camera target")+
-    " (θ="+format(direction.theta,1)+"°, φ="+format(direction.phi,1)+"°). Includes radiation efficiency; excludes mismatch loss.";
+ const gain=!direction.atOrigin&&efficiency>0&&Number.isFinite(d)?
+  d+10*Math.log10(efficiency):NaN;
+ el("centerGain").textContent=Number.isFinite(gain)?"Center gain "+format(gain)+" dBi":
+  "Center gain n/a";
+ el("centerGain").title=direction.atOrigin?
+  "Camera center is at the antenna origin: far-field directional gain is undefined. Pan the center away from the origin.":
+  "Gain sampled only toward camera center (θ="+format(direction.theta,1)+"°, φ="+format(direction.phi,1)+
+  "°). Includes radiation efficiency; excludes mismatch loss.";
  el("eff").textContent=Number.isFinite(efficiency)?"Radiation η "+format(efficiency*100,1)+"% (global)":"Radiation η n/a";
  const point=direction.target;
  el("centerPoint").textContent="Center "+point.map(v=>format(v,1)).join(", ")+" mm";
@@ -691,9 +713,11 @@ async function renderScene(){
      uirevision:"z-up-camera-preserved-v4",
      scene:{aspectmode:"data",bgcolor:"#101c2e",
       dragmode:"turntable",camera:sceneCamera||DEFAULT_CAMERA,
-      xaxis:{title:"X (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"},
-      yaxis:{title:"Y (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"},
-      zaxis:{title:"Z (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"}}},
+      // Pin the physical data range; long fading pan guides must never
+      // alter auto-ranging, model scale or the user's camera zoom.
+      xaxis:{title:"X (mm)",range:[-radiatingScale()*1.35,radiatingScale()*1.35],gridcolor:"#253c56",zerolinecolor:"#395775"},
+      yaxis:{title:"Y (mm)",range:[-radiatingScale()*1.35,radiatingScale()*1.35],gridcolor:"#253c56",zerolinecolor:"#395775"},
+      zaxis:{title:"Z (mm)",range:[-radiatingScale()*1.35,radiatingScale()*1.35],gridcolor:"#253c56",zerolinecolor:"#395775"}}},
     {...PLOT_CFG,displayModeBar:false,scrollZoom:true,doubleClick:false});
    if(!cameraEventsBound&&typeof el("farfield").on==="function"){
     el("farfield").on("plotly_relayout",rememberCamera);
