@@ -725,6 +725,20 @@ function setTimeoutResize(){
  el("zoomIn").addEventListener("click",()=>zoomCamera(.8));
  el("zoomOut").addEventListener("click",()=>zoomCamera(1.25));
  setupAxisPan();
+ // WebGL updates its live camera throughout pointer drags, but Plotly's
+ // relayout event may be deferred until mouseup. Keep the axis triad live.
+ const graph=el("farfield");
+ let gizmoFramePending=false;
+ const refreshGizmo=()=>{
+  if(gizmoFramePending)return;
+  gizmoFramePending=true;
+  requestAnimationFrame(()=>{
+   gizmoFramePending=false;
+   if(graph._fullLayout)updateAxisGizmo(captureCamera());
+  });
+ };
+ for(const eventName of ["pointermove","mousemove","pointerup","mouseup","wheel"])
+  graph.addEventListener(eventName,refreshGizmo,{passive:true});
  for(const button of document.querySelectorAll(".view-tabs button")){
   button.addEventListener("click",()=>setMode(button.dataset.mode));
  }
