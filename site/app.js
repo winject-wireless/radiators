@@ -254,6 +254,17 @@ function setTimeoutResize(){
   for(const id of ["px","py","pz","roll","pitch","yaw"])el(id).value="0";
   renderScene();renderPlanar();
  });
+ // Align the angular cut to global XY, XZ or YZ planes.
+ const planeRotations={xy:[0,0,0],xz:[90,0,0],yz:[0,90,0]};
+ for(const preset of document.querySelectorAll("[data-plane]")){
+  preset.addEventListener("click",()=>{
+   const angles=planeRotations[preset.dataset.plane];
+   if(!angles)return;
+   ["roll","pitch","yaw"].forEach((id,index)=>{el(id).value=String(angles[index])});
+   el("showPlane").checked=true;
+   renderScene();renderPlanar();
+  });
+ }
  el("run").addEventListener("change",renderRun);
  el("freq").addEventListener("change",renderPattern);
 })();
