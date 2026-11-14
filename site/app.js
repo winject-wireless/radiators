@@ -389,6 +389,37 @@ function planeTraces(){
 }
 // The Plotly camera center is dimensionless scene space. Use the SAME
 // display-space normalization for axis panning, the reticle and its readout.
+// Plotly reserves a variable-sized strip for the dBi colorbar. Its GL3D
+// camera looks at the *scene domain center*, not the DOM graph's 50% mark.
+// Use the actual scene rectangle (with Plotly's size/domain as a fallback).
+// This keeps the reticle, gain sample and current pan axis aligned on mobile.
+function plotViewCenterPixels(){
+ const graph=el("farfield"),stage=el("sceneStage");
+ const stageRect=stage.getBoundingClientRect();
+ const scene=graph?._fullLayout?.scene;
+ const node=scene?._scene?.container;
+ if(node?.style?.width?.endsWith("px")&&node?.style?.height?.endsWith("px")){
+  const rect=node.getBoundingClientRect();
+  if(rect.width>0&&rect.height>0){
+   return {x:rect.left-stageRect.left+rect.width/2,
+           y:rect.top-stageRect.top+rect.height/2};
+  }
+ }
+ const size=graph?._fullLayout?._size,domain=scene?.domain||{x:[0,1],y:[0,1]};
+ if(size?.w>0&&size?.h>0&&Array.isArray(domain.x)&&Array.isArray(domain.y)){
+  const rect=graph.getBoundingClientRect();
+  return {x:rect.left-stageRect.left+size.l+size.w*(domain.x[0]+domain.x[1])/2,
+          y:rect.top-stageRect.top+size.t+size.h*(1-(domain.y[0]+domain.y[1])/2)};
+ }
+ return {x:stageRect.width/2,y:stageRect.height/2};
+}
+function alignViewCenter(){
+ const point=plotViewCenterPixels();
+ const marker=el("viewCenter");
+ marker.style.left=point.x+"px";
+ marker.style.top=point.y+"px";
+ return point;
+}
 function cameraTargetMm(){
  // Plotly's camera.center is a dimensionless point in the plot domain,
  // not a location in antenna millimetres. A cube with ±sceneHalfExtent()
@@ -748,6 +779,7 @@ async function renderScene(){
     el("farfield").on("plotly_relayout",rememberCamera);
     cameraEventsBound=true;
    }
+   alignViewCenter();
    const camera=zoomEye?copyCamera(sceneCamera):captureCamera();
    updateAxisGizmo(camera);
    updateCenterStats(camera);
@@ -803,9 +835,10 @@ function drawExportMetrics(ctx){
  ctx.restore();
 }
 function drawExportReticle(ctx,w,h){
+ const center=plotViewCenterPixels();
  ctx.save();ctx.strokeStyle="rgba(250,252,255,.82)";ctx.lineWidth=1.3;
- ctx.beginPath();ctx.arc(w/2,h/2,5.5,0,Math.PI*2);ctx.stroke();
- ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(w/2,h/2,1.7,0,Math.PI*2);ctx.fill();
+ ctx.beginPath();ctx.arc(center.x,center.y,5.5,0,Math.PI*2);ctx.stroke();
+ ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(center.x,center.y,1.7,0,Math.PI*2);ctx.fill();
  ctx.restore();
 }
 function drawExportAxes(ctx,h,camera){
@@ -1068,11 +1101,12 @@ function setMode(next){
  setTimeoutResize();
 }
 function setTimeoutResize(){
- requestAnimationFrame(()=>{
+ requestAnimationFrame(async()=>{
   for(const id of ["farfield","s11Plot","vswrPlot"]){
    const graph=el(id);
-   if(graph?._fullLayout)Plotly.Plots.resize(graph);
+   if(graph?._fullLayout)await Plotly.Plots.resize(graph);
   }
+  alignViewCenter();
  });
 }
 (function setupControls(){
@@ -1087,6 +1121,14 @@ function setTimeoutResize(){
  // WebGL updates its live camera throughout pointer drags, but Plotly's
  // relayout event may be deferred until mouseup. Keep the axis triad live.
  const graph=el("farfield");
+ // Plotly's colorbar and scene dimensions can change after a resize.
+ window.addEventListener("resize",()=>{
+  requestAnimationFrame(()=>alignViewCenter());
+ },{passive:true});
+ if(typeof ResizeObserver!=="undefined"){
+  new ResizeObserver(()=>requestAnimationFrame(alignViewCenter))
+   .observe(el("sceneStage"));
+ }
  graph.addEventListener("pointerdown",()=>{zoomEye=null;},{passive:true});
  let gizmoFramePending=false;
  const refreshGizmo=()=>{
