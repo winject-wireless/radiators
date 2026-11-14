@@ -13,8 +13,13 @@ const js=fs.readFileSync(path.join(root,"app.js"),"utf8");
 const graph={_fullLayout:{scene:{camera:{
  eye:{x:1.55,y:1.55,z:1.1},
  center:{x:.91,y:.77,z:-.66}, // Simulate drift from the graph library.
- up:{x:0,y:0,z:1}}}}};
-const fields={panStatus:{hidden:true}};
+ up:{x:0,y:0,z:1}},
+ domain:{x:[0,1],y:[0,1]}},
+ _size:{l:0,t:0,w:580,h:500,r:100}}};
+graph.getBoundingClientRect=()=>({left:15,top:40,width:680,height:500});
+const centerMarker={style:{}};
+const stage={getBoundingClientRect:()=>({left:15,top:40,width:680,height:500})};
+const fields={panStatus:{hidden:true},viewCenter:centerMarker,sceneStage:stage};
 const cameraUpdates=[];
 const context=vm.createContext({
  console,
@@ -46,6 +51,28 @@ function snapshot(expr){return JSON.parse(vm.runInContext("JSON.stringify("+expr
 (async()=>{
  vm.runInContext("orbitCenter={x:.25,y:-.35,z:.1};sceneCamera=null;activePanAxis=null;",context);
  const center0=snapshot("cameraTargetMm()"),pivot0=snapshot("orbitCenter");
+ // With a 100px right-side dBi colorbar, Plotly's 3D scene is 580px wide,
+ // and its visual orbit center lies at x=290 (not half the 680px panel).
+ vm.runInContext("alignViewCenter()",context);
+ assert.equal(centerMarker.style.left,"290px",
+   "Reticle incorrectly aligned to full graph rather than Plotly viewport");
+ assert.equal(centerMarker.style.top,"250px");
+ // Domain-aware placement (multiple 3D scene layouts).
+ graph._fullLayout.scene.domain={x:[.2,.6],y:[.1,.9]};
+ vm.runInContext("alignViewCenter()",context);
+ assert.equal(centerMarker.style.left,"232px");
+ assert.equal(centerMarker.style.top,"250px");
+ // The real scene container is more authoritative when Plotly has
+ // positioned it (a colorbar or responsive resize can change the DOM box).
+ graph._fullLayout.scene._scene={container:{
+   style:{width:"320px",height:"400px"},
+   getBoundingClientRect:()=>({left:80,top:60,width:320,height:400})
+ }};
+ vm.runInContext("alignViewCenter()",context);
+ assert.equal(centerMarker.style.left,"225px");
+ assert.equal(centerMarker.style.top,"220px");
+ delete graph._fullLayout.scene._scene;
+ graph._fullLayout.scene.domain={x:[0,1],y:[0,1]};
  // Two zoom commands without waiting for either promise must accumulate;
  // the old serialized full-camera relayout stalled under rapid input.
  const firstZoom=vm.runInContext("zoomCamera(.75)",context);
@@ -86,7 +113,10 @@ function snapshot(expr){return JSON.parse(vm.runInContext("JSON.stringify("+expr
  const html=fs.readFileSync(path.join(root,"index.html"),"utf8");
  const css=fs.readFileSync(path.join(root,"style.css"),"utf8");
  assert(html.includes('id="viewCenter"'),"Fixed center reticle is missing");
- assert(css.includes("left:50%;top:50%"),"Center reticle is no longer centered");
+ assert(css.includes("left:50%;top:50%"),"Center reticle fallback is missing");
+ assert(js.includes("function plotViewCenterPixels()"),
+   "Must position the reticle relative to the actual GL3D scene rectangle");
+ assert(js.includes("alignViewCenter();"),"Reticle alignment not wired into the render path");
  // The Plotly canvas and its full-screen error/interaction layers must not
  // intercept the in-plot zoom/reset/export buttons.
  assert(/\.scene-stage\s+\.scene\s*\{[^}]*z-index\s*:\s*0\b/.test(css),
@@ -96,5 +126,5 @@ function snapshot(expr){return JSON.parse(vm.runInContext("JSON.stringify("+expr
  assert(!js.includes("centerPointTrace()"),"World-space marker was reintroduced at a different screen point");
  assert(js.includes('const millimetresPerDomainUnit=2*sceneHalfExtent()'),
    "Camera target values must be converted from domain coordinates to physical units");
- console.log("Camera invariant checks passed: eye-only rapid zoom, fixed center reticle, physical domain conversion, equal XYZ aspect, bounded 1px fading guides");
+ console.log("Camera invariant checks passed: eye-only rapid zoom, GL3D/colorbar center alignment, physical domain conversion, equal XYZ aspect, bounded 1px fading guides");
 })().catch(error=>{console.error(error);process.exitCode=1;});
