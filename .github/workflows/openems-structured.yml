@@ -1,6 +1,11 @@
 name: Structured openEMS simulations
 on:
   workflow_dispatch:
+    inputs:
+      antenna:
+        description: 'Antenna config path to simulate (e.g. antennas/example_monopole.json)'
+        required: true
+        type: string
   push:
     paths:
       - 'antennas/**'
@@ -26,20 +31,55 @@ jobs:
     timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
-      - name: Build solver
-        run: docker build --progress=plain -t radiators-openems:ci -f docker/openems/Dockerfile .
-      - name: Run all configured antenna simulations
+        with:
+          fetch-depth: 0
+      - name: Detect changed antenna configurations
+        id: changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          INPUT_ANTENNA: ${{ inputs.antenna }}
+        shell: bash
         run: |
+          set -euo pipefail
+          : > changed-antennas.txt
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            [[ "$INPUT_ANTENNA" =~ ^antennas/[a-zA-Z0-9_-]+\.json$ ]] || { echo "Invalid antenna path"; exit 1; }
+            [[ -f "$INPUT_ANTENNA" ]] || { echo "Antenna not found: $INPUT_ANTENNA"; exit 1; }
+            printf '%s\n' "$INPUT_ANTENNA" >> changed-antennas.txt
+          else
+            if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+              git fetch origin main
+              BASE_SHA="$(git merge-base HEAD origin/main)"
+            fi
+            git diff --name-only --diff-filter=ACMR "$BASE_SHA" HEAD -- 'antennas/*.json' |
+              while IFS= read -r candidate; do
+                if [[ "$candidate" =~ ^antennas/[a-zA-Z0-9_-]+\.json$ ]] && [[ -f "$candidate" ]]; then
+                  printf '%s\n' "$candidate"
+                fi
+              done > changed-antennas.txt
+          fi
+          echo "Selected antenna configurations:"
+          cat changed-antennas.txt
+          echo "count=$(wc -l < changed-antennas.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+      - name: Build solver (only when antenna configs changed)
+        if: steps.changed.outputs.count != '0'
+        run: docker build --progress=plain -t radiators-openems:ci -f docker/openems/Dockerfile .
+      - name: Simulate changed antenna configs only
+        if: steps.changed.outputs.count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p results
-          shopt -s nullglob
-          configs=(antennas/*.json)
-          if (( ${#configs[@]} == 0 )); then echo "No antenna configs found"; exit 1; fi
-          for cfg in "${configs[@]}"; do
+          while IFS= read -r cfg; do
             name="$(basename "${cfg%.json}")"
             echo "Simulating $cfg"
             docker run --rm --cpus=2 --memory=6g -v "$PWD:/work" radiators-openems:ci \
               python antennas/simulate.py "$cfg" --output "results/$name"
-          done
+          done < changed-antennas.txt
+      - name: Restore prior published results for unchanged antennas
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python3 site/restore_published.py --site-url https://winject-wireless.github.io/radiators/ --results results
       - name: Build static result viewer
         run: python3 site/build_site.py --results results --site site/dist
       - uses: actions/upload-artifact@v4
@@ -47,6 +87,7 @@ jobs:
         with:
           name: structured-openems-results
           path: |
+            changed-antennas.txt
             results/*/result.json
             results/*/pattern_*.json
             results/*/geometry.xml
