@@ -6,7 +6,7 @@ const PLOT_CFG = {responsive:true,displaylogo:false};
 const DEG = Math.PI / 180;
 let runs = [], active = null, field = null, mode = "combined", requestVersion = 0;
 const DEFAULT_CAMERA={up:{x:0,y:0,z:1},center:{x:0,y:0,z:0},eye:{x:1.55,y:1.55,z:1.1}};
-let sceneCamera=null,sceneDragMode="turntable",cameraEventsBound=false;
+let sceneCamera=null,cameraEventsBound=false;
 let orbitCenter=null; // Track the current pan target while orbiting.
 let sceneRendering=false,sceneDirty=false,sceneFrameScheduled=false;
 const POSE_AXIS_IDS=["px","py","pz","roll","pitch","yaw"];
@@ -413,8 +413,9 @@ function rememberCamera(event){
  const changed=Object.keys(event).some(key=>key==="scene.camera"||key.startsWith("scene.camera."));
  if(!changed)return;
  const next=copyCamera(event["scene.camera"])||captureCamera();
- if(sceneDragMode==="pan")orbitCenter={...next.center};
- else if(orbitCenter)next.center={...orbitCenter};
+ // The XYZ handles define the orbit pivot. Orbiting changes orientation but
+ // must not silently move that point back to the original model center.
+ if(orbitCenter)next.center={...orbitCenter};
  sceneCamera=next;
  updateAxisGizmo(next);
 }
@@ -447,20 +448,31 @@ function axisDragDirection(camera,axis){
  const p=projectWorldAxis(camera,axis),length=Math.hypot(p.x,p.y);
  return length<.06?[0,-1]:[p.x/length,p.y/length];
 }
+function axisGizmoProjection(camera,axis){
+ const p=projectWorldAxis(camera,axis),length=Math.hypot(p.x,p.y);
+ return {x:56+(length<.12?(axis==="x"?-7:axis==="y"?7:0):p.x*34),
+         y:56+(length<.12?0:p.y*34),depth:p.depth};
+}
 function updateAxisGizmo(camera=sceneCamera||DEFAULT_CAMERA){
  if(!camera||!el("viewAxes"))return;
  for(const axis of ["x","y","z"]){
-  const p=projectWorldAxis(camera,axis),length=Math.hypot(p.x,p.y);
-  const x=72+(length<.12?(axis==="x"?-8:axis==="y"?8:0):p.x*47);
-  const y=70+(length<.12?0:p.y*47);
+  const p=axisGizmoProjection(camera,axis);
   const line=el("axisLine"+axis.toUpperCase());
-  line.setAttribute("x2",String(x));line.setAttribute("y2",String(y));
+  line.setAttribute("x2",String(p.x));line.setAttribute("y2",String(p.y));
   line.setAttribute("opacity",p.depth<-.1?".57":"1");
   const grip=el("viewAxes").querySelector('[data-pan-axis="'+axis+'"]');
-  grip.style.left=x+"px";grip.style.top=(y+24)+"px";
+  grip.style.left=p.x+"px";grip.style.top=p.y+"px";
   grip.style.zIndex=String(Math.round((p.depth+1)*10)+10);
-  grip.title="World "+axis.toUpperCase()+" · hold and drag to pan";
  }
+}
+function updateSceneLegend(){
+ const plane=el("showPlane").checked;
+ const radiation=el("showRadiation").checked;
+ const geometry=el("showGeometry").checked;
+ el("graphLegend").querySelector('[data-legend="plane"]').hidden=!plane;
+ const hasSection=plane&&radiation&&Boolean(el("farfield").data?.some(t=>t.name==="Continuous plane intersection"));
+ el("graphLegend").querySelector('[data-legend="intersection"]').hidden=!hasSection;
+ el("graphLegend").querySelector('[data-legend="feed"]').hidden=!geometry;
 }
 function axisPanAmount(camera,axis,dx,dy,viewPixels){
  const [sx,sy]=axisDragDirection(camera,axis);
@@ -535,9 +547,10 @@ async function renderScene(){
    // Avoid accidentally restoring a stale, pre-pan camera.
    if(sceneCamera!==null)captureCamera();
    await Plotly.react("farfield",sceneTraces(),
-    {...PALETTE,margin:{l:0,r:0,t:0,b:0},uirevision:"z-up-camera-preserved-v3",
+    {...PALETTE,margin:{l:0,r:0,t:0,b:0},showlegend:false,
+     uirevision:"z-up-camera-preserved-v4",
      scene:{aspectmode:"data",bgcolor:"#101c2e",
-      dragmode:sceneDragMode,camera:sceneCamera||DEFAULT_CAMERA,
+      dragmode:"turntable",camera:sceneCamera||DEFAULT_CAMERA,
       xaxis:{title:"X (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"},
       yaxis:{title:"Y (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"},
       zaxis:{title:"Z (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"}}},
@@ -547,6 +560,7 @@ async function renderScene(){
     cameraEventsBound=true;
    }
    updateAxisGizmo(captureCamera());
+   updateSceneLegend();
   }while(sceneDirty);
  }finally{
   sceneRendering=false;
@@ -561,21 +575,6 @@ function scheduleSceneRender(){
   renderScene().catch(error=>{status("3D plot error: "+error.message);console.error(error)});
  });
 }
-async function changeCameraTool(next){
- if(next!=="pan"&&next!=="turntable")return;
- sceneDragMode=next;
- for(const [id,tool] of [["orbitView","turntable"],["panView","pan"]]){
-  const btn=el(id),selected=tool===next;
-  btn.classList.toggle("active",selected);
-  btn.setAttribute("aria-pressed",String(selected));
- }
- // Persist the live camera with the panned target as the orbit pivot.
- const camera=captureCamera();
- orbitCenter={...camera.center};
- updateAxisGizmo(camera);
- if(el("farfield")._fullLayout)
-  await Plotly.relayout(el("farfield"),{"scene.dragmode":next});
-}
 async function resetCamera(){
  sceneCamera={
   up:{...DEFAULT_CAMERA.up},
@@ -586,6 +585,142 @@ async function resetCamera(){
  updateAxisGizmo(sceneCamera);
  if(el("farfield")._fullLayout)
   await Plotly.relayout("farfield",{"scene.camera":sceneCamera});
+}
+
+// Render the screen overlays directly onto the exported canvas. Plotly.toImage
+// captures the actual WebGL pattern (including the current cutting plane),
+// but does not capture HTML controls, the XYZ gizmo or the graph legend.
+const EXPORT_AXIS_COLORS={x:"#f18484",y:"#78dca5",z:"#82baff"};
+function fillRoundRect(ctx,x,y,w,h,r,color){
+ ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fillStyle=color;ctx.fill();
+}
+function drawExportMetrics(ctx){
+ ctx.save();ctx.font="600 11px system-ui, sans-serif";ctx.textBaseline="middle";
+ let x=10;
+ for(const str of [el("peak").textContent,el("eff").textContent]){
+  if(!str||str==="—")continue;
+  const width=ctx.measureText(str).width+15;
+  fillRoundRect(ctx,x,9,width,24,5,"rgba(12,27,46,.82)");
+  ctx.fillStyle="#d9eafb";ctx.fillText(str,x+7.5,21);
+  x+=width+6;
+ }
+ ctx.restore();
+}
+function drawExportReticle(ctx,w,h){
+ ctx.save();ctx.strokeStyle="rgba(250,252,255,.82)";ctx.lineWidth=1.3;
+ ctx.beginPath();ctx.arc(w/2,h/2,5.5,0,Math.PI*2);ctx.stroke();
+ ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(w/2,h/2,1.7,0,Math.PI*2);ctx.fill();
+ ctx.restore();
+}
+function drawExportAxes(ctx,h,camera){
+ const left=8,top=h-9-112,cx=left+56,cy=top+56;
+ ctx.save();
+ const axes=["x","y","z"].map(axis=>({axis,...axisGizmoProjection(camera,axis)}));
+ for(const p of axes){
+  ctx.strokeStyle=EXPORT_AXIS_COLORS[p.axis];ctx.lineWidth=3;
+  ctx.globalAlpha=p.depth<-.1?.57:1;
+  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(left+p.x,top+p.y);ctx.stroke();
+ }
+ ctx.globalAlpha=1;
+ ctx.fillStyle="#f3f8fe";ctx.beginPath();ctx.arc(cx,cy,3,0,Math.PI*2);ctx.fill();
+ ctx.textAlign="center";ctx.textBaseline="middle";ctx.font="700 11px system-ui, sans-serif";
+ axes.sort((a,b)=>a.depth-b.depth);
+ for(const p of axes){
+  const x=left+p.x,y=top+p.y;
+  ctx.fillStyle="rgba(10,24,41,.93)";
+  ctx.beginPath();ctx.arc(x,y,11.5,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle=EXPORT_AXIS_COLORS[p.axis];ctx.lineWidth=1.2;ctx.stroke();
+  ctx.fillStyle=EXPORT_AXIS_COLORS[p.axis];
+  ctx.fillText(p.axis.toUpperCase(),x,y+.3);
+ }
+ ctx.restore();
+}
+function exportLegendItems(){
+ const items=[{text:"X",color:EXPORT_AXIS_COLORS.x},{text:"Y",color:EXPORT_AXIS_COLORS.y},
+              {text:"Z",color:EXPORT_AXIS_COLORS.z}];
+ if(el("showGeometry").checked)items.push({text:"Feed",color:"#fb6f80"});
+ if(el("showPlane").checked)items.push({text:"Plane",color:"#f6b45c"});
+ if(el("showPlane").checked&&el("showRadiation").checked&&
+    el("farfield").data?.some(trace=>trace.name==="Continuous plane intersection"))
+  items.push({text:"Intersection",color:"#fff1a1"});
+ return items;
+}
+function drawExportLegend(ctx,width,height){
+ const items=exportLegendItems(),maxWidth=Math.max(100,width-137);
+ ctx.save();ctx.font="10px system-ui, sans-serif";ctx.textBaseline="middle";
+ const gap=9,swatch=13,itemWidth=item=>swatch+5+ctx.measureText(item.text).width;
+ const rows=[[]],rowWidths=[0];
+ for(const item of items){
+  const entryW=itemWidth(item),row=rows.length-1;
+  if(rows[row].length&&rowWidths[row]+gap+entryW>maxWidth){
+   rows.push([]);rowWidths.push(0);
+  }
+  const last=rows.length-1;
+  if(rows[last].length)rowWidths[last]+=gap;
+  rows[last].push(item);rowWidths[last]+=entryW;
+ }
+ const blockWidth=Math.max(...rowWidths)+16,blockHeight=rows.length*17+9;
+ const x=width-10-blockWidth,y=height-9-blockHeight;
+ fillRoundRect(ctx,x,y,blockWidth,blockHeight,6,"rgba(12,27,46,.78)");
+ for(let i=0;i<rows.length;i++){
+  let cx=x+blockWidth-8-rowWidths[i],cy=y+13+i*17;
+  for(const item of rows[i]){
+   ctx.fillStyle=item.color;ctx.fillRect(cx,cy-2,swatch,3);
+   cx+=swatch+5;
+   ctx.fillStyle="#bed4ec";ctx.fillText(item.text,cx,cy);
+   cx+=ctx.measureText(item.text).width+gap;
+  }
+ }
+ ctx.restore();
+}
+function exportSceneOverlays(ctx,w,h,camera){
+ drawExportReticle(ctx,w,h);
+ drawExportMetrics(ctx);
+ drawExportAxes(ctx,h,camera);
+ drawExportLegend(ctx,w,h);
+}
+async function saveSceneImage(){
+ const graph=el("farfield"),button=el("saveImage");
+ if(!graph?._fullLayout||!field)return;
+ button.disabled=true;button.setAttribute("aria-busy","true");
+ try{
+  const width=Math.round(graph.clientWidth),height=Math.round(graph.clientHeight);
+  if(width<100||height<100)throw Error("The 3D view is too small to export");
+  // High resolution but bounded to protect mobile GPU memory.
+  const factor=Math.min(6,3000/Math.max(width,height),Math.sqrt(9000000/(width*height)));
+  const outWidth=Math.round(width*factor),outHeight=Math.round(height*factor);
+  const camera=captureCamera();
+  // Synchronize Plotly's camera state with the live WebGL view.
+  await Plotly.relayout(graph,{"scene.camera":camera});
+  const png=await Plotly.toImage(graph,{format:"png",width:outWidth,height:outHeight,scale:1});
+  const source=new Image();
+  const loaded=new Promise((resolve,reject)=>{
+   source.onload=resolve;source.onerror=()=>reject(Error("Plot image encoding failed"));
+  });
+  source.src=png;await loaded;
+  const canvas=document.createElement("canvas");
+  canvas.width=outWidth;canvas.height=outHeight;
+  const ctx=canvas.getContext("2d");
+  if(!ctx)throw Error("Canvas export is unavailable");
+  ctx.drawImage(source,0,0,outWidth,outHeight);
+  ctx.setTransform(outWidth/width,0,0,outHeight/height,0,0);
+  exportSceneOverlays(ctx,width,height,camera);
+  const blob=await new Promise((resolve,reject)=>{
+   canvas.toBlob(result=>result?resolve(result):reject(Error("PNG encoding failed")),"image/png");
+  });
+  const filename=(active?.name||"antenna").replace(/[^a-zA-Z0-9_-]+/g,"-").slice(0,55);
+  const freq=Number(field.frequency_hz/1e9).toFixed(3);
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=url;link.download="radiators-"+filename+"-"+freq+"GHz.png";
+  document.body.append(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+ }catch(error){
+  console.error("Save high-resolution image failed",error);
+  status("Save image failed: "+error.message);
+ }finally{
+  button.disabled=false;button.removeAttribute("aria-busy");
+ }
 }
 function formatPoseNumber(value){
  // Explicit ASCII + / - and two decimal places, including on mobile.
@@ -706,6 +841,7 @@ function setMode(next){
  el("showGeometry").checked=next!=="radiation";
  el("showRadiation").checked=next!=="geometry";
  el("showPlane").checked=next==="combined";
+ updateSceneLegend();
  scheduleSceneRender();
  setTimeoutResize();
 }
@@ -718,10 +854,8 @@ function setTimeoutResize(){
  });
 }
 (function setupControls(){
- for(const [id,dragmode] of [["orbitView","turntable"],["panView","pan"]]){
-  el(id).addEventListener("click",()=>changeCameraTool(dragmode));
- }
  el("resetView").addEventListener("click",resetCamera);
+ el("saveImage").addEventListener("click",saveSceneImage);
  el("zoomIn").addEventListener("click",()=>zoomCamera(.8));
  el("zoomOut").addEventListener("click",()=>zoomCamera(1.25));
  setupAxisPan();
@@ -743,7 +877,7 @@ function setTimeoutResize(){
   button.addEventListener("click",()=>setMode(button.dataset.mode));
  }
  for(const id of ["showGeometry","showRadiation","showPlane"])
-  el(id).addEventListener("change",scheduleSceneRender);
+  el(id).addEventListener("change",()=>{updateSceneLegend();scheduleSceneRender()});
 
  for(const id of POSE_AXIS_IDS){
   const input=el(id),slider=el(id+"Slider");
