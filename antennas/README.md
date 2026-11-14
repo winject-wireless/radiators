@@ -1,35 +1,76 @@
-# Structured antenna simulation (schema v1)
+# Structured openEMS antenna simulations
 
-Simulations are JSON files: see [example_monopole.json](example_monopole.json).
-Coordinates use **millimetres**; frequencies use **Hz**.
+Each antenna has a separate \`antennas/*.json\` file. The simulator accepts
+schema v1 and schema v2. Lengths are millimetres; frequencies are Hz;
+conductivity is S/m except conducting-sheet thickness, which is **metres**.
 
-- \`materials\`: named \`pec\` or \`dielectric\` (requires \`epsilon\`, optional \`kappa_s_per_m\`).
-- \`geometry\`: \`box\` or \`cylinder\` in 3D, attached to a named material.
-- \`sources\`: lumped feed-port points (\`start\`, \`stop\`, axis \`direction\`, \`impedance_ohm\`). Version 1 accepts **one enabled source** and reports its S11 only.
-- \`s11\`: list of inclusive sweeps (\`start\`, \`step\`, \`end\`, all in Hz). Frequencies are de-duplicated, sorted, and limited to the excitation bandwidth.
-- \`radiation_pattern_frequencies_hz\`: requested frequencies in Hz. Samples are interpolated by the solver's frequency-domain NF2FF calculation, NOT separate narrowband FDTD solves.
-- \`radiation_pattern_grid\`: angular sampling of the sphere. Theta 0…180° and phi 0…<360°.
-- \`domain\`: simulation volume and boundary conditions; \`mesh\`: maximum smoothing step and cell-cap guard.
+## Schema v2
 
-Outputs: \`result.json\` (S11 complex components, log magnitude in dB, phase in degrees, VSWR and normalized far-field directivity in dBi, plus radiation efficiency where available). \`pattern_*.json\` holds complete spherical samples; \`result.json\` references them.
+See [example_helix_v2.json](example_helix_v2.json). The key sections are:
 
-### Running
+| JSON section | Meaning |
+|---|---|
+| \`materials\` | \`pec\`, \`dielectric\` (epsilon, kappa_s_per_m), \`conductive\` (conductivity_s_per_m), \`conducting_sheet\` (conductivity_s_per_m, thickness_m) |
+| \`geometry\` | \`box\`, \`cylinder\`, \`cylindrical_shell\`, \`sphere\`, \`spherical_shell\`, \`hemisphere\`, \`hemispherical_shell\`, \`wire\`, or \`helix\` |
+| \`transform\` | Optional \`{"rotate_deg":[roll,pitch,yaw],"translate":[x,y,z]}\`, rotation X then Y then Z |
+| \`ports\` | \`lumped\`, \`coaxial\`, or \`msl\` feed and passive ports. **Exactly one port is excited** per run |
+| \`mesh\` | \`max_cell_mm\` (also accepts \`resolution_mm\`), \`growth_ratio\`, optional \`local_min_cell_mm\` and list of local \`refinements\` |
+| \`solver.resources\` | Per-antenna Docker resource request \`{"cpus":2,"memory_gib":5}\` |
+| \`outputs.s11\` | List of inclusive sweeps \`[{ "start":..., "step":..., "end":... }]\` |
+| \`outputs.radiation_frequencies_hz\` | List of NF2FF frequencies in Hz |
+| \`outputs\` | Optional \`include_polarization\`, \`include_impedance\`, \`include_realized_gain\`, \`radiation_grid\` angular step sizes |
+
+Examples of geometry-specific fields:
+
+- Wire: \`points\` is a list of XYZ points, \`wire_diameter\` in mm. CSXCAD's native finite-radius wire primitive is used.
+- Helix: \`origin\`, \`axis\`, \`diameter\`, \`height\`, \`turns\`, \`wire_diameter\`; optional \`phase_deg\`, \`segments_per_turn\`. This is a **true single continuous curve**, not disconnected cylinders.
+- Cylindrical shell: \`start\`, \`stop\`, centerline \`radius\`, \`thickness\` in mm.
+- Spherical shell: \`center\`, \`radius\`, \`thickness\` in mm.
+- Hemisphere / hemispherical shell: \`center\`, outer \`radius\`, optional \`thickness\`; local positive Z hemisphere, transformed with \`transform\`. These are tessellated into triangular polyhedra.
+- Conducting sheet: must be a zero-thickness 2D box. CSXCAD's conducting-sheet model is for thin sheets, not bulk wire geometry.
+- Coaxial port: \`metal_material\` referencing PEC, optional \`dielectric_material\`, \`propagation_direction\`, and \`inner_radius\`, \`outer_inner_radius\`, \`outer_radius\`.
+- MSL port: \`metal_material\` referencing PEC, \`propagation_direction\`, \`excitation_direction\`. The stripline and substrate must be modeled correctly.
+
+## Outputs
+
+\`result.json\` includes complex S11 (real and imaginary), logarithmic magnitude,
+phase, VSWR, complex input impedance, and \`geometry_preview\`. Each
+\`pattern_<frequency>Hz.json\` includes the spherical directivity grid (dBi),
+radiation efficiency, mismatch efficiency, and optionally complex
+\`E_theta\` / \`E_phi\` components and **realized gain** grids.
+
+Realized gain is computed from directivity × radiation efficiency × mismatch
+efficiency, where mismatch efficiency is \`1 - |S11|²\` at that frequency.
+The result requires a valid port and validated solver convergence.
+
+## Run locally
 
 \`\`\`bash
-docker build -t radiators-openems -f docker/openems/Dockerfile .
-mkdir -p results
-docker run --rm --cpus=2 --memory=6g -v "$PWD:/work" radiators-openems \
-  python antennas/simulate.py antennas/example_monopole.json --output results/example_monopole
-python3 site/build_site.py --results results --site site/dist
+docker build -t radiators-openems:ci -f docker/openems/Dockerfile .
+docker run --rm -v "$PWD:/work" radiators-openems:ci \
+  python antennas/simulate.py antennas/example_helix_v2.json \
+  --output results/example_helix_v2
 \`\`\`
 
-The CI workflow performs these steps automatically and uploads the result artifact.
+In GitHub Actions, only modified antenna configurations are selected. Each
+simulation is scheduled independently using requested CPU and RAM budgets,
+including a reserved RAM margin, and the Docker image is restored from a
+versioned workflow artifact when available.
 
-### Conventions and limitations
+## Important engineering limitations
 
-- The reported far-field quantity is **directivity**, not gain. Directivity does not include feed mismatch or antenna efficiency. Efficiency is computed separately if possible. Do not label this as realized gain.
-- Lossy dielectric \`kappa_s_per_m\` uses S/m and a constant value across frequency.
-- PEC metals are ideal (no conductor skin effect). Mesh convergence, boundary distances, feed geometry and matching need engineering validation.
-- A wire must have volume (cylinders with finite radius) rather than an infinitely thin mathematical curve in v1.
-- The solver is a headless time-domain FDTD model; exact mesh/port coupling affects results significantly.
-- GitHub Pages shows **generated results only**; it does not run the solver in the browser.
+- Schema v2 defines multiple ports, but only **one is excited per FDTD run**;
+  it exports S11 of that active port, **not a complete multiport S matrix**.
+- Bulk conductivity models have skin-depth / mesh-convergence requirements.
+  Do not simply set copper conductivity for a millimetre-scale wire and
+  assume an accurate GHz surface-current simulation. Use PEC for ideal-conductor
+  comparisons and validate any finite-conductor model carefully.
+- A triangulated hemispherical shell is an approximation with discrete faces.
+  For very thin metal shells, the mesh resolution may not resolve the thickness.
+- Mesh refinement controls provide grid constraints, **not automatic mesh
+  convergence**. Independently repeat simulations at finer resolution.
+- The radiation-pattern surface in the viewer is scaled for illustration;
+  its radius is not a physical length.
+- openEMS NF2FF output is a far-field model; translating the displayed 2D
+  cutting plane does not change electromagnetic far-field results.
+- The output is not a substitute for measurements or RF regulatory certification.
