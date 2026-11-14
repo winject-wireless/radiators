@@ -160,23 +160,94 @@ function geometryTraces(){
  });
  return traces;
 }
-function patternTrace(p){
+// Use the same sampled surface for the 3D pattern and plane intersection.
+function patternGrid(p){
  const th=p.theta_deg.map(t=>t*DEG),ph=p.phi_deg.map(t=>t*DEG);
- const x=[],y=[],z=[],db=[];
- const max=Number(p.max_directivity_dbi),visual=radiatingScale();
+ const vertices=[],directivity=[],peak=Number(p.max_directivity_dbi),visual=radiatingScale();
  for(let i=0;i<th.length;i++){
+  const row=[],db=[];
+  for(let j=0;j<ph.length;j++){
+   const d=Number(p.directivity_dbi[i][j]);
+   const r=visual*Math.pow(10,(d-peak)/10);
+   row.push([r*Math.sin(th[i])*Math.cos(ph[j]),
+             r*Math.sin(th[i])*Math.sin(ph[j]),
+             r*Math.cos(th[i])]);
+   db.push(d);
+  }
+  vertices.push(row);directivity.push(db);
+ }
+ return {vertices,directivity};
+}
+function patternTrace(p,grid=patternGrid(p)){
+ const x=[],y=[],z=[],db=[];
+ const rows=grid.vertices,levels=grid.directivity;
+ if(!rows.length||!rows[0].length)return null;
+ for(let i=0;i<rows.length;i++){
   const xx=[],yy=[],zz=[],dd=[];
-  for(let j=0;j<=ph.length;j++){
-   const k=j%ph.length, d=Number(p.directivity_dbi[i][k]);
-   const radius=visual*Math.pow(10,(d-max)/10);
-   xx.push(radius*Math.sin(th[i])*Math.cos(ph[k]));
-   yy.push(radius*Math.sin(th[i])*Math.sin(ph[k]));
-   zz.push(radius*Math.cos(th[i]));dd.push(d);
-  }x.push(xx);y.push(yy);z.push(zz);db.push(dd);
+  for(let j=0;j<=rows[i].length;j++){
+   const k=j%rows[i].length,point=rows[i][k];
+   xx.push(point[0]);yy.push(point[1]);zz.push(point[2]);dd.push(levels[i][k]);
+  }
+  x.push(xx);y.push(yy);z.push(zz);db.push(dd);
  }
  return {type:"surface",name:"Directivity",x,y,z,surfacecolor:db,colorscale:"Viridis",
   colorbar:{title:"dBi",thickness:10,len:.65},opacity:.52,
   hovertemplate:"Directivity %{surfacecolor:.2f} dBi<extra></extra>",showscale:true};
+}
+// Exact intersection of each sampled surface triangle with the posed plane.
+// This is a section of the *display-scaled* far-field surface, not the antenna.
+function trianglePlaneSegment(triangle,origin,normal,epsilon){
+ const d=triangle.map(pt=>pt.reduce((sum,c,i)=>sum+(c-origin[i])*normal[i],0));
+ if(d.every(distance=>Math.abs(distance)<=epsilon))return null;
+ const intersections=[];
+ const addPoint=point=>{
+  if(!intersections.some(p=>magnitude(p.map((v,i)=>v-point[i]))<=epsilon))
+   intersections.push(point);
+ };
+ for(const [a,b] of [[0,1],[1,2],[2,0]]){
+  if(Math.abs(d[a])<=epsilon)addPoint(triangle[a]);
+  if(d[a]*d[b]<0 && Math.abs(d[a])>epsilon && Math.abs(d[b])>epsilon){
+   const t=d[a]/(d[a]-d[b]);
+   addPoint(triangle[a].map((value,k)=>value+t*(triangle[b][k]-value)));
+  }
+ }
+ if(intersections.length<2)return null;
+ if(intersections.length===2)return intersections;
+ // If the plane contains an edge or passes through vertices, retain the
+ // longest segment rather than accidentally producing a triangle.
+ let best=null,length=-1;
+ for(let i=0;i<intersections.length;i++)
+  for(let j=i+1;j<intersections.length;j++){
+   const dist=magnitude(intersections[i].map((v,k)=>v-intersections[j][k]));
+   if(dist>length){length=dist;best=[intersections[i],intersections[j]];}
+  }
+ return best;
+}
+function patternPlaneIntersection(grid,position,angles){
+ const rows=grid.vertices;
+ if(rows.length<2||rows[0].length<3)return null;
+ const normal=rotate([0,0,1],angles);
+ const epsilon=Math.max(1e-8,radiatingScale()*1e-7);
+ const x=[],y=[],z=[];
+ const append=triangle=>{
+  const segment=trianglePlaneSegment(triangle,position,normal,epsilon);
+  if(!segment)return;
+  for(const point of segment){x.push(point[0]);y.push(point[1]);z.push(point[2]);}
+  x.push(null);y.push(null);z.push(null);
+ };
+ for(let i=0;i<rows.length-1;i++){
+  const n=Math.min(rows[i].length,rows[i+1].length);
+  for(let j=0;j<n;j++){
+   const next=(j+1)%n;
+   const a=rows[i][j],b=rows[i][next],c=rows[i+1][j],d=rows[i+1][next];
+   append([a,b,c]);
+   append([b,d,c]);
+  }
+ }
+ if(!x.length)return null; // Plane does not cross the pattern surface.
+ return {type:"scatter3d",mode:"lines",name:"Plane / radiation intersection",
+  x,y,z,line:{color:"#fff0a6",width:8},
+  hoverinfo:"skip",showlegend:false};
 }
 function planeTraces(){
  const p=pose(),radius=radiatingScale(),u=rotate([1,0,0],p.angles),v=rotate([0,1,0],p.angles);
@@ -193,9 +264,17 @@ function planeTraces(){
 function sceneTraces(){
  const geom=el("showGeometry").checked,rad=el("showRadiation").checked,plane=el("showPlane").checked;
  const traces=[];
- if(rad && field)traces.push(patternTrace(field));
+ // Compute the surface once so the highlighted section matches the same mesh.
+ const grid=rad&&field?patternGrid(field):null;
+ if(grid){const pattern=patternTrace(field,grid);if(pattern)traces.push(pattern);}
  if(geom)traces.push(...geometryTraces());
- if(plane)traces.push(...planeTraces());
+ if(plane){
+  traces.push(...planeTraces());
+  if(grid){
+   const p=pose(),intersection=patternPlaneIntersection(grid,p.position,p.angles);
+   if(intersection)traces.push(intersection);
+  }
+ }
  return traces;
 }
 async function renderScene(){
@@ -329,7 +408,7 @@ function setMode(next){
  }
  el("showGeometry").checked=(next==="combined"||next==="geometry"||next==="planar");
  el("showRadiation").checked=(next!=="geometry");
- el("showPlane").checked=(next==="planar");
+ el("showPlane").checked=(next==="combined"||next==="planar");
  renderScene();
  setTimeoutResize();
 }
