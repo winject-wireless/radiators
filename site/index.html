@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Radiators · openEMS simulation viewer</title>
+<link rel="stylesheet" href="./style.css">
+<script defer src="https://cdn.plot.ly/plotly-2.35.3.min.js"></script>
+<script defer src="./app.js"></script>
+</head>
+<body>
+<header><div><span class="tag">WINJECT WIRELESS / OPENEMS</span><h1>Radiators</h1><p>Electromagnetic simulation results</p></div><a href="https://github.com/winject-wireless/radiators">GitHub repository ↗</a></header>
+<main>
+<section class="toolbar"><label>Simulation<select id="run"></select></label><label>Radiation frequency<select id="freq"></select></label><span id="status">Loading…</span></section>
+<section class="stats"><article><small>Peak directivity</small><strong id="peak">—</strong></article><article><small>Radiation efficiency</small><strong id="eff">—</strong></article><article><small>Mesh cells</small><strong id="mesh">—</strong></article></section>
+<section class="plots"><article><h2>3D radiation pattern</h2><p class="hint">Rotatable normalized power-pattern surface. Colors are directivity in dBi.</p><div id="farfield" class="plot tall"></div></article>
+<article><h2>S11 log magnitude</h2><div id="mag" class="plot"></div><h2>S11 phase</h2><div id="phase" class="plot"></div><h2>VSWR</h2><div id="vswr" class="plot"></div></article></section>
+<section class="details"><h2>Simulation configuration</h2><details><summary>View input JSON</summary><pre id="config"></pre></details><p>Directivity is not realized gain. Validate mesh convergence, feed geometry and boundary conditions before trusting numerical results.</p></section>
+</main>
+</body></html>
