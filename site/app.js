@@ -11,6 +11,7 @@ let sceneRendering=false,sceneDirty=false,sceneFrameScheduled=false;
 const POSE_AXIS_IDS=["px","py","pz","roll","pitch","yaw"];
 const POSE_PRESETS={xy:[0,0,0],xz:[90,0,0],yz:[90,0,90]};
 const lastValidPose={px:0,py:0,pz:0,roll:0,pitch:0,yaw:0};
+const sliderOffsets={px:0,py:0,pz:0,roll:0,pitch:0,yaw:0};
 
 function status(message){el("status").textContent = message}
 function format(number,places=2){return Number.isFinite(number) ? Number(number).toFixed(places) : "—"}
@@ -456,18 +457,23 @@ function readPoseNumber(value){
  const num=Number(text);
  return Number.isFinite(num)&&Math.abs(num)<=1000000?num:null;
 }
-function updatePoseSliderRange(id,value){
- const slider=el(id+"Slider");
- let extent=Math.max(Math.abs(Number(slider.min)),Math.abs(Number(slider.max)));
- if(Math.abs(value)>extent){
-  const rounding=id.startsWith("p")?25:45;
-  extent=Math.ceil(Math.abs(value)/rounding)*rounding;
-  slider.min=String(-extent);
-  slider.max=String(extent);
+function resetIncrementalSlider(id){
+ // Jog control returns to zero; the accumulated numeric value remains intact.
+ sliderOffsets[id]=0;
+ el(id+"Slider").value="0";
+}
+function resetIncrementalSliders(){
+ for(const id of POSE_AXIS_IDS)resetIncrementalSlider(id);
+}
+function applyIncrementalSlider(id,offset){
+ if(!Number.isFinite(offset))return;
+ const delta=offset-sliderOffsets[id];
+ sliderOffsets[id]=offset;
+ if(delta!==0){
+  setPoseAxis(id,lastValidPose[id]+delta);
+  if(!["px","py","pz"].includes(id))updatePresetButtons();
+  scheduleSceneRender();
  }
- // Range may round manually entered values to its step. The numeric input
- // remains authoritative, preserving finer manual decimal precision.
- slider.value=String(value);
 }
 function setPoseAxis(id,value){
  if(!Number.isFinite(value)||Math.abs(value)>1000000)return;
@@ -475,7 +481,6 @@ function setPoseAxis(id,value){
  const input=el(id);
  input.value=formatPoseNumber(value);
  input.removeAttribute("aria-invalid");
- updatePoseSliderRange(id,value);
 }
 function updatePresetButtons(){
  const values=["roll","pitch","yaw"].map(id=>readPoseNumber(el(id).value));
@@ -484,17 +489,6 @@ function updatePresetButtons(){
   const selected=preset&&values.every((v,i)=>v!==null&&Math.abs(v-preset[i])<.001);
   button.classList.toggle("active",Boolean(selected));
   button.setAttribute("aria-pressed",String(Boolean(selected)));
- }
-}
-function updatePositionSliders(){
- const extent=Math.max(50,Math.ceil(radiatingScale()/25)*25);
- for(const id of ["px","py","pz"]){
-  const slider=el(id+"Slider");
-  const bound=Math.max(extent,Math.abs(lastValidPose[id]));
-  const max=Math.ceil(bound/25)*25;
-  slider.min=String(-max);
-  slider.max=String(max);
-  slider.value=String(lastValidPose[id]);
  }
 }
 async function renderS11(){
@@ -541,7 +535,7 @@ async function renderRun(){
   // frequency changes and plane edits retain the existing view.
   sceneCamera=null;
   cachedField=null;
-  updatePositionSliders();
+  resetIncrementalSliders();
   el("mesh").textContent=Number(active.mesh_total_cells).toLocaleString()+" cells";
   el("config").textContent=JSON.stringify(active.input_config,null,2);
   el("freq").replaceChildren(...active.patterns.map((p,index)=>{
@@ -584,11 +578,11 @@ function setTimeoutResize(){
 
  for(const id of POSE_AXIS_IDS){
   const input=el(id),slider=el(id+"Slider");
-  slider.addEventListener("input",()=>{
-   setPoseAxis(id,Number(slider.value));
-   if(!["px","py","pz"].includes(id))updatePresetButtons();
-   scheduleSceneRender();
-  });
+  slider.addEventListener("input",()=>applyIncrementalSlider(id,Number(slider.value)));
+  // Re-center after pointer, touch, keyboard or assistive input ends.
+  for(const eventName of ["pointerup","pointercancel","touchend","touchcancel","keyup","change","blur"]){
+   slider.addEventListener(eventName,()=>resetIncrementalSlider(id));
+  }
   input.addEventListener("input",()=>{
    const number=readPoseNumber(input.value);
    if(number===null){
@@ -597,13 +591,14 @@ function setTimeoutResize(){
    }
    lastValidPose[id]=number;
    input.removeAttribute("aria-invalid");
-   updatePoseSliderRange(id,number);
+   resetIncrementalSlider(id);
    if(!["px","py","pz"].includes(id))updatePresetButtons();
    scheduleSceneRender();
   });
   input.addEventListener("blur",()=>{
    const value=readPoseNumber(input.value);
    setPoseAxis(id,value===null?lastValidPose[id]:value);
+   resetIncrementalSlider(id);
    if(!["px","py","pz"].includes(id))updatePresetButtons();
    scheduleSceneRender();
   });
@@ -616,6 +611,7 @@ function setTimeoutResize(){
  }
  el("poseReset").addEventListener("click",()=>{
   for(const id of POSE_AXIS_IDS)setPoseAxis(id,0);
+  resetIncrementalSliders();
   el("showPlane").checked=true;
   updatePresetButtons();
   scheduleSceneRender();
@@ -625,6 +621,7 @@ function setTimeoutResize(){
    const angles=POSE_PRESETS[preset.dataset.plane];
    if(!angles)return;
    ["roll","pitch","yaw"].forEach((id,index)=>setPoseAxis(id,angles[index]));
+   ["roll","pitch","yaw"].forEach(resetIncrementalSlider);
    el("showPlane").checked=true;
    updatePresetButtons();
    scheduleSceneRender();
