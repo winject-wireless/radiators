@@ -7,6 +7,7 @@ const DEG = Math.PI / 180;
 let runs = [], active = null, field = null, mode = "combined", requestVersion = 0;
 const DEFAULT_CAMERA={up:{x:0,y:0,z:1},center:{x:0,y:0,z:0},eye:{x:1.55,y:1.55,z:1.1}};
 let sceneCamera=null,sceneDragMode="turntable",cameraEventsBound=false;
+let orbitCenter=null; // Track the current pan target while orbiting.
 let sceneRendering=false,sceneDirty=false,sceneFrameScheduled=false;
 const POSE_AXIS_IDS=["px","py","pz","roll","pitch","yaw"];
 const POSE_PRESETS={xy:[0,0,0],xz:[90,0,0],yz:[90,0,90]};
@@ -411,9 +412,11 @@ function rememberCamera(event){
  if(!event)return;
  const changed=Object.keys(event).some(key=>key==="scene.camera"||key.startsWith("scene.camera."));
  if(!changed)return;
- const fromEvent=copyCamera(event["scene.camera"]);
- if(fromEvent){sceneCamera=fromEvent;return;}
- captureCamera();
+ const next=copyCamera(event["scene.camera"])||captureCamera();
+ if(sceneDragMode==="pan")orbitCenter={...next.center};
+ else if(orbitCenter)next.center={...orbitCenter};
+ sceneCamera=next;
+ updateAxisGizmo(next);
 }
 function zoomCamera(factor){
  if(!(factor>0))return Promise.resolve();
@@ -426,25 +429,42 @@ function zoomCamera(factor){
  return Plotly.relayout(el("farfield"),{"scene.camera":next});
 }
 const dot=(a,b)=>a.reduce((sum,v,i)=>sum+v*b[i],0);
-function axisDragDirection(camera,axis){
+const WORLD_AXES={x:[1,0,0],y:[0,1,0],z:[0,0,1]};
+function cameraBasis(camera){
  const eye=[camera.eye.x,camera.eye.y,camera.eye.z];
  const view=magnitude(eye)>1e-6?normalize(eye):normalize([1,1,1]);
  let right=cross([0,0,1],view);
  if(magnitude(right)<1e-3)right=[1,0,0];
  right=normalize(right);
- const screenUp=normalize(cross(view,right));
- const world={x:[1,0,0],y:[0,1,0],z:[0,0,1]}[axis];
- if(!world)return [0,-1];
- const px=dot(world,right),py=-dot(world,screenUp);
- const length=Math.hypot(px,py);
- // Looking straight down an axis: use vertical drag as a fallback.
- return length<.06?[0,-1]:[px/length,py/length];
+ return {view,right,screenUp:normalize(cross(view,right))};
+}
+function projectWorldAxis(camera,axis){
+ const basis=cameraBasis(camera),world=WORLD_AXES[axis];
+ if(!world)return {x:0,y:-1,depth:0};
+ return {x:dot(world,basis.right),y:-dot(world,basis.screenUp),depth:dot(world,basis.view)};
+}
+function axisDragDirection(camera,axis){
+ const p=projectWorldAxis(camera,axis),length=Math.hypot(p.x,p.y);
+ return length<.06?[0,-1]:[p.x/length,p.y/length];
+}
+function updateAxisGizmo(camera=sceneCamera||DEFAULT_CAMERA){
+ if(!camera||!el("viewAxes"))return;
+ for(const axis of ["x","y","z"]){
+  const p=projectWorldAxis(camera,axis),length=Math.hypot(p.x,p.y);
+  const x=72+(length<.12?(axis==="x"?-8:axis==="y"?8:0):p.x*47);
+  const y=70+(length<.12?0:p.y*47);
+  const line=el("axisLine"+axis.toUpperCase());
+  line.setAttribute("x2",String(x));line.setAttribute("y2",String(y));
+  line.setAttribute("opacity",p.depth<-.1?".57":"1");
+  const grip=el("viewAxes").querySelector('[data-pan-axis="'+axis+'"]');
+  grip.style.left=x+"px";grip.style.top=(y+24)+"px";
+  grip.style.zIndex=String(Math.round((p.depth+1)*10)+10);
+  grip.title="World "+axis.toUpperCase()+" · hold and drag to pan";
+ }
 }
 function axisPanAmount(camera,axis,dx,dy,viewPixels){
  const [sx,sy]=axisDragDirection(camera,axis);
  const projected=dx*sx+dy*sy;
- // Camera center coordinates are normalized scene units, NOT millimeters.
- // Keep a typical 100px drag under about one camera-center unit.
  const eyeDistance=magnitude(Object.values(camera.eye));
  const scaleFactor=Math.max(.6,Math.min(3,eyeDistance));
  return -projected*1.6*scaleFactor/Math.max(160,viewPixels);
@@ -462,6 +482,7 @@ function setupAxisPan(){
   };
   const queue=next=>{
    frameCamera=next;sceneCamera=next;
+   orbitCenter={...next.center};
    if(!framePending){framePending=true;requestAnimationFrame(apply);}
   };
   button.addEventListener("pointerdown",event=>{
@@ -525,6 +546,7 @@ async function renderScene(){
     el("farfield").on("plotly_relayout",rememberCamera);
     cameraEventsBound=true;
    }
+   updateAxisGizmo(captureCamera());
   }while(sceneDirty);
  }finally{
   sceneRendering=false;
@@ -547,9 +569,10 @@ async function changeCameraTool(next){
   btn.classList.toggle("active",selected);
   btn.setAttribute("aria-pressed",String(selected));
  }
- // Persist the live camera, then update *only* the interaction mode.
- // Reapplying a stale scene.camera here caused view jumps on Pan/Orbit switches.
- captureCamera();
+ // Persist the live camera with the panned target as the orbit pivot.
+ const camera=captureCamera();
+ orbitCenter={...camera.center};
+ updateAxisGizmo(camera);
  if(el("farfield")._fullLayout)
   await Plotly.relayout(el("farfield"),{"scene.dragmode":next});
 }
@@ -559,6 +582,8 @@ async function resetCamera(){
   center:{...DEFAULT_CAMERA.center},
   eye:{...DEFAULT_CAMERA.eye}
  };
+ orbitCenter={...sceneCamera.center};
+ updateAxisGizmo(sceneCamera);
  if(el("farfield")._fullLayout)
   await Plotly.relayout("farfield",{"scene.camera":sceneCamera});
 }
@@ -659,6 +684,8 @@ async function renderRun(){
   // A different antenna should be framed initially from the default camera;
   // frequency changes and plane edits retain the existing view.
   sceneCamera=null;
+  orbitCenter=null;
+  updateAxisGizmo(DEFAULT_CAMERA);
   cachedField=null;
   resetIncrementalSliders();
   el("mesh").textContent=Number(active.mesh_total_cells).toLocaleString()+" cells";
