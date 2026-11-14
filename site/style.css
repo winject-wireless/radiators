@@ -60,3 +60,10 @@ button{cursor:pointer}
  .planar-plot{min-height:0}
  .s11-plot,.vswr-plot{min-height:0}
 }
+
+/* 2D plot has zoom controls only; orientation and translations remain in 6-DOF panel. */
+.planar-tools{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.planar-tools #eff{margin-right:6px}
+.planar-tools button{min-width:27px;height:24px;border:1px solid #385270;border-radius:5px;background:#1b3651;color:#d1e1f8;font-size:12px;line-height:1;padding:2px 6px}
+.planar-tools button:hover,.planar-tools button:focus-visible{background:#24527b}
+.planar-tools button:disabled{opacity:.4;cursor:default}
