@@ -154,7 +154,10 @@ def install_geometry(material, g):
             raise ValueError("box.start must be <= box.stop")
         verts,faces=box_data(a,b)
         world=transformed(verts,g)
-        if not faces or np.allclose(g.get("transform",{}).get("rotate_deg",[0,0,0]),0):
+        rotated = not np.allclose(g.get("transform",{}).get("rotate_deg",[0,0,0]),0)
+        if not faces and rotated:
+            raise ValueError("Rotated zero-thickness boxes are unsupported: use a 3D box or a mesh")
+        if not rotated:
             aa=transformed([a],g)[0]
             bb=transformed([b],g)[0]
             # A shifted zero-thickness box is still represented natively.
