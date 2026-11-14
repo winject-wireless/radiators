@@ -20,7 +20,6 @@
     <button class="active" data-mode="combined" type="button">Both</button>
     <button data-mode="geometry" type="button">Geometry</button>
     <button data-mode="radiation" type="button">Pattern</button>
-    <button data-mode="planar" type="button">Planar</button>
   </div>
   <label class="smallcheck"><input type="checkbox" id="showGeometry" checked>Geometry</label>
   <label class="smallcheck"><input type="checkbox" id="showRadiation" checked>Radiation</label>
@@ -28,36 +27,79 @@
 </nav>
 <main class="workspace">
   <section class="viewport panel">
-    <div class="panel-heading"><h2>3D view · Geometry + radiation</h2><span id="peak">—</span></div>
-    <div id="farfield" class="scene" aria-label="Interactive 3D geometry and radiation pattern"></div>
-    <div class="scene-foot"><span>Orbit · Pan · Zoom</span><span>Amber: cutting plane · Yellow: intersection with radiation surface (display-scaled)</span></div>
+    <div class="panel-heading scene-heading">
+      <h2>3D view · Geometry + radiation</h2>
+      <div class="scene-actions" role="group" aria-label="3D camera controls">
+        <button type="button" id="orbitView" class="active" aria-pressed="true" title="Rotate around the model; Z stays vertical">Orbit</button>
+        <button type="button" id="panView" aria-pressed="false" title="Move the camera target without changing orientation">Pan</button>
+        <button type="button" id="resetView" title="Reset 3D camera position and zoom">Reset view</button>
+      </div>
+      <div class="scene-metrics"><span id="peak">—</span><span id="eff">—</span></div>
+    </div>
+    <div id="farfield" class="scene" aria-label="Interactive 3D geometry, radiation pattern and continuous plane intersection"></div>
+    <div class="scene-foot"><span>Drag: Orbit / Pan · Wheel: Zoom</span><span><i class="key-plane"></i>Plane <i class="key-section"></i>Continuous intersection · Display-scaled surface</span></div>
   </section>
 
   <section class="slice-control panel">
     <div class="panel-heading">
-      <h2>2D cut controls <span class="subtle">· 6-DOF</span></h2>
-      <div class="preset-actions" role="group" aria-label="Plane orientation presets">
-        <button class="preset" type="button" data-plane="xy">XY</button>
-        <button class="preset" type="button" data-plane="xz">XZ</button>
-        <button class="preset" type="button" data-plane="yz">YZ</button>
-        <button id="poseReset" type="button">Reset</button>
+      <h2>Plane controls <span class="subtle">· 6-DOF</span></h2>
+      <button id="poseReset" class="pose-reset" type="button">Reset plane</button>
+    </div>
+    <div class="plane-presets" role="group" aria-label="Plane view presets">
+      <span>View preset</span>
+      <div class="preset-actions">
+        <button class="preset active" type="button" data-plane="xy" aria-pressed="true">XY</button>
+        <button class="preset" type="button" data-plane="xz" aria-pressed="false">XZ</button>
+        <button class="preset" type="button" data-plane="yz" aria-pressed="false">YZ</button>
       </div>
     </div>
-    <div class="pose-fields">
-      <label>X <input id="px" type="number" value="0" step="1" aria-label="Plane X position"><small>mm</small></label>
-      <label>Y <input id="py" type="number" value="0" step="1" aria-label="Plane Y position"><small>mm</small></label>
-      <label>Z <input id="pz" type="number" value="0" step="1" aria-label="Plane Z position"><small>mm</small></label>
-      <label>Roll <input id="roll" type="number" value="0" step="5" aria-label="Plane roll"><small>°</small></label>
-      <label>Pitch <input id="pitch" type="number" value="0" step="5" aria-label="Plane pitch"><small>°</small></label>
-      <label>Yaw <input id="yaw" type="number" value="0" step="5" aria-label="Plane yaw"><small>°</small></label>
+    <fieldset class="plane-group">
+      <legend>Position <span>mm</span></legend>
+      <div class="pose-row">
+        <label for="px">X</label>
+        <input id="pxSlider" type="range" min="-100" max="100" step="0.25" value="0" aria-label="Plane X position slider">
+        <input id="px" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane X position in millimetres" autocomplete="off" spellcheck="false">
+        <span class="pose-unit">mm</span>
+      </div>
+      <div class="pose-row">
+        <label for="py">Y</label>
+        <input id="pySlider" type="range" min="-100" max="100" step="0.25" value="0" aria-label="Plane Y position slider">
+        <input id="py" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Y position in millimetres" autocomplete="off" spellcheck="false">
+        <span class="pose-unit">mm</span>
+      </div>
+      <div class="pose-row">
+        <label for="pz">Z</label>
+        <input id="pzSlider" type="range" min="-100" max="100" step="0.25" value="0" aria-label="Plane Z position slider">
+        <input id="pz" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Z position in millimetres" autocomplete="off" spellcheck="false">
+        <span class="pose-unit">mm</span>
+      </div>
+    </fieldset>
+    <fieldset class="plane-group">
+      <legend>Rotation <span>degrees</span></legend>
+      <div class="pose-row">
+        <label for="roll">Roll</label>
+        <input id="rollSlider" type="range" min="-180" max="180" step="0.5" value="0" aria-label="Plane roll slider">
+        <input id="roll" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane roll in degrees" autocomplete="off" spellcheck="false">
+        <span class="pose-unit">°</span>
+      </div>
+      <div class="pose-row">
+        <label for="pitch">Pitch</label>
+        <input id="pitchSlider" type="range" min="-180" max="180" step="0.5" value="0" aria-label="Plane pitch slider">
+        <input id="pitch" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane pitch in degrees" autocomplete="off" spellcheck="false">
+        <span class="pose-unit">°</span>
+      </div>
+      <div class="pose-row">
+        <label for="yaw">Yaw</label>
+        <input id="yawSlider" type="range" min="-180" max="180" step="0.5" value="0" aria-label="Plane yaw slider">
+        <input id="yaw" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane yaw in degrees" autocomplete="off" spellcheck="false">
+        <span class="pose-unit">°</span>
+      </div>
+    </fieldset>
+    <div class="plane-helper">
+      <span>Slider increments: ±0.25 mm / ±0.5°</span>
+      <span>Signed manual values, e.g. −12.50 or +3.25</span>
+      <span>Arrow keys fine-adjust a focused slider</span>
     </div>
-    <p class="control-note">Translation moves the display plane; orientation changes the far-field angular cut.</p>
-  </section>
-
-  <section class="planar-panel panel">
-    <div class="panel-heading"><h2>2D radiation pattern</h2><div class="planar-tools" role="group" aria-label="2D plot zoom controls"><span id="eff">—</span><button id="planarZoomIn" type="button" title="Zoom in" aria-label="Zoom in 2D plot">+</button><button id="planarZoomOut" type="button" title="Zoom out" aria-label="Zoom out 2D plot">−</button><button id="planarZoomReset" type="button" title="Reset zoom" aria-label="Reset 2D plot zoom">1:1</button></div></div>
-    <div id="planarPlot" class="planar-plot"></div>
-    <div class="panel-foot"><span id="planeAxes">+X horizontal · +Y vertical</span><span>Normalized power · Hover for dBi</span></div>
   </section>
 
   <section class="s11-panel panel">
