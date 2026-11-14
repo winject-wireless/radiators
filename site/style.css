@@ -17,26 +17,38 @@ button{cursor:pointer}
 .view-tabs button.active{background:#176b89;color:#fff}
 .smallcheck{white-space:nowrap;color:#bfcede;font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer}
 .smallcheck input{accent-color:#20bad8;width:13px;height:13px}
-.workspace{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(345px,1fr);grid-template-areas:"scene controls" "scene planar" "s11 vswr";grid-template-rows:108px minmax(360px,1fr) 245px;gap:10px;padding:11px;max-width:1900px;margin:auto;min-height:calc(100vh - 117px)}
+.workspace{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(340px,1fr);grid-template-areas:"scene plane" "s11 vswr";grid-template-rows:minmax(510px,1fr) 245px;gap:10px;padding:11px;max-width:1900px;margin:auto;min-height:calc(100vh - 117px)}
 .panel{border:1px solid #293d59;background:#101c2e;border-radius:9px;overflow:hidden;min-width:0}
 .panel-heading{display:flex;justify-content:space-between;align-items:center;min-height:36px;padding:7px 12px;border-bottom:1px solid #27384f;gap:10px}
 .panel-heading h2{font-size:12px;margin:0;font-weight:650}
 .panel-heading span,.subtle{font-size:10px;color:#9bb2cf;white-space:nowrap}
 .viewport{grid-area:scene;display:flex;flex-direction:column;min-height:0}
 .scene{flex:1;min-height:0;height:100%;width:100%}
-.scene-foot,.panel-foot{display:flex;gap:12px;justify-content:space-between;color:#819bb7;font-size:10px;padding:7px 10px;border-top:1px solid #293d59}
-.slice-control{grid-area:controls;display:flex;flex-direction:column;min-height:0}
-.preset-actions{display:flex;align-items:center;gap:5px}
-.preset-actions button{border:1px solid #385270;color:#d1e1f8;background:#1b3651;border-radius:5px;padding:3px 7px;font-size:10px}
-.preset-actions button:hover,.preset-actions button:focus-visible{background:#24527b}
-.pose-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,25px);gap:5px 8px;padding:7px 10px}
-.pose-fields label{display:flex;align-items:center;gap:5px;color:#bad0e8;font-size:10px;min-width:0}
-.pose-fields input{min-width:0;width:100%;height:24px;background:#0b172a;color:#e8f2ff;border:1px solid #375470;border-radius:5px;padding:2px 4px}
-.pose-fields small{color:#879fbb}
-.control-note{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.planar-panel{grid-area:planar;display:flex;flex-direction:column;min-height:0}
-.planar-plot{flex:1;min-height:0;height:100%;width:100%}
-.planar-panel .panel-foot{flex:none}
+.scene-heading{flex-wrap:wrap;column-gap:10px;row-gap:5px}
+.scene-actions{display:flex;gap:4px;align-items:center}
+.scene-actions button,.pose-reset,.preset-actions button{border:1px solid #385270;color:#d1e1f8;background:#1b3651;border-radius:5px;padding:4px 8px;font-size:11px}
+.scene-actions button.active,.preset-actions button.active{background:#176b89;border-color:#3f8dac;color:#fff}
+.scene-actions button:hover,.pose-reset:hover,.preset-actions button:hover{background:#24527b}
+.scene-actions button:focus-visible,.pose-reset:focus-visible,.preset-actions button:focus-visible,.pose-number:focus-visible{outline:2px solid #58bedf;outline-offset:2px}
+.scene-metrics{display:flex;flex-wrap:wrap;gap:6px}
+.scene-foot{display:flex;gap:12px;justify-content:space-between;color:#91aeca;font-size:10px;padding:7px 10px;border-top:1px solid #293d59;flex-wrap:wrap}
+.key-plane,.key-section{display:inline-block;width:18px;height:3px;vertical-align:middle;margin:0 4px;background:#f6b45c}
+.key-section{height:4px;background:#fdf09b;box-shadow:0 0 6px #f7e7a3}
+.slice-control{grid-area:plane;display:flex;flex-direction:column;min-height:0}
+.plane-presets{padding:12px 13px 9px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #293d59}
+.plane-presets>span{color:#9eb7d3;font-size:11px}
+.preset-actions{display:flex;gap:6px}
+.preset-actions button{min-width:36px}
+.plane-group{border:0;border-bottom:1px solid #293d59;margin:0;padding:13px 12px 12px;min-width:0}
+.plane-group legend{font-weight:650;font-size:11px;color:#d9e8f8;padding:0 4px}
+.plane-group legend span{font-weight:400;font-size:10px;color:#91aeca}
+.pose-row{display:grid;grid-template-columns:37px minmax(0,1fr) 72px 18px;align-items:center;column-gap:8px;min-height:47px}
+.pose-row>label{font-size:11px;font-weight:600;color:#cddded}
+.pose-row input[type=range]{width:100%;min-width:0;height:20px;accent-color:#59c9df;cursor:ew-resize}
+.pose-number{width:100%;min-width:0;height:29px;background:#0b172a;border:1px solid #375470;color:#e8f2ff;border-radius:5px;padding:4px 5px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums}
+.pose-number[aria-invalid=true]{border-color:#f29090}
+.pose-unit{font-size:10px;color:#91aeca}
+.plane-helper{display:flex;flex-direction:column;gap:6px;color:#90a8c3;font-size:10px;line-height:1.5;margin:12px;padding:10px;border:1px dashed #324a68;border-radius:6px}
 .s11-panel{grid-area:s11;display:flex;flex-direction:column}
 .vswr-panel{grid-area:vswr;display:flex;flex-direction:column}
 .s11-plot,.vswr-plot{flex:1;height:205px;min-height:180px}
@@ -45,29 +57,22 @@ button{cursor:pointer}
 .configuration pre{font-size:11px;white-space:pre-wrap;word-break:break-word;max-height:400px;overflow:auto}
 .configuration p{font-size:11px;color:#94abc7}
 @media(max-width:980px){
- .workspace{grid-template-columns:minmax(0,1fr) minmax(290px,.85fr);grid-template-rows:108px minmax(360px,1fr) 230px}
- .scene{min-height:0}
+ .workspace{grid-template-columns:minmax(0,1fr) minmax(290px,.85fr);grid-template-rows:minmax(480px,1fr) 230px}
+ .pose-row{grid-template-columns:33px minmax(0,1fr) 71px 17px;gap:5px}
+ .plane-group{padding:10px 7px}
+ .scene-heading h2{flex-basis:100%}
 }
 @media(max-width:700px){
  .topbar{height:40px;padding:0 10px}
  .controls{gap:6px;padding:7px}
  .controls select{max-width:155px;min-width:90px}
  .view-tabs button{padding:5px 8px}
- .workspace{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"scene" "controls" "planar" "s11" "vswr";grid-template-rows:390px auto 330px 245px 220px;gap:7px;padding:7px;min-height:0}
+ .workspace{grid-template-columns:minmax(0,1fr);grid-template-areas:"scene" "plane" "s11" "vswr";grid-template-rows:390px auto 245px 220px;gap:7px;padding:7px;min-height:0}
  .scene{min-height:0}
- .pose-fields{grid-template-columns:repeat(3,minmax(0,1fr))}
- .scene-foot{gap:2px;flex-wrap:wrap}
- .planar-plot{min-height:0}
+ .scene-heading h2{flex-basis:auto}
+ .slice-control{min-height:0}
+ .scene-foot{gap:3px}
+ .plane-group{padding:12px 11px}
+ .plane-helper{margin:10px}
  .s11-plot,.vswr-plot{min-height:0}
 }
-
-/* 2D plot has zoom controls only; orientation and translations remain in 6-DOF panel. */
-.planar-tools{display:flex;align-items:center;gap:5px;white-space:nowrap}
-.planar-tools #eff{margin-right:6px}
-.planar-tools button{min-width:27px;height:24px;border:1px solid #385270;border-radius:5px;background:#1b3651;color:#d1e1f8;font-size:12px;line-height:1;padding:2px 6px}
-.planar-tools button:hover,.planar-tools button:focus-visible{background:#24527b}
-.planar-tools button:disabled{opacity:.4;cursor:default}
-
-/* Axis legend for 2D plane, including narrow displays. */
-.planar-panel .panel-foot{flex-wrap:wrap;row-gap:2px}
-#planeAxes{color:#c2dcf2}
