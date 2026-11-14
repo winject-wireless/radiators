@@ -91,19 +91,19 @@
       <fieldset class="plane-group">
         <legend>Rotation <span>degrees</span></legend>
         <div class="pose-row">
-          <label for="roll">Roll</label>
-          <input id="rollSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog Plane roll in degrees in powers of two" aria-valuetext="0 °" title="Increment Roll by ±1 / ±2 / ±4 / ±8 °">
-          <input id="roll" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane roll in degrees" autocomplete="off" spellcheck="false">
+          <label for="roll" title="Roll around X axis">X</label>
+          <input id="rollSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog plane rotation about X (roll) in degrees, power-of-two increments" aria-valuetext="0 °" title="Rotate around X (roll) by ±1 / ±2 / ±4 / ±8 °">
+          <input id="roll" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane X-axis rotation (roll) in degrees" autocomplete="off" spellcheck="false">
         </div>
         <div class="pose-row">
-          <label for="pitch">Pitch</label>
-          <input id="pitchSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog Plane pitch in degrees in powers of two" aria-valuetext="0 °" title="Increment Pitch by ±1 / ±2 / ±4 / ±8 °">
-          <input id="pitch" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane pitch in degrees" autocomplete="off" spellcheck="false">
+          <label for="pitch" title="Pitch around Y axis">Y</label>
+          <input id="pitchSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog plane rotation about Y (pitch) in degrees, power-of-two increments" aria-valuetext="0 °" title="Rotate around Y (pitch) by ±1 / ±2 / ±4 / ±8 °">
+          <input id="pitch" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Y-axis rotation (pitch) in degrees" autocomplete="off" spellcheck="false">
         </div>
         <div class="pose-row">
-          <label for="yaw">Yaw</label>
-          <input id="yawSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog Plane yaw in degrees in powers of two" aria-valuetext="0 °" title="Increment Yaw by ±1 / ±2 / ±4 / ±8 °">
-          <input id="yaw" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane yaw in degrees" autocomplete="off" spellcheck="false">
+          <label for="yaw" title="Yaw around Z axis">Z</label>
+          <input id="yawSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog plane rotation about Z (yaw) in degrees, power-of-two increments" aria-valuetext="0 °" title="Rotate around Z (yaw) by ±1 / ±2 / ±4 / ±8 °">
+          <input id="yaw" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Z-axis rotation (yaw) in degrees" autocomplete="off" spellcheck="false">
         </div>
       </fieldset>
     </div>
@@ -114,10 +114,7 @@
       <option value="2" label="+2"></option><option value="3" label="+4"></option>
       <option value="4" label="+8"></option>
     </datalist>
-    <div class="plane-helper">
-      <span>Logarithmic jog steps: ±1 · ±2 · ±4 · ±8 (mm or degrees).</span>
-      <span>Release to recenter; the signed decimal value remains.</span>
-    </div>
+    <p class="plane-helper">Jog ±1 · ±2 · ±4 · ±8 · release to center · type signed decimals</p>
   </section>
 
   <section class="s11-panel panel">
