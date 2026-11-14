@@ -104,7 +104,7 @@ def add_port(fdtd, props, material_defs, s):
     raise ValueError(f"Unsupported port type {kind!r}")
 
 
-def setup_mesh(mesh, cfg, geometry_bounds, source_bounds, domain_start, domain_stop):
+def setup_mesh(mesh, cfg, geometry_bounds, source_bounds, geometry_previews, port_definitions, domain_start, domain_stop):
     mesh_cfg=cfg["mesh"]
     resolution=positive(mesh_cfg.get("resolution_mm",mesh_cfg.get("max_cell_mm",5)),"mesh max_cell_mm")
     growth=float(mesh_cfg.get("growth_ratio",1.4))
@@ -118,6 +118,29 @@ def setup_mesh(mesh, cfg, geometry_bounds, source_bounds, domain_start, domain_s
             for value in (lo[i],hi[i]):
                 if domain_start[i]<value<domain_stop[i]:
                     mesh.AddLine(axis,float(value))
+
+    # Insert exact cylinder/port end planes, not only their inflated
+    # bounding boxes. Otherwise a thin ground disk may disappear into the mesh.
+    def add_point_planes(point):
+        for i,axis in enumerate("xyz"):
+            value=float(point[i])
+            if domain_start[i]<value<domain_stop[i]:
+                mesh.AddLine(axis,value)
+    for preview in geometry_previews:
+        if "start" in preview:
+            add_point_planes(preview["start"])
+            add_point_planes(preview["stop"])
+        elif "center" in preview:
+            add_point_planes(preview["center"])
+        elif "points" in preview:
+            points=preview["points"]
+            # Avoid adding every helix vertex: thousands of almost
+            # coincident lines would explode the grid.
+            add_point_planes(points[0])
+            add_point_planes(points[-1])
+    for port in port_definitions:
+        add_point_planes(port["start"])
+        add_point_planes(port["stop"])
 
     local_step=mesh_cfg.get("local_min_cell_mm")
     if local_step is not None:
@@ -217,7 +240,7 @@ def output_data(config, resultdir):
         require(np.all(lo>=dstart) and np.all(hi<=dstop),"Port must fit within domain")
         port_bounds.append((lo,hi))
 
-    counts,cells=setup_mesh(mesh,config,geometry_bounds,port_bounds,dstart,dstop)
+    counts,cells=setup_mesh(mesh,config,geometry_bounds,port_bounds,previews,configured_ports,dstart,dstop)
     ports={int(s.get("id",s.get("port_number",1))):add_port(fdtd,props,material_defs,s)
            for s in configured_ports}
     driven=active[0]
