@@ -17,56 +17,63 @@
   <label class="compact-label">Antenna <select id="run" aria-label="Simulation"></select></label>
   <label class="compact-label">Frequency <select id="freq" aria-label="Radiation frequency"></select></label>
   <div class="view-tabs" role="group" aria-label="3D viewer mode">
-    <button class="active" data-mode="combined">Both</button>
-    <button data-mode="geometry">Geometry</button>
-    <button data-mode="radiation">Pattern</button>
-    <button data-mode="planar">Planar</button>
+    <button class="active" data-mode="combined" type="button">Both</button>
+    <button data-mode="geometry" type="button">Geometry</button>
+    <button data-mode="radiation" type="button">Pattern</button>
+    <button data-mode="planar" type="button">Planar</button>
   </div>
   <label class="smallcheck"><input type="checkbox" id="showGeometry" checked>Geometry</label>
   <label class="smallcheck"><input type="checkbox" id="showRadiation" checked>Radiation</label>
   <label class="smallcheck"><input type="checkbox" id="showPlane" checked>Plane</label>
-  <details class="pose-control" id="posePanel">
-    <summary>6-DOF <span class="caret">▾</span></summary>
-    <div class="pose-popover">
-      <div class="pose-title"><strong>Cutting plane pose</strong><button id="poseReset" type="button">Reset</button></div>
-      <div class="pose-fields">
-        <label>X <input id="px" type="number" value="0" step="1"> <small>mm</small></label>
-        <label>Y <input id="py" type="number" value="0" step="1"> <small>mm</small></label>
-        <label>Z <input id="pz" type="number" value="0" step="1"> <small>mm</small></label>
-        <label>Roll <input id="roll" type="number" value="0" step="5"> <small>°</small></label>
-        <label>Pitch <input id="pitch" type="number" value="0" step="5"> <small>°</small></label>
-        <label>Yaw <input id="yaw" type="number" value="0" step="5"> <small>°</small></label>
-      </div>
-      <p>Orientation controls the far-field angular cut. Position moves the plane overlay only (not the radiation data).</p>
-    </div>
-  </details>
 </nav>
 <main class="workspace">
   <section class="viewport panel">
-    <div class="panel-heading"><h2>Geometry + 3D radiation</h2><span id="peak">—</span></div>
+    <div class="panel-heading"><h2>3D view · Geometry + radiation</h2><span id="peak">—</span></div>
     <div id="farfield" class="scene" aria-label="Interactive 3D geometry and radiation pattern"></div>
-    <div class="scene-foot"><span>Orbit · Pan · Zoom</span><span>Pattern radius is display-scaled, not a physical distance</span></div>
+    <div class="scene-foot"><span>Orbit · Pan · Zoom</span><span>Radiation radius is display-scaled</span></div>
   </section>
-  <aside class="analysis">
-    <section class="panel planar-panel">
-      <div class="panel-heading"><h2>Planar radiation cut</h2><span id="eff">—</span></div>
-      <div id="planarPlot" class="planar-plot"></div>
-      <p class="helper">Polar radius: normalized power · hover for directivity (dBi)</p>
-    </section>
-    <section class="panel">
-      <div class="panel-heading"><h2>S11 · log magnitude + phase</h2><span>Dual Y-axis</span></div>
-      <div id="s11Plot" class="s11-plot"></div>
-    </section>
-    <section class="panel vswr-panel">
-      <div class="panel-heading"><h2>VSWR</h2><span id="mesh">—</span></div>
-      <div id="vswrPlot" class="vswr-plot"></div>
-    </section>
-  </aside>
+
+  <section class="slice-control panel">
+    <div class="panel-heading">
+      <h2>2D cut controls <span class="subtle">· 6-DOF</span></h2>
+      <div class="preset-actions" role="group" aria-label="Plane orientation presets">
+        <button class="preset" type="button" data-plane="xy">XY</button>
+        <button class="preset" type="button" data-plane="xz">XZ</button>
+        <button class="preset" type="button" data-plane="yz">YZ</button>
+        <button id="poseReset" type="button">Reset</button>
+      </div>
+    </div>
+    <div class="pose-fields">
+      <label>X <input id="px" type="number" value="0" step="1" aria-label="Plane X position"><small>mm</small></label>
+      <label>Y <input id="py" type="number" value="0" step="1" aria-label="Plane Y position"><small>mm</small></label>
+      <label>Z <input id="pz" type="number" value="0" step="1" aria-label="Plane Z position"><small>mm</small></label>
+      <label>Roll <input id="roll" type="number" value="0" step="5" aria-label="Plane roll"><small>°</small></label>
+      <label>Pitch <input id="pitch" type="number" value="0" step="5" aria-label="Plane pitch"><small>°</small></label>
+      <label>Yaw <input id="yaw" type="number" value="0" step="5" aria-label="Plane yaw"><small>°</small></label>
+    </div>
+    <p class="control-note">Translation moves the display plane; orientation changes the far-field angular cut.</p>
+  </section>
+
+  <section class="planar-panel panel">
+    <div class="panel-heading"><h2>2D radiation pattern</h2><span id="eff">—</span></div>
+    <div id="planarPlot" class="planar-plot"></div>
+    <div class="panel-foot">Polar radius: normalized power · hover for dBi</div>
+  </section>
+
+  <section class="s11-panel panel">
+    <div class="panel-heading"><h2>S11 · Log magnitude + phase</h2><span>Left dB / Right °</span></div>
+    <div id="s11Plot" class="s11-plot"></div>
+  </section>
+
+  <section class="vswr-panel panel">
+    <div class="panel-heading"><h2>VSWR</h2><span id="mesh">—</span></div>
+    <div id="vswrPlot" class="vswr-plot"></div>
+  </section>
 </main>
 <details class="configuration">
   <summary>Simulation configuration &amp; notes</summary>
   <pre id="config"></pre>
-  <p>Colors indicate directivity in dBi, not realized gain. Verify feed design, boundary conditions, and mesh convergence independently.</p>
+  <p>Colors indicate directivity in dBi, not realized gain. Verify feed design, boundaries, and mesh convergence independently.</p>
 </details>
 </body>
 </html>
