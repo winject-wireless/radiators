@@ -1,0 +1,2344 @@
+{
+  "schema_version": 2,
+  "name": "fr4-4x4-inset-patch-array-2p45ghz-v1",
+  "description": "Unoptimized 4x4 single-polarization microstrip patch array, 2.4–2.5 GHz design intent; lossy FR4 and 35-um copper sheets; matched corporate H-tree with a 50-ohm lumped SMA approximation. Far-field gain and S11 NOT YET VERIFIED.",
+  "units": "mm",
+  "domain": {
+    "start": [
+      -200,
+      -210,
+      -95
+    ],
+    "stop": [
+      200,
+      200,
+      100
+    ],
+    "boundary": [
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8"
+    ]
+  },
+  "mesh": {
+    "max_cell_mm": 3.5,
+    "growth_ratio": 1.35,
+    "max_cells": 8000000,
+    "refinements": [
+      {
+        "start": [
+          -111.5684,
+          -132.5692,
+          -0.2
+        ],
+        "stop": [
+          -104.4316,
+          -121.5692,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          -39.5684,
+          -132.5692,
+          -0.2
+        ],
+        "stop": [
+          -32.4316,
+          -121.5692,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          32.4316,
+          -132.5692,
+          -0.2
+        ],
+        "stop": [
+          39.5684,
+          -121.5692,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          104.4316,
+          -132.5692,
+          -0.2
+        ],
+        "stop": [
+          111.5684,
+          -121.5692,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          -111.5684,
+          -54.5692,
+          -0.2
+        ],
+        "stop": [
+          -104.4316,
+          -43.5692,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          -39.5684,
+          -54.5692,
+          -0.2
+        ],
+        "stop": [
+          -32.4316,
+          -43.5692,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          32.4316,
+          -54.5692,
+          -0.2
+        ],
+        "stop": [
+          39.5684,
+          -43.5692,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          104.4316,
+          -54.5692,
+          -0.2
+        ],
+        "stop": [
+          111.5684,
+          -43.5692,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          -111.5684,
+          23.4308,
+          -0.2
+        ],
+        "stop": [
+          -104.4316,
+          34.4308,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          -39.5684,
+          23.4308,
+          -0.2
+        ],
+        "stop": [
+          -32.4316,
+          34.4308,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          32.4316,
+          23.4308,
+          -0.2
+        ],
+        "stop": [
+          39.5684,
+          34.4308,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          104.4316,
+          23.4308,
+          -0.2
+        ],
+        "stop": [
+          111.5684,
+          34.4308,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          -111.5684,
+          101.4308,
+          -0.2
+        ],
+        "stop": [
+          -104.4316,
+          112.4308,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          -39.5684,
+          101.4308,
+          -0.2
+        ],
+        "stop": [
+          -32.4316,
+          112.4308,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          32.4316,
+          101.4308,
+          -0.2
+        ],
+        "stop": [
+          39.5684,
+          112.4308,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      },
+      {
+        "start": [
+          104.4316,
+          101.4308,
+          -0.2
+        ],
+        "stop": [
+          111.5684,
+          112.4308,
+          1.8
+        ],
+        "resolution_mm": 0.5
+      }
+    ]
+  },
+  "solver": {
+    "max_timesteps": 30000,
+    "end_criteria": 0.0001,
+    "resources": {
+      "cpus": 2,
+      "memory_gib": 10
+    }
+  },
+  "excitation": {
+    "center_hz": 2450000000,
+    "bandwidth_hz": 300000000
+  },
+  "materials": [
+    {
+      "name": "fr4",
+      "type": "dielectric",
+      "epsilon": 4.3,
+      "kappa_s_per_m": 0.011721768
+    },
+    {
+      "name": "copper",
+      "type": "conducting_sheet",
+      "conductivity_s_per_m": 58000000,
+      "thickness_m": 0.000035
+    }
+  ],
+  "geometry": [
+    {
+      "name": "fr4-1p6mm",
+      "shape": "box",
+      "material": "fr4",
+      "priority": 1,
+      "start": [
+        -140,
+        -149,
+        0
+      ],
+      "stop": [
+        140,
+        140,
+        1.6
+      ]
+    },
+    {
+      "name": "full-bottom-ground",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -140,
+        -149,
+        0
+      ],
+      "stop": [
+        140,
+        140,
+        0
+      ]
+    },
+    {
+      "name": "patch-r1c1-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -126.7919,
+        -122.5692,
+        1.6
+      ],
+      "stop": [
+        -89.2081,
+        -102.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c1-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -126.7919,
+        -131.5692,
+        1.6
+      ],
+      "stop": [
+        -110.5684,
+        -122.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c1-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -105.4316,
+        -131.5692,
+        1.6
+      ],
+      "stop": [
+        -89.2081,
+        -122.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c1-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -109.5684,
+        -137,
+        1.6
+      ],
+      "stop": [
+        -106.4316,
+        -122.2692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c2-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.7919,
+        -122.5692,
+        1.6
+      ],
+      "stop": [
+        -17.2081,
+        -102.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c2-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.7919,
+        -131.5692,
+        1.6
+      ],
+      "stop": [
+        -38.5684,
+        -122.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c2-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -33.4316,
+        -131.5692,
+        1.6
+      ],
+      "stop": [
+        -17.2081,
+        -122.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c2-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -37.5684,
+        -137,
+        1.6
+      ],
+      "stop": [
+        -34.4316,
+        -122.2692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c3-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        17.2081,
+        -122.5692,
+        1.6
+      ],
+      "stop": [
+        54.7919,
+        -102.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c3-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        17.2081,
+        -131.5692,
+        1.6
+      ],
+      "stop": [
+        33.4316,
+        -122.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c3-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        38.5684,
+        -131.5692,
+        1.6
+      ],
+      "stop": [
+        54.7919,
+        -122.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c3-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        34.4316,
+        -137,
+        1.6
+      ],
+      "stop": [
+        37.5684,
+        -122.2692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c4-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.2081,
+        -122.5692,
+        1.6
+      ],
+      "stop": [
+        126.7919,
+        -102.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c4-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.2081,
+        -131.5692,
+        1.6
+      ],
+      "stop": [
+        105.4316,
+        -122.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c4-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        110.5684,
+        -131.5692,
+        1.6
+      ],
+      "stop": [
+        126.7919,
+        -122.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r1c4-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        106.4316,
+        -137,
+        1.6
+      ],
+      "stop": [
+        109.5684,
+        -122.2692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c1-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -126.7919,
+        -44.5692,
+        1.6
+      ],
+      "stop": [
+        -89.2081,
+        -24.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c1-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -126.7919,
+        -53.5692,
+        1.6
+      ],
+      "stop": [
+        -110.5684,
+        -44.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c1-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -105.4316,
+        -53.5692,
+        1.6
+      ],
+      "stop": [
+        -89.2081,
+        -44.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c1-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -109.5684,
+        -59,
+        1.6
+      ],
+      "stop": [
+        -106.4316,
+        -44.2692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c2-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.7919,
+        -44.5692,
+        1.6
+      ],
+      "stop": [
+        -17.2081,
+        -24.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c2-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.7919,
+        -53.5692,
+        1.6
+      ],
+      "stop": [
+        -38.5684,
+        -44.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c2-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -33.4316,
+        -53.5692,
+        1.6
+      ],
+      "stop": [
+        -17.2081,
+        -44.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c2-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -37.5684,
+        -59,
+        1.6
+      ],
+      "stop": [
+        -34.4316,
+        -44.2692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c3-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        17.2081,
+        -44.5692,
+        1.6
+      ],
+      "stop": [
+        54.7919,
+        -24.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c3-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        17.2081,
+        -53.5692,
+        1.6
+      ],
+      "stop": [
+        33.4316,
+        -44.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c3-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        38.5684,
+        -53.5692,
+        1.6
+      ],
+      "stop": [
+        54.7919,
+        -44.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c3-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        34.4316,
+        -59,
+        1.6
+      ],
+      "stop": [
+        37.5684,
+        -44.2692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c4-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.2081,
+        -44.5692,
+        1.6
+      ],
+      "stop": [
+        126.7919,
+        -24.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c4-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.2081,
+        -53.5692,
+        1.6
+      ],
+      "stop": [
+        105.4316,
+        -44.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c4-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        110.5684,
+        -53.5692,
+        1.6
+      ],
+      "stop": [
+        126.7919,
+        -44.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r2c4-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        106.4316,
+        -59,
+        1.6
+      ],
+      "stop": [
+        109.5684,
+        -44.2692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c1-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -126.7919,
+        33.4308,
+        1.6
+      ],
+      "stop": [
+        -89.2081,
+        53.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c1-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -126.7919,
+        24.4308,
+        1.6
+      ],
+      "stop": [
+        -110.5684,
+        33.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c1-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -105.4316,
+        24.4308,
+        1.6
+      ],
+      "stop": [
+        -89.2081,
+        33.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c1-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -109.5684,
+        19,
+        1.6
+      ],
+      "stop": [
+        -106.4316,
+        33.7308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c2-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.7919,
+        33.4308,
+        1.6
+      ],
+      "stop": [
+        -17.2081,
+        53.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c2-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.7919,
+        24.4308,
+        1.6
+      ],
+      "stop": [
+        -38.5684,
+        33.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c2-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -33.4316,
+        24.4308,
+        1.6
+      ],
+      "stop": [
+        -17.2081,
+        33.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c2-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -37.5684,
+        19,
+        1.6
+      ],
+      "stop": [
+        -34.4316,
+        33.7308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c3-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        17.2081,
+        33.4308,
+        1.6
+      ],
+      "stop": [
+        54.7919,
+        53.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c3-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        17.2081,
+        24.4308,
+        1.6
+      ],
+      "stop": [
+        33.4316,
+        33.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c3-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        38.5684,
+        24.4308,
+        1.6
+      ],
+      "stop": [
+        54.7919,
+        33.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c3-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        34.4316,
+        19,
+        1.6
+      ],
+      "stop": [
+        37.5684,
+        33.7308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c4-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.2081,
+        33.4308,
+        1.6
+      ],
+      "stop": [
+        126.7919,
+        53.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c4-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.2081,
+        24.4308,
+        1.6
+      ],
+      "stop": [
+        105.4316,
+        33.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c4-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        110.5684,
+        24.4308,
+        1.6
+      ],
+      "stop": [
+        126.7919,
+        33.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r3c4-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        106.4316,
+        19,
+        1.6
+      ],
+      "stop": [
+        109.5684,
+        33.7308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c1-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -126.7919,
+        111.4308,
+        1.6
+      ],
+      "stop": [
+        -89.2081,
+        131.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c1-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -126.7919,
+        102.4308,
+        1.6
+      ],
+      "stop": [
+        -110.5684,
+        111.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c1-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -105.4316,
+        102.4308,
+        1.6
+      ],
+      "stop": [
+        -89.2081,
+        111.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c1-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -109.5684,
+        97,
+        1.6
+      ],
+      "stop": [
+        -106.4316,
+        111.7308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c2-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.7919,
+        111.4308,
+        1.6
+      ],
+      "stop": [
+        -17.2081,
+        131.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c2-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.7919,
+        102.4308,
+        1.6
+      ],
+      "stop": [
+        -38.5684,
+        111.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c2-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -33.4316,
+        102.4308,
+        1.6
+      ],
+      "stop": [
+        -17.2081,
+        111.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c2-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -37.5684,
+        97,
+        1.6
+      ],
+      "stop": [
+        -34.4316,
+        111.7308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c3-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        17.2081,
+        111.4308,
+        1.6
+      ],
+      "stop": [
+        54.7919,
+        131.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c3-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        17.2081,
+        102.4308,
+        1.6
+      ],
+      "stop": [
+        33.4316,
+        111.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c3-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        38.5684,
+        102.4308,
+        1.6
+      ],
+      "stop": [
+        54.7919,
+        111.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c3-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        34.4316,
+        97,
+        1.6
+      ],
+      "stop": [
+        37.5684,
+        111.7308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c4-body",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.2081,
+        111.4308,
+        1.6
+      ],
+      "stop": [
+        126.7919,
+        131.5692,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c4-left-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.2081,
+        102.4308,
+        1.6
+      ],
+      "stop": [
+        105.4316,
+        111.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c4-right-tab",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        110.5684,
+        102.4308,
+        1.6
+      ],
+      "stop": [
+        126.7919,
+        111.4308,
+        1.6
+      ]
+    },
+    {
+      "name": "patch-r4c4-inset-feed",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        106.4316,
+        97,
+        1.6
+      ],
+      "stop": [
+        109.5684,
+        111.7308,
+        1.6
+      ]
+    },
+    {
+      "name": "row1-half1-col1-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -89.3382,
+        -137.8206,
+        1.6
+      ],
+      "stop": [
+        -72,
+        -136.1794,
+        1.6
+      ]
+    },
+    {
+      "name": "row1-half1-col1-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -108,
+        -138.5684,
+        1.6
+      ],
+      "stop": [
+        -89.3382,
+        -135.4316,
+        1.6
+      ]
+    },
+    {
+      "name": "row1-half1-col2-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -72,
+        -137.8206,
+        1.6
+      ],
+      "stop": [
+        -54.6618,
+        -136.1794,
+        1.6
+      ]
+    },
+    {
+      "name": "row1-half1-col2-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.6618,
+        -138.5684,
+        1.6
+      ],
+      "stop": [
+        -36,
+        -135.4316,
+        1.6
+      ]
+    },
+    {
+      "name": "row1-half2-col3-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        54.6618,
+        -137.8206,
+        1.6
+      ],
+      "stop": [
+        72,
+        -136.1794,
+        1.6
+      ]
+    },
+    {
+      "name": "row1-half2-col3-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        36,
+        -138.5684,
+        1.6
+      ],
+      "stop": [
+        54.6618,
+        -135.4316,
+        1.6
+      ]
+    },
+    {
+      "name": "row1-half2-col4-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        72,
+        -137.8206,
+        1.6
+      ],
+      "stop": [
+        89.3382,
+        -136.1794,
+        1.6
+      ]
+    },
+    {
+      "name": "row1-half2-col4-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.3382,
+        -138.5684,
+        1.6
+      ],
+      "stop": [
+        108,
+        -135.4316,
+        1.6
+      ]
+    },
+    {
+      "name": "row2-half1-col1-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -89.3382,
+        -59.8206,
+        1.6
+      ],
+      "stop": [
+        -72,
+        -58.1794,
+        1.6
+      ]
+    },
+    {
+      "name": "row2-half1-col1-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -108,
+        -60.5684,
+        1.6
+      ],
+      "stop": [
+        -89.3382,
+        -57.4316,
+        1.6
+      ]
+    },
+    {
+      "name": "row2-half1-col2-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -72,
+        -59.8206,
+        1.6
+      ],
+      "stop": [
+        -54.6618,
+        -58.1794,
+        1.6
+      ]
+    },
+    {
+      "name": "row2-half1-col2-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.6618,
+        -60.5684,
+        1.6
+      ],
+      "stop": [
+        -36,
+        -57.4316,
+        1.6
+      ]
+    },
+    {
+      "name": "row2-half2-col3-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        54.6618,
+        -59.8206,
+        1.6
+      ],
+      "stop": [
+        72,
+        -58.1794,
+        1.6
+      ]
+    },
+    {
+      "name": "row2-half2-col3-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        36,
+        -60.5684,
+        1.6
+      ],
+      "stop": [
+        54.6618,
+        -57.4316,
+        1.6
+      ]
+    },
+    {
+      "name": "row2-half2-col4-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        72,
+        -59.8206,
+        1.6
+      ],
+      "stop": [
+        89.3382,
+        -58.1794,
+        1.6
+      ]
+    },
+    {
+      "name": "row2-half2-col4-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.3382,
+        -60.5684,
+        1.6
+      ],
+      "stop": [
+        108,
+        -57.4316,
+        1.6
+      ]
+    },
+    {
+      "name": "row3-half1-col1-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -89.3382,
+        18.1794,
+        1.6
+      ],
+      "stop": [
+        -72,
+        19.8206,
+        1.6
+      ]
+    },
+    {
+      "name": "row3-half1-col1-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -108,
+        17.4316,
+        1.6
+      ],
+      "stop": [
+        -89.3382,
+        20.5684,
+        1.6
+      ]
+    },
+    {
+      "name": "row3-half1-col2-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -72,
+        18.1794,
+        1.6
+      ],
+      "stop": [
+        -54.6618,
+        19.8206,
+        1.6
+      ]
+    },
+    {
+      "name": "row3-half1-col2-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.6618,
+        17.4316,
+        1.6
+      ],
+      "stop": [
+        -36,
+        20.5684,
+        1.6
+      ]
+    },
+    {
+      "name": "row3-half2-col3-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        54.6618,
+        18.1794,
+        1.6
+      ],
+      "stop": [
+        72,
+        19.8206,
+        1.6
+      ]
+    },
+    {
+      "name": "row3-half2-col3-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        36,
+        17.4316,
+        1.6
+      ],
+      "stop": [
+        54.6618,
+        20.5684,
+        1.6
+      ]
+    },
+    {
+      "name": "row3-half2-col4-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        72,
+        18.1794,
+        1.6
+      ],
+      "stop": [
+        89.3382,
+        19.8206,
+        1.6
+      ]
+    },
+    {
+      "name": "row3-half2-col4-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.3382,
+        17.4316,
+        1.6
+      ],
+      "stop": [
+        108,
+        20.5684,
+        1.6
+      ]
+    },
+    {
+      "name": "row4-half1-col1-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -89.3382,
+        96.1794,
+        1.6
+      ],
+      "stop": [
+        -72,
+        97.8206,
+        1.6
+      ]
+    },
+    {
+      "name": "row4-half1-col1-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -108,
+        95.4316,
+        1.6
+      ],
+      "stop": [
+        -89.3382,
+        98.5684,
+        1.6
+      ]
+    },
+    {
+      "name": "row4-half1-col2-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -72,
+        96.1794,
+        1.6
+      ],
+      "stop": [
+        -54.6618,
+        97.8206,
+        1.6
+      ]
+    },
+    {
+      "name": "row4-half1-col2-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -54.6618,
+        95.4316,
+        1.6
+      ],
+      "stop": [
+        -36,
+        98.5684,
+        1.6
+      ]
+    },
+    {
+      "name": "row4-half2-col3-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        54.6618,
+        96.1794,
+        1.6
+      ],
+      "stop": [
+        72,
+        97.8206,
+        1.6
+      ]
+    },
+    {
+      "name": "row4-half2-col3-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        36,
+        95.4316,
+        1.6
+      ],
+      "stop": [
+        54.6618,
+        98.5684,
+        1.6
+      ]
+    },
+    {
+      "name": "row4-half2-col4-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        72,
+        96.1794,
+        1.6
+      ],
+      "stop": [
+        89.3382,
+        97.8206,
+        1.6
+      ]
+    },
+    {
+      "name": "row4-half2-col4-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        89.3382,
+        95.4316,
+        1.6
+      ],
+      "stop": [
+        108,
+        98.5684,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r1c1-row1-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -72.8206,
+        -115.3382,
+        1.6
+      ],
+      "stop": [
+        -71.1794,
+        -98,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r1c1-row1-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -73.5684,
+        -137,
+        1.6
+      ],
+      "stop": [
+        -70.4316,
+        -115.3382,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r1c1-row2-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -72.8206,
+        -98,
+        1.6
+      ],
+      "stop": [
+        -71.1794,
+        -80.6618,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r1c1-row2-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -73.5684,
+        -80.6618,
+        1.6
+      ],
+      "stop": [
+        -70.4316,
+        -59,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r2c1-row3-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -72.8206,
+        40.6618,
+        1.6
+      ],
+      "stop": [
+        -71.1794,
+        58,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r2c1-row3-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -73.5684,
+        19,
+        1.6
+      ],
+      "stop": [
+        -70.4316,
+        40.6618,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r2c1-row4-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -72.8206,
+        58,
+        1.6
+      ],
+      "stop": [
+        -71.1794,
+        75.3382,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r2c1-row4-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -73.5684,
+        75.3382,
+        1.6
+      ],
+      "stop": [
+        -70.4316,
+        97,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r1c2-row1-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        71.1794,
+        -115.3382,
+        1.6
+      ],
+      "stop": [
+        72.8206,
+        -98,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r1c2-row1-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        70.4316,
+        -137,
+        1.6
+      ],
+      "stop": [
+        73.5684,
+        -115.3382,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r1c2-row2-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        71.1794,
+        -98,
+        1.6
+      ],
+      "stop": [
+        72.8206,
+        -80.6618,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r1c2-row2-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        70.4316,
+        -80.6618,
+        1.6
+      ],
+      "stop": [
+        73.5684,
+        -59,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r2c2-row3-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        71.1794,
+        40.6618,
+        1.6
+      ],
+      "stop": [
+        72.8206,
+        58,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r2c2-row3-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        70.4316,
+        19,
+        1.6
+      ],
+      "stop": [
+        73.5684,
+        40.6618,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r2c2-row4-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        71.1794,
+        58,
+        1.6
+      ],
+      "stop": [
+        72.8206,
+        75.3382,
+        1.6
+      ]
+    },
+    {
+      "name": "quadrant-r2c2-row4-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        70.4316,
+        75.3382,
+        1.6
+      ],
+      "stop": [
+        73.5684,
+        97,
+        1.6
+      ]
+    },
+    {
+      "name": "group1-half1-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -17.3382,
+        -98.8206,
+        1.6
+      ],
+      "stop": [
+        0,
+        -97.1794,
+        1.6
+      ]
+    },
+    {
+      "name": "group1-half1-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -72,
+        -99.5684,
+        1.6
+      ],
+      "stop": [
+        -17.3382,
+        -96.4316,
+        1.6
+      ]
+    },
+    {
+      "name": "group1-half2-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        0,
+        -98.8206,
+        1.6
+      ],
+      "stop": [
+        17.3382,
+        -97.1794,
+        1.6
+      ]
+    },
+    {
+      "name": "group1-half2-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        17.3382,
+        -99.5684,
+        1.6
+      ],
+      "stop": [
+        72,
+        -96.4316,
+        1.6
+      ]
+    },
+    {
+      "name": "group2-half1-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -17.3382,
+        57.1794,
+        1.6
+      ],
+      "stop": [
+        0,
+        58.8206,
+        1.6
+      ]
+    },
+    {
+      "name": "group2-half1-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -72,
+        56.4316,
+        1.6
+      ],
+      "stop": [
+        -17.3382,
+        59.5684,
+        1.6
+      ]
+    },
+    {
+      "name": "group2-half2-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        0,
+        57.1794,
+        1.6
+      ],
+      "stop": [
+        17.3382,
+        58.8206,
+        1.6
+      ]
+    },
+    {
+      "name": "group2-half2-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        17.3382,
+        56.4316,
+        1.6
+      ],
+      "stop": [
+        72,
+        59.5684,
+        1.6
+      ]
+    },
+    {
+      "name": "root-group1-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -0.8206,
+        -37.3382,
+        1.6
+      ],
+      "stop": [
+        0.8206,
+        -20,
+        1.6
+      ]
+    },
+    {
+      "name": "root-group1-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -1.5684,
+        -98,
+        1.6
+      ],
+      "stop": [
+        1.5684,
+        -37.3382,
+        1.6
+      ]
+    },
+    {
+      "name": "root-group2-70ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -0.8206,
+        -20,
+        1.6
+      ],
+      "stop": [
+        0.8206,
+        -2.6618,
+        1.6
+      ]
+    },
+    {
+      "name": "root-group2-50ohm",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -1.5684,
+        -2.6618,
+        1.6
+      ],
+      "stop": [
+        1.5684,
+        58,
+        1.6
+      ]
+    },
+    {
+      "name": "input-solder-pad",
+      "material": "copper",
+      "shape": "box",
+      "priority": 10,
+      "start": [
+        -2,
+        -22,
+        1.6
+      ],
+      "stop": [
+        2,
+        -18,
+        1.6
+      ]
+    }
+  ],
+  "ports": [
+    {
+      "id": 1,
+      "name": "sma-feed-50ohm",
+      "type": "lumped",
+      "start": [
+        0,
+        -20,
+        0
+      ],
+      "stop": [
+        0,
+        -20,
+        1.6
+      ],
+      "direction": "z",
+      "impedance_ohm": 50,
+      "excite": true
+    }
+  ],
+  "outputs": {
+    "s11": [
+      {
+        "start": 2350000000,
+        "step": 5000000,
+        "end": 2550000000
+      }
+    ],
+    "radiation_frequencies_hz": [
+      2400000000,
+      2425000000,
+      2450000000,
+      2475000000,
+      2500000000
+    ],
+    "include_impedance": true,
+    "include_polarization": true,
+    "include_realized_gain": true,
+    "radiation_grid": {
+      "theta_step_deg": 5,
+      "phi_step_deg": 5
+    }
+  }
+}
