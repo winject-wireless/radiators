@@ -9,7 +9,7 @@ const DEFAULT_CAMERA={up:{x:0,y:0,z:1},center:{x:0,y:0,z:0},eye:{x:1.55,y:1.55,z
 let sceneCamera=null,cameraEventsBound=false;
 // Single authoritative camera orbit target. Zoom, wheel and orbit never write it.
 let orbitCenter={...DEFAULT_CAMERA.center};
-let zoomSequence=Promise.resolve();
+let zoomEye=null; // Last requested zoom eye; avoids delayed WebGL state reversing zoom.
 let activePanAxis=null;
 let selectedRunVersion=0;
 let selectedPatternVersion=0;
@@ -390,8 +390,12 @@ function planeTraces(){
 // The Plotly camera center is dimensionless scene space. Use the SAME
 // display-space normalization for axis panning, the reticle and its readout.
 function cameraTargetMm(){
- const r=radiatingScale(),center=orbitCenter||DEFAULT_CAMERA.center;
- return ["x","y","z"].map(axis=>Number(center[axis]||0)*r);
+ // Plotly's camera.center is a dimensionless point in the plot domain,
+ // not a location in antenna millimetres. A cube with ±sceneHalfExtent()
+ // maps normalized half-width 0.5 to the positive data range endpoint.
+ const center=orbitCenter||DEFAULT_CAMERA.center;
+ const millimetresPerDomainUnit=2*sceneHalfExtent();
+ return ["x","y","z"].map(axis=>Number(center[axis]||0)*millimetresPerDomainUnit);
 }
 function panPlaneName(axis){return {x:"YZ",y:"XZ",z:"XY"}[axis]||"—";}
 // Fade the 1px axis to the edges of the visible cube. Plotly's WebGL
@@ -443,14 +447,9 @@ function panAxisTraces(){
   showlegend:false});
  return traces;
 }
-function centerPointTrace(){
- const p=cameraTargetMm();
- return {type:"scatter3d",name:"Camera center",mode:"markers",
-  x:[p[0]],y:[p[1]],z:[p[2]],
-  marker:{color:"#c7fbff",size:5,symbol:"circle"},
-  hovertemplate:"Camera center (mm)<br>X=%{x:.2f}, Y=%{y:.2f}, Z=%{z:.2f}<extra></extra>",
-  showlegend:false};
-}
+// The sampling marker is the fixed HTML view-center reticle. It must NEVER
+// be a scatter3d marker calculated from antenna coordinates: Plotly camera
+// centering, perspective and scene padding can move such a marker off-screen.
 function sceneTraces(){
  const geom=el("showGeometry").checked,rad=el("showRadiation").checked,plane=el("showPlane").checked;
  const traces=[];
@@ -465,7 +464,7 @@ function sceneTraces(){
    traces.push(...patternPlaneIntersection(grid,p.position,p.angles));
   }
  }
- traces.push(centerPointTrace(),...panAxisTraces());
+ traces.push(...panAxisTraces());
  return traces;
 }
 // Plotly's _fullLayout.scene.camera can lag the live WebGL camera
@@ -568,23 +567,31 @@ function updatePanStatus(){
 }
 function zoomCamera(factor){
  if(!(factor>0))return Promise.resolve();
- // Serialize wheel/toolbar zooms so each step uses the preceding eye.
- zoomSequence=zoomSequence.catch(()=>{}).then(async()=>{
-  const camera=captureCamera();
-  const distance=magnitude(Object.values(camera.eye));
-  const target=Math.max(.30,Math.min(15,distance*factor));
-  const next={...camera,center:{...orbitCenter},eye:Object.fromEntries(
-   Object.entries(camera.eye).map(([axis,value])=>[axis,value*target/(distance||1)]))};
-  sceneCamera=next;
-  if(el("farfield")._fullLayout)
-   await Plotly.relayout(el("farfield"),{"scene.camera":next});
-  // Zoom moves the eye only. Sampling target and world-space center remain
-  // invariant, regardless of Plotly's camera normalization.
-  updateAxisGizmo(next);
-  updateCenterStats(next);
-  updatePanStatus();
+ const graph=el("farfield");
+ if(!graph?._fullLayout)return Promise.resolve();
+ const camera=captureCamera();
+ // Distances are held in Plotly domain units; use the last requested eye
+ // when several wheel/button zooms arrive before the WebGL redraw completes.
+ const source=zoomEye||camera.eye;
+ const distance=Math.hypot(source.x,source.y,source.z);
+ const desired=Math.max(.28,Math.min(30,distance*factor));
+ if(Math.abs(desired-distance)<1e-8)return Promise.resolve();
+ const ratio=desired/(distance||1);
+ const eye={x:source.x*ratio,y:source.y*ratio,z:source.z*ratio};
+ zoomEye=eye;
+ sceneCamera={...camera,center:{...orbitCenter},eye};
+ // Critical: patch ONLY the eye. Setting scene.camera (eye+center) forces
+ // Plotly to re-compute the pivot and caused the zoom/center regressions.
+ // Avoid a blocking promise queue: a delayed WebGL relayout must not
+ // prevent the next zoom gesture from being processed.
+ const pending=Plotly.relayout(graph,{"scene.camera.eye":eye});
+ Promise.resolve(pending).catch(error=>{
+  console.error("Zoom update failed",error);
+  status("Zoom failed: "+error.message);
  });
- return zoomSequence;
+ updateAxisGizmo(sceneCamera);
+ updateCenterStats(sceneCamera);
+ return pending;
 }
 const dot=(a,b)=>a.reduce((sum,v,i)=>sum+v*b[i],0);
 const WORLD_AXES={x:[1,0,0],y:[0,1,0],z:[0,0,1]};
@@ -723,7 +730,9 @@ async function renderScene(){
    sceneDirty=false;
    // Synchronize with the live WebGL view before any data or plane redraw.
    // Avoid accidentally restoring a stale, pre-pan camera.
-   if(sceneCamera!==null)captureCamera();
+   // Keep the last requested camera. Reading a stale GL camera during an
+   // asynchronous zoom must not override scene.camera.eye.
+   if(!sceneCamera)sceneCamera=copyCamera(DEFAULT_CAMERA);
    await Plotly.react("farfield",sceneTraces(),
     {...PALETTE,margin:{l:0,r:0,t:0,b:0},showlegend:false,
      uirevision:"z-up-camera-preserved-v5",
@@ -739,7 +748,7 @@ async function renderScene(){
     el("farfield").on("plotly_relayout",rememberCamera);
     cameraEventsBound=true;
    }
-   const camera=captureCamera();
+   const camera=zoomEye?copyCamera(sceneCamera):captureCamera();
    updateAxisGizmo(camera);
    updateCenterStats(camera);
    updatePanStatus();
@@ -765,6 +774,7 @@ async function resetCamera(){
   eye:{...DEFAULT_CAMERA.eye}
  };
  orbitCenter={...sceneCamera.center};
+ zoomEye=null;
  updateAxisGizmo(sceneCamera);
  updateCenterStats(sceneCamera);
  updatePanStatus();
@@ -1019,7 +1029,7 @@ async function renderRun(){
   if(!Array.isArray(result.patterns)||!result.patterns.length)
    throw Error("Simulation has no frequency patterns");
   active=result;field=null;
-  sceneCamera=null;orbitCenter={...DEFAULT_CAMERA.center};activePanAxis=null;cachedField=null;
+  sceneCamera=null;orbitCenter={...DEFAULT_CAMERA.center};zoomEye=null;activePanAxis=null;cachedField=null;
   updatePanStatus();updateAxisGizmo(DEFAULT_CAMERA);resetIncrementalSliders();
   el("mesh").textContent=Number(active.mesh_total_cells).toLocaleString()+" cells";
   el("config").textContent=JSON.stringify(active.input_config,null,2);
@@ -1077,13 +1087,14 @@ function setTimeoutResize(){
  // WebGL updates its live camera throughout pointer drags, but Plotly's
  // relayout event may be deferred until mouseup. Keep the axis triad live.
  const graph=el("farfield");
+ graph.addEventListener("pointerdown",()=>{zoomEye=null;},{passive:true});
  let gizmoFramePending=false;
  const refreshGizmo=()=>{
   if(gizmoFramePending)return;
   gizmoFramePending=true;
   requestAnimationFrame(()=>{
    gizmoFramePending=false;
-   if(graph._fullLayout)updateAxisGizmo(captureCamera());
+   if(graph._fullLayout&&!zoomEye)updateAxisGizmo(captureCamera());
   });
  };
  for(const eventName of ["pointermove","mousemove","pointerup","mouseup"])
