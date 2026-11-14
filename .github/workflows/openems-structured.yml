@@ -28,11 +28,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build solver
         run: docker build --progress=plain -t radiators-openems:ci -f docker/openems/Dockerfile .
-      - name: Run example antenna simulation
+      - name: Run all configured antenna simulations
         run: |
           mkdir -p results
-          docker run --rm --cpus=2 --memory=6g -v "$PWD:/work" radiators-openems:ci \
-            python antennas/simulate.py antennas/example_monopole.json --output results/example_monopole
+          shopt -s nullglob
+          configs=(antennas/*.json)
+          if (( ${#configs[@]} == 0 )); then echo "No antenna configs found"; exit 1; fi
+          for cfg in "${configs[@]}"; do
+            name="$(basename "${cfg%.json}")"
+            echo "Simulating $cfg"
+            docker run --rm --cpus=2 --memory=6g -v "$PWD:/work" radiators-openems:ci \
+              python antennas/simulate.py "$cfg" --output "results/$name"
+          done
       - name: Build static result viewer
         run: python3 site/build_site.py --results results --site site/dist
       - uses: actions/upload-artifact@v4
