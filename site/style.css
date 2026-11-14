@@ -39,16 +39,20 @@ button{cursor:pointer}
 .plane-presets>span{color:#9eb7d3;font-size:11px}
 .preset-actions{display:flex;gap:6px}
 .preset-actions button{min-width:36px}
-.plane-group{border:0;border-bottom:1px solid #293d59;margin:0;padding:13px 12px 12px;min-width:0}
+.plane-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;min-width:0}
+.plane-group{border:0;margin:0;padding:12px 11px 14px;min-width:0}
+.plane-group+ .plane-group{border-left:1px solid #293d59}
 .plane-group legend{font-weight:650;font-size:11px;color:#d9e8f8;padding:0 4px}
 .plane-group legend span{font-weight:400;font-size:10px;color:#91aeca}
-.pose-row{display:grid;grid-template-columns:37px minmax(0,1fr) 72px 18px;align-items:center;column-gap:8px;min-height:47px}
+.pose-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:5px;row-gap:6px;min-height:75px;padding:6px 0;border-bottom:1px solid #22344e}
+.pose-row:last-child{border-bottom:0}
 .pose-row>label{font-size:11px;font-weight:600;color:#cddded}
-.pose-row input[type=range]{width:100%;min-width:0;height:20px;accent-color:#59c9df;cursor:ew-resize}
-.pose-number{width:100%;min-width:0;height:29px;background:#0b172a;border:1px solid #375470;color:#e8f2ff;border-radius:5px;padding:4px 5px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums}
+.pose-value{display:flex;align-items:center;justify-content:end;gap:3px;min-width:0}
+.pose-row input[type=range]{grid-column:1 / -1;width:100%;min-width:0;margin:2px 0 0;height:22px;accent-color:#59c9df;cursor:ew-resize;touch-action:pan-y}
+.pose-number{width:74px;min-width:0;height:29px;background:#0b172a;border:1px solid #375470;color:#e8f2ff;border-radius:5px;padding:4px 5px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums}
 .pose-number[aria-invalid=true]{border-color:#f29090}
-.pose-unit{font-size:10px;color:#91aeca}
-.plane-helper{display:flex;flex-direction:column;gap:6px;color:#90a8c3;font-size:10px;line-height:1.5;margin:12px;padding:10px;border:1px dashed #324a68;border-radius:6px}
+.pose-unit{min-width:18px;text-align:right;font-size:10px;color:#91aeca}
+.plane-helper{display:flex;flex-direction:column;gap:5px;color:#90a8c3;font-size:10px;line-height:1.5;margin:6px 12px 12px;padding:10px;border:1px dashed #324a68;border-radius:6px}
 .s11-panel{grid-area:s11;display:flex;flex-direction:column}
 .vswr-panel{grid-area:vswr;display:flex;flex-direction:column}
 .s11-plot,.vswr-plot{flex:1;height:205px;min-height:180px}
@@ -58,8 +62,8 @@ button{cursor:pointer}
 .configuration p{font-size:11px;color:#94abc7}
 @media(max-width:980px){
  .workspace{grid-template-columns:minmax(0,1fr) minmax(290px,.85fr);grid-template-rows:minmax(480px,1fr) 230px}
- .pose-row{grid-template-columns:33px minmax(0,1fr) 71px 17px;gap:5px}
  .plane-group{padding:10px 7px}
+ .pose-number{width:68px}
  .scene-heading h2{flex-basis:100%}
 }
 @media(max-width:700px){
@@ -72,7 +76,8 @@ button{cursor:pointer}
  .scene-heading h2{flex-basis:auto}
  .slice-control{min-height:0}
  .scene-foot{gap:3px}
- .plane-group{padding:12px 11px}
+ .plane-group{padding:12px 8px}
+ .pose-number{width:72px}
  .plane-helper{margin:10px}
  .s11-plot,.vswr-plot{min-height:0}
 }
