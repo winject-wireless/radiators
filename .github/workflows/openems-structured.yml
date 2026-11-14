@@ -86,7 +86,8 @@ jobs:
           python3 scripts/run_simulations.py --list changed-antennas.txt --results results \
             --cpus-per-job 2 --memory-gib-per-job 5 --reserve-memory-gib 2
       - name: Restore prior published results for unchanged antennas
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # PRs changing only the viewer still need the published simulation data
+        # so the same viewer and intersection checks can execute in CI.
         run: python3 site/restore_published.py --site-url https://winject-wireless.github.io/radiators/ --results results
       - name: Build and verify complete static result viewer
         env:
