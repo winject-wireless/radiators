@@ -325,22 +325,6 @@ function stitchSectionSegments(segments,tolerance){
  for(let i=0;i<edges.length;i++)if(!used.has(i))walk(edges[i][0],i);
  return contours;
 }
-function smoothSectionContour(points,epsilon){
- if(points.length<3)return points;
- const closed=magnitude(points[0].map((v,k)=>v-points[points.length-1][k]))<epsilon;
- const original=closed?points.slice(0,-1):points;
- if(original.length<3)return points;
- // One Chaikin pass rounds mesh facets without splitting the 3D polyline.
- const smooth=[];
- if(!closed)smooth.push(original[0]);
- const count=closed?original.length:original.length-1;
- for(let i=0;i<count;i++){
-  const a=original[i],b=original[(i+1)%original.length];
-  smooth.push(a.map((v,k)=>.75*v+.25*b[k]),a.map((v,k)=>.25*v+.75*b[k]));
- }
- if(closed)smooth.push(smooth[0]);else smooth.push(original[original.length-1]);
- return smooth;
-}
 function patternPlaneIntersection(grid,position,angles){
  const rows=grid.vertices;
  if(rows.length<2||rows[0].length<3)return [];
@@ -360,20 +344,23 @@ function patternPlaneIntersection(grid,position,angles){
  if(!segments.length)return [];
  const contours=stitchSectionSegments(segments,epsilon*8);
  const x=[],y=[],z=[];
+ // The curve already follows the sampled triangle/plane intersection.
+ // Chaikin smoothing pulled it inside the radiation mesh, creating stripes.
+ // Lift the original contour very slightly radially to avoid depth fighting,
+ // without changing its topology or introducing camera-dependent offsets.
+ const depthBias=radiatingScale()*.0015;
  for(const points of contours){
   if(points.length<2)continue;
-  // Smoothing is display-only; the original intersections are computed
-  // against the actual sampled radiation surface.
-  const contour=smoothSectionContour(points,epsilon*8);
-  for(const pt of contour){x.push(pt[0]);y.push(pt[1]);z.push(pt[2]);}
+  for(const pt of points){
+   const distance=magnitude(pt);
+   const drawn=distance>epsilon?scale(pt,1+depthBias/distance):pt;
+   x.push(drawn[0]);y.push(drawn[1]);z.push(drawn[2]);
+  }
   x.push(null);y.push(null);z.push(null);
  }
  if(!x.length)return [];
- const base={type:"scatter3d",mode:"lines",x,y,z,hoverinfo:"skip",showlegend:false};
- return [
-  {...base,name:"Section outline",line:{color:"#24304b",width:12}},
-  {...base,name:"Continuous plane intersection",line:{color:"#fff1a1",width:6}}
- ];
+ return [{type:"scatter3d",mode:"lines",name:"Continuous plane intersection",
+  x,y,z,line:{color:"#fff1a1",width:2},hoverinfo:"skip",showlegend:false}];
 }
 function planeTraces(){
  const p=pose(),radius=radiatingScale(),u=rotate([1,0,0],p.angles),v=rotate([0,1,0],p.angles);
