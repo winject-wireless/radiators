@@ -1,0 +1,74 @@
+{
+  "schema_version": 2,
+  "name": "helix-2.45ghz-example",
+  "description": "Illustrative PEC helical antenna with circular ground disk and 50-ohm feed. Results must be converged and validated.",
+  "units": "mm",
+  "domain": {
+    "start": [-115, -115, -100],
+    "stop": [115, 115, 120],
+    "boundary": ["PML_8", "PML_8", "PML_8", "PML_8", "PML_8", "PML_8"]
+  },
+  "mesh": {
+    "max_cell_mm": 5,
+    "local_min_cell_mm": 0.5,
+    "auto_refine_max_span_mm": 40,
+    "growth_ratio": 1.4,
+    "max_cells": 5000000
+  },
+  "solver": {
+    "max_timesteps": 20000,
+    "end_criteria": 0.0001,
+    "resources": {"cpus": 2, "memory_gib": 5}
+  },
+  "excitation": {
+    "center_hz": 2450000000,
+    "bandwidth_hz": 350000000
+  },
+  "materials": [
+    {"name": "pec-metal", "type": "pec"}
+  ],
+  "geometry": [
+    {
+      "name": "ground-disk",
+      "shape": "cylinder",
+      "material": "pec-metal",
+      "start": [0, 0, -0.2],
+      "stop": [0, 0, 0],
+      "radius": 45
+    },
+    {
+      "name": "helical-radiator",
+      "shape": "helix",
+      "material": "pec-metal",
+      "origin": [0, 0, 3],
+      "axis": [0, 0, 1],
+      "diameter": 22,
+      "height": 24,
+      "turns": 4,
+      "wire_diameter": 1.2,
+      "segments_per_turn": 24
+    }
+  ],
+  "ports": [
+    {
+      "id": 1,
+      "name": "feed",
+      "type": "lumped",
+      "start": [11, 0, 0],
+      "stop": [11, 0, 3],
+      "direction": "z",
+      "impedance_ohm": 50,
+      "excite": true
+    }
+  ],
+  "outputs": {
+    "s11": [
+      {"start": 2300000000, "step": 10000000, "end": 2600000000}
+    ],
+    "radiation_frequencies_hz": [2450000000],
+    "include_impedance": true,
+    "include_polarization": true,
+    "include_realized_gain": true,
+    "radiation_grid": {"theta_step_deg": 10, "phi_step_deg": 10}
+  }
+}
