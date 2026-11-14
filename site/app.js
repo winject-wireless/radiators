@@ -23,7 +23,7 @@ const normalize = a=>scale(a,1/(magnitude(a)||1));
 
 function pose(){
  const keys = ["px","py","pz","roll","pitch","yaw"];
- const v = keys.map(k=>Number(el(k).value));
+ const v = keys.map(k=>readPoseNumber(el(k).value)??lastValidPose[k]);
  return {position:v.slice(0,3).map(x=>Number.isFinite(x)?x:0),
          angles:v.slice(3).map(x=>(Number.isFinite(x)?x:0)*DEG)};
 }
