@@ -32,12 +32,22 @@
       <div class="scene-actions" role="group" aria-label="3D camera controls">
         <button type="button" id="orbitView" class="active" aria-pressed="true" title="Rotate around the model; Z stays vertical">Orbit</button>
         <button type="button" id="panView" aria-pressed="false" title="Move the camera target without changing orientation">Pan</button>
+        <button type="button" id="zoomIn" title="Zoom in without changing orientation">Zoom +</button>
+        <button type="button" id="zoomOut" title="Zoom out without changing orientation">Zoom −</button>
         <button type="button" id="resetView" title="Reset 3D camera position and zoom">Reset view</button>
       </div>
       <div class="scene-metrics"><span id="peak">—</span><span id="eff">—</span></div>
     </div>
-    <div id="farfield" class="scene" aria-label="Interactive 3D geometry, radiation pattern and continuous plane intersection"></div>
-    <div class="scene-foot"><span>Drag: Orbit / Pan · Wheel: Zoom</span><span><i class="key-plane"></i>Plane <i class="key-section"></i>Continuous intersection · Display-scaled surface</span></div>
+    <div class="scene-stage">
+      <div id="farfield" class="scene" aria-label="Interactive 3D geometry, radiation pattern and continuous plane intersection"></div>
+      <div class="pan-gizmo" role="group" aria-label="Drag X, Y or Z to pan along that world axis">
+        <span class="gizmo-caption">3-axis pan · drag an axis</span>
+        <button type="button" data-pan-axis="x" title="Press and drag to pan along X">X</button>
+        <button type="button" data-pan-axis="y" title="Press and drag to pan along Y">Y</button>
+        <button type="button" data-pan-axis="z" title="Press and drag to pan along Z">Z</button>
+      </div>
+    </div>
+    <div class="scene-foot"><span>Drag: Orbit / Pan · Axis gizmo: X/Y/Z · Wheel or +/-: Zoom</span><span><i class="key-plane"></i>Plane <i class="key-section"></i>Continuous intersection · Display-scaled surface</span></div>
   </section>
 
   <section class="slice-control panel">
