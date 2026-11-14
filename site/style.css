@@ -81,14 +81,20 @@ button{cursor:pointer}
  .s11-plot,.vswr-plot{min-height:0}
 }
 
-/* Camera pan gizmo is independent of Plotly drag mode and zoom. */
+/* Corner XYZ unit-vector gizmo shares the camera basis and scene legend. */
 .scene-stage{position:relative;flex:1;min-height:0;overflow:hidden}
 .scene-stage .scene{position:absolute;inset:0;width:100%;height:100%}
-.pan-gizmo{position:absolute;bottom:12px;left:12px;display:flex;align-items:center;gap:5px;padding:6px 8px;border:1px solid #36506f;border-radius:7px;background:#0b172ae8;z-index:2}
-.gizmo-caption{font-size:10px;color:#b6cce3;margin-right:3px}
-.pan-gizmo button{width:29px;height:29px;border:1px solid #56708c;border-radius:5px;color:#fff;background:#19344e;font-weight:700;touch-action:none;user-select:none;cursor:grab}
-.pan-gizmo button[data-pan-axis=x]{color:#ff9797}
-.pan-gizmo button[data-pan-axis=y]{color:#9be8a2}
-.pan-gizmo button[data-pan-axis=z]{color:#99c6ff}
-.pan-gizmo button.dragging{background:#276e8d;cursor:grabbing}
-@media(max-width:700px){.gizmo-caption{display:none}.pan-gizmo{bottom:7px;left:7px}}
+.view-axes{position:absolute;left:12px;bottom:12px;width:144px;height:150px;background:rgba(10,22,39,.84);border:1px solid #3c5373;border-radius:9px;z-index:3;box-shadow:0 3px 12px #050e18a8;user-select:none}
+.view-axes-title{height:24px;display:flex;align-items:center;justify-content:space-between;padding:2px 8px;border-bottom:1px solid #283c57;font-weight:800;letter-spacing:.7px;color:#e3ecfa;font-size:10px}
+.view-axes-title span{color:#8baac6;font-size:8px;font-weight:600;letter-spacing:.2px}
+.view-axes-svg{display:block;pointer-events:none;width:144px;height:125px}
+.axis-grip{position:absolute;left:0;top:0;width:25px;height:25px;padding:0;line-height:24px;border:1px solid currentColor;border-radius:50%;background:#15273de5;color:#fff;font:700 12px/23px system-ui,sans-serif;text-align:center;transform:translate(-50%,-50%);cursor:grab;touch-action:none;user-select:none;box-shadow:0 2px 5px #000a}
+.axis-grip[data-pan-axis=x]{color:#f18484}
+.axis-grip[data-pan-axis=y]{color:#78dca5}
+.axis-grip[data-pan-axis=z]{color:#82baff}
+.axis-grip:hover,.axis-grip:focus-visible{outline:2px solid #f1f7ff;outline-offset:2px}
+.axis-grip.dragging{background:#316481;color:white;cursor:grabbing}
+.graph-legend{white-space:normal;display:flex;align-items:center;flex-wrap:wrap;gap:5px}
+.axis-key{display:inline-block;width:11px;height:3px;vertical-align:middle}
+.axis-x{background:#f18484}.axis-y{background:#78dca5}.axis-z{background:#82baff}
+@media(max-width:700px){.view-axes{left:7px;bottom:7px;transform:scale(.82);transform-origin:bottom left}.scene-foot{font-size:9px}}
