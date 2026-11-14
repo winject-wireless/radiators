@@ -223,31 +223,128 @@ function trianglePlaneSegment(triangle,origin,normal,epsilon){
   }
  return best;
 }
+// Cache the radiation surface; sliding a plane should not rebuild the
+// entire far-field mesh on every pointer movement.
+let cachedField=null,cachedGrid=null;
+function cachedPatternGrid(p){
+ if(cachedField!==p){cachedField=p;cachedGrid=patternGrid(p);}
+ return cachedGrid;
+}
+// Join triangle/plane segments into ordered, continuous polylines. Shared
+// triangle edges are deduplicated, including the seam and the theta=90 ring.
+function stitchSectionSegments(segments,tolerance){
+ const nodes=[],adjacency=[],edges=[],buckets=new Map();
+ const cell=point=>point.map(v=>Math.floor(v/tolerance));
+ const bucketKey=idx=>idx.join(",");
+ function nodeFor(point){
+  const c=cell(point);
+  for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(let dz=-1;dz<=1;dz++){
+   for(const i of buckets.get(bucketKey([c[0]+dx,c[1]+dy,c[2]+dz]))||[]){
+    if(magnitude(nodes[i].map((v,k)=>v-point[k]))<=tolerance)return i;
+   }
+  }
+  const id=nodes.length,key=bucketKey(c);
+  nodes.push(point.slice());adjacency.push([]);
+  if(!buckets.has(key))buckets.set(key,[]);
+  buckets.get(key).push(id);
+  return id;
+ }
+ const seen=new Set();
+ for(const [a,b] of segments){
+  const i=nodeFor(a),j=nodeFor(b);
+  if(i===j)continue;
+  const key=i<j?i+","+j:j+","+i;
+  if(seen.has(key))continue;
+  seen.add(key);
+  const id=edges.length;
+  edges.push([i,j]);adjacency[i].push(id);adjacency[j].push(id);
+ }
+ const used=new Set(),contours=[];
+ function walk(start,firstEdge){
+  const path=[start];
+  let current=start,prior=-1,edge=firstEdge;
+  while(edge!==undefined&&!used.has(edge)){
+   used.add(edge);
+   const [a,b]=edges[edge],next=a===current?b:a;
+   path.push(next);
+   if(next===start)break;
+   const choices=adjacency[next].filter(index=>!used.has(index));
+   if(!choices.length)break;
+   // At a high-degree vertex continue in the direction closest to a
+   // straight line, avoiding spurious branches from coplanar triangles.
+   if(choices.length===1)edge=choices[0];
+   else{
+    const travel=nodes[next].map((value,k)=>value-nodes[current][k]);
+    const norm=magnitude(travel)||1;
+    edge=choices.reduce((best,index)=>{
+     const [u,v]=edges[index],other=u===next?v:u;
+     const direction=nodes[other].map((value,k)=>value-nodes[next][k]);
+     const score=direction.reduce((sum,value,k)=>sum+value*travel[k],0)/(norm*(magnitude(direction)||1));
+     return score>best.score?{index,score}:best;
+    },{index:choices[0],score:-Infinity}).index;
+   }
+   prior=current;current=next;
+  }
+  if(path.length>=2)contours.push(path.map(id=>nodes[id]));
+ }
+ // Open paths first; then any remaining closed loops.
+ for(let i=0;i<nodes.length;i++){
+  if(adjacency[i].length!==2){
+   for(const edge of adjacency[i])if(!used.has(edge))walk(i,edge);
+  }
+ }
+ for(let i=0;i<edges.length;i++)if(!used.has(i))walk(edges[i][0],i);
+ return contours;
+}
+function smoothSectionContour(points,epsilon){
+ if(points.length<3)return points;
+ const closed=magnitude(points[0].map((v,k)=>v-points[points.length-1][k]))<epsilon;
+ const original=closed?points.slice(0,-1):points;
+ if(original.length<3)return points;
+ // One Chaikin pass rounds mesh facets without splitting the 3D polyline.
+ const smooth=[];
+ if(!closed)smooth.push(original[0]);
+ const count=closed?original.length:original.length-1;
+ for(let i=0;i<count;i++){
+  const a=original[i],b=original[(i+1)%original.length];
+  smooth.push(a.map((v,k)=>.75*v+.25*b[k]),a.map((v,k)=>.25*v+.75*b[k]));
+ }
+ if(closed)smooth.push(smooth[0]);else smooth.push(original[original.length-1]);
+ return smooth;
+}
 function patternPlaneIntersection(grid,position,angles){
  const rows=grid.vertices;
- if(rows.length<2||rows[0].length<3)return null;
- const normal=rotate([0,0,1],angles);
- const epsilon=Math.max(1e-8,radiatingScale()*1e-7);
- const x=[],y=[],z=[];
+ if(rows.length<2||rows[0].length<3)return [];
+ const normal=rotate([0,0,1],angles),epsilon=Math.max(1e-8,radiatingScale()*1e-7);
+ const segments=[];
  const append=triangle=>{
-  const segment=trianglePlaneSegment(triangle,position,normal,epsilon);
-  if(!segment)return;
-  for(const point of segment){x.push(point[0]);y.push(point[1]);z.push(point[2]);}
-  x.push(null);y.push(null);z.push(null);
+  const section=trianglePlaneSegment(triangle,position,normal,epsilon);
+  if(section)segments.push(section);
  };
  for(let i=0;i<rows.length-1;i++){
   const n=Math.min(rows[i].length,rows[i+1].length);
   for(let j=0;j<n;j++){
-   const next=(j+1)%n;
-   const a=rows[i][j],b=rows[i][next],c=rows[i+1][j],d=rows[i+1][next];
-   append([a,b,c]);
-   append([b,d,c]);
+   const next=(j+1)%n,a=rows[i][j],b=rows[i][next],c=rows[i+1][j],d=rows[i+1][next];
+   append([a,b,c]);append([b,d,c]);
   }
  }
- if(!x.length)return null; // Plane does not cross the pattern surface.
- return {type:"scatter3d",mode:"lines",name:"Plane / radiation intersection",
-  x,y,z,line:{color:"#fff0a6",width:8},
-  hoverinfo:"skip",showlegend:false};
+ if(!segments.length)return [];
+ const contours=stitchSectionSegments(segments,epsilon*8);
+ const x=[],y=[],z=[];
+ for(const points of contours){
+  if(points.length<2)continue;
+  // Smoothing is display-only; the original intersections are computed
+  // against the actual sampled radiation surface.
+  const contour=smoothSectionContour(points,epsilon*8);
+  for(const pt of contour){x.push(pt[0]);y.push(pt[1]);z.push(pt[2]);}
+  x.push(null);y.push(null);z.push(null);
+ }
+ if(!x.length)return [];
+ const base={type:"scatter3d",mode:"lines",x,y,z,hoverinfo:"skip",showlegend:false};
+ return [
+  {...base,name:"Section outline",line:{color:"#24304b",width:12}},
+  {...base,name:"Continuous plane intersection",line:{color:"#fff1a1",width:6}}
+ ];
 }
 function planeTraces(){
  const p=pose(),radius=radiatingScale(),u=rotate([1,0,0],p.angles),v=rotate([0,1,0],p.angles);
@@ -265,14 +362,14 @@ function sceneTraces(){
  const geom=el("showGeometry").checked,rad=el("showRadiation").checked,plane=el("showPlane").checked;
  const traces=[];
  // Compute the surface once so the highlighted section matches the same mesh.
- const grid=rad&&field?patternGrid(field):null;
+ const grid=rad&&field?cachedPatternGrid(field):null;
  if(grid){const pattern=patternTrace(field,grid);if(pattern)traces.push(pattern);}
  if(geom)traces.push(...geometryTraces());
  if(plane){
   traces.push(...planeTraces());
   if(grid){
-   const p=pose(),intersection=patternPlaneIntersection(grid,p.position,p.angles);
-   if(intersection)traces.push(intersection);
+   const p=pose();
+   traces.push(...patternPlaneIntersection(grid,p.position,p.angles));
   }
  }
  return traces;
