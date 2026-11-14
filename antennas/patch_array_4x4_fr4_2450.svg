@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1156" viewBox="0 0 280 289" role="img" aria-label="2.45 GHz FR4 4x4 patch array top copper layout">
+<rect width="280" height="289" fill="#dfe9be" stroke="#455338" stroke-width="0.4"/>
+<rect x="13.2081" y="242.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r1c1-body</title></rect>
+<rect x="13.2081" y="262.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r1c1-left-tab</title></rect>
+<rect x="34.5684" y="262.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r1c1-right-tab</title></rect>
+<rect x="30.4316" y="262.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r1c1-inset-feed</title></rect>
+<rect x="85.2081" y="242.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r1c2-body</title></rect>
+<rect x="85.2081" y="262.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r1c2-left-tab</title></rect>
+<rect x="106.5684" y="262.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r1c2-right-tab</title></rect>
+<rect x="102.4316" y="262.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r1c2-inset-feed</title></rect>
+<rect x="157.2081" y="242.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r1c3-body</title></rect>
+<rect x="157.2081" y="262.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r1c3-left-tab</title></rect>
+<rect x="178.5684" y="262.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r1c3-right-tab</title></rect>
+<rect x="174.4316" y="262.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r1c3-inset-feed</title></rect>
+<rect x="229.2081" y="242.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r1c4-body</title></rect>
+<rect x="229.2081" y="262.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r1c4-left-tab</title></rect>
+<rect x="250.5684" y="262.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r1c4-right-tab</title></rect>
+<rect x="246.4316" y="262.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r1c4-inset-feed</title></rect>
+<rect x="13.2081" y="164.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r2c1-body</title></rect>
+<rect x="13.2081" y="184.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r2c1-left-tab</title></rect>
+<rect x="34.5684" y="184.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r2c1-right-tab</title></rect>
+<rect x="30.4316" y="184.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r2c1-inset-feed</title></rect>
+<rect x="85.2081" y="164.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r2c2-body</title></rect>
+<rect x="85.2081" y="184.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r2c2-left-tab</title></rect>
+<rect x="106.5684" y="184.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r2c2-right-tab</title></rect>
+<rect x="102.4316" y="184.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r2c2-inset-feed</title></rect>
+<rect x="157.2081" y="164.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r2c3-body</title></rect>
+<rect x="157.2081" y="184.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r2c3-left-tab</title></rect>
+<rect x="178.5684" y="184.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r2c3-right-tab</title></rect>
+<rect x="174.4316" y="184.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r2c3-inset-feed</title></rect>
+<rect x="229.2081" y="164.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r2c4-body</title></rect>
+<rect x="229.2081" y="184.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r2c4-left-tab</title></rect>
+<rect x="250.5684" y="184.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r2c4-right-tab</title></rect>
+<rect x="246.4316" y="184.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r2c4-inset-feed</title></rect>
+<rect x="13.2081" y="86.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r3c1-body</title></rect>
+<rect x="13.2081" y="106.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r3c1-left-tab</title></rect>
+<rect x="34.5684" y="106.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r3c1-right-tab</title></rect>
+<rect x="30.4316" y="106.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r3c1-inset-feed</title></rect>
+<rect x="85.2081" y="86.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r3c2-body</title></rect>
+<rect x="85.2081" y="106.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r3c2-left-tab</title></rect>
+<rect x="106.5684" y="106.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r3c2-right-tab</title></rect>
+<rect x="102.4316" y="106.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r3c2-inset-feed</title></rect>
+<rect x="157.2081" y="86.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r3c3-body</title></rect>
+<rect x="157.2081" y="106.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r3c3-left-tab</title></rect>
+<rect x="178.5684" y="106.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r3c3-right-tab</title></rect>
+<rect x="174.4316" y="106.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r3c3-inset-feed</title></rect>
+<rect x="229.2081" y="86.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r3c4-body</title></rect>
+<rect x="229.2081" y="106.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r3c4-left-tab</title></rect>
+<rect x="250.5684" y="106.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r3c4-right-tab</title></rect>
+<rect x="246.4316" y="106.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r3c4-inset-feed</title></rect>
+<rect x="13.2081" y="8.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r4c1-body</title></rect>
+<rect x="13.2081" y="28.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r4c1-left-tab</title></rect>
+<rect x="34.5684" y="28.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r4c1-right-tab</title></rect>
+<rect x="30.4316" y="28.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r4c1-inset-feed</title></rect>
+<rect x="85.2081" y="8.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r4c2-body</title></rect>
+<rect x="85.2081" y="28.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r4c2-left-tab</title></rect>
+<rect x="106.5684" y="28.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r4c2-right-tab</title></rect>
+<rect x="102.4316" y="28.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r4c2-inset-feed</title></rect>
+<rect x="157.2081" y="8.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r4c3-body</title></rect>
+<rect x="157.2081" y="28.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r4c3-left-tab</title></rect>
+<rect x="178.5684" y="28.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r4c3-right-tab</title></rect>
+<rect x="174.4316" y="28.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r4c3-inset-feed</title></rect>
+<rect x="229.2081" y="8.4308" width="37.5838" height="20.1384" fill="#0c555a"><title>patch-r4c4-body</title></rect>
+<rect x="229.2081" y="28.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r4c4-left-tab</title></rect>
+<rect x="250.5684" y="28.5692" width="16.2235" height="9.0000" fill="#0c555a"><title>patch-r4c4-right-tab</title></rect>
+<rect x="246.4316" y="28.2692" width="3.1368" height="14.7308" fill="#0c555a"><title>patch-r4c4-inset-feed</title></rect>
+<rect x="50.6618" y="276.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row1-half1-col1-70ohm</title></rect>
+<rect x="32.0000" y="275.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row1-half1-col1-50ohm</title></rect>
+<rect x="68.0000" y="276.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row1-half1-col2-70ohm</title></rect>
+<rect x="85.3382" y="275.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row1-half1-col2-50ohm</title></rect>
+<rect x="194.6618" y="276.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row1-half2-col3-70ohm</title></rect>
+<rect x="176.0000" y="275.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row1-half2-col3-50ohm</title></rect>
+<rect x="212.0000" y="276.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row1-half2-col4-70ohm</title></rect>
+<rect x="229.3382" y="275.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row1-half2-col4-50ohm</title></rect>
+<rect x="50.6618" y="198.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row2-half1-col1-70ohm</title></rect>
+<rect x="32.0000" y="197.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row2-half1-col1-50ohm</title></rect>
+<rect x="68.0000" y="198.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row2-half1-col2-70ohm</title></rect>
+<rect x="85.3382" y="197.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row2-half1-col2-50ohm</title></rect>
+<rect x="194.6618" y="198.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row2-half2-col3-70ohm</title></rect>
+<rect x="176.0000" y="197.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row2-half2-col3-50ohm</title></rect>
+<rect x="212.0000" y="198.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row2-half2-col4-70ohm</title></rect>
+<rect x="229.3382" y="197.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row2-half2-col4-50ohm</title></rect>
+<rect x="50.6618" y="120.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row3-half1-col1-70ohm</title></rect>
+<rect x="32.0000" y="119.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row3-half1-col1-50ohm</title></rect>
+<rect x="68.0000" y="120.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row3-half1-col2-70ohm</title></rect>
+<rect x="85.3382" y="119.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row3-half1-col2-50ohm</title></rect>
+<rect x="194.6618" y="120.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row3-half2-col3-70ohm</title></rect>
+<rect x="176.0000" y="119.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row3-half2-col3-50ohm</title></rect>
+<rect x="212.0000" y="120.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row3-half2-col4-70ohm</title></rect>
+<rect x="229.3382" y="119.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row3-half2-col4-50ohm</title></rect>
+<rect x="50.6618" y="42.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row4-half1-col1-70ohm</title></rect>
+<rect x="32.0000" y="41.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row4-half1-col1-50ohm</title></rect>
+<rect x="68.0000" y="42.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row4-half1-col2-70ohm</title></rect>
+<rect x="85.3382" y="41.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row4-half1-col2-50ohm</title></rect>
+<rect x="194.6618" y="42.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row4-half2-col3-70ohm</title></rect>
+<rect x="176.0000" y="41.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row4-half2-col3-50ohm</title></rect>
+<rect x="212.0000" y="42.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>row4-half2-col4-70ohm</title></rect>
+<rect x="229.3382" y="41.4316" width="18.6618" height="3.1368" fill="#0c555a"><title>row4-half2-col4-50ohm</title></rect>
+<rect x="67.1794" y="238.0000" width="1.6412" height="17.3382" fill="#0c555a"><title>quadrant-r1c1-row1-70ohm</title></rect>
+<rect x="66.4316" y="255.3382" width="3.1368" height="21.6618" fill="#0c555a"><title>quadrant-r1c1-row1-50ohm</title></rect>
+<rect x="67.1794" y="220.6618" width="1.6412" height="17.3382" fill="#0c555a"><title>quadrant-r1c1-row2-70ohm</title></rect>
+<rect x="66.4316" y="199.0000" width="3.1368" height="21.6618" fill="#0c555a"><title>quadrant-r1c1-row2-50ohm</title></rect>
+<rect x="67.1794" y="82.0000" width="1.6412" height="17.3382" fill="#0c555a"><title>quadrant-r2c1-row3-70ohm</title></rect>
+<rect x="66.4316" y="99.3382" width="3.1368" height="21.6618" fill="#0c555a"><title>quadrant-r2c1-row3-50ohm</title></rect>
+<rect x="67.1794" y="64.6618" width="1.6412" height="17.3382" fill="#0c555a"><title>quadrant-r2c1-row4-70ohm</title></rect>
+<rect x="66.4316" y="43.0000" width="3.1368" height="21.6618" fill="#0c555a"><title>quadrant-r2c1-row4-50ohm</title></rect>
+<rect x="211.1794" y="238.0000" width="1.6412" height="17.3382" fill="#0c555a"><title>quadrant-r1c2-row1-70ohm</title></rect>
+<rect x="210.4316" y="255.3382" width="3.1368" height="21.6618" fill="#0c555a"><title>quadrant-r1c2-row1-50ohm</title></rect>
+<rect x="211.1794" y="220.6618" width="1.6412" height="17.3382" fill="#0c555a"><title>quadrant-r1c2-row2-70ohm</title></rect>
+<rect x="210.4316" y="199.0000" width="3.1368" height="21.6618" fill="#0c555a"><title>quadrant-r1c2-row2-50ohm</title></rect>
+<rect x="211.1794" y="82.0000" width="1.6412" height="17.3382" fill="#0c555a"><title>quadrant-r2c2-row3-70ohm</title></rect>
+<rect x="210.4316" y="99.3382" width="3.1368" height="21.6618" fill="#0c555a"><title>quadrant-r2c2-row3-50ohm</title></rect>
+<rect x="211.1794" y="64.6618" width="1.6412" height="17.3382" fill="#0c555a"><title>quadrant-r2c2-row4-70ohm</title></rect>
+<rect x="210.4316" y="43.0000" width="3.1368" height="21.6618" fill="#0c555a"><title>quadrant-r2c2-row4-50ohm</title></rect>
+<rect x="122.6618" y="237.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>group1-half1-70ohm</title></rect>
+<rect x="68.0000" y="236.4316" width="54.6618" height="3.1368" fill="#0c555a"><title>group1-half1-50ohm</title></rect>
+<rect x="140.0000" y="237.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>group1-half2-70ohm</title></rect>
+<rect x="157.3382" y="236.4316" width="54.6618" height="3.1368" fill="#0c555a"><title>group1-half2-50ohm</title></rect>
+<rect x="122.6618" y="81.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>group2-half1-70ohm</title></rect>
+<rect x="68.0000" y="80.4316" width="54.6618" height="3.1368" fill="#0c555a"><title>group2-half1-50ohm</title></rect>
+<rect x="140.0000" y="81.1794" width="17.3382" height="1.6412" fill="#0c555a"><title>group2-half2-70ohm</title></rect>
+<rect x="157.3382" y="80.4316" width="54.6618" height="3.1368" fill="#0c555a"><title>group2-half2-50ohm</title></rect>
+<rect x="139.1794" y="160.0000" width="1.6412" height="17.3382" fill="#0c555a"><title>root-group1-70ohm</title></rect>
+<rect x="138.4316" y="177.3382" width="3.1368" height="60.6618" fill="#0c555a"><title>root-group1-50ohm</title></rect>
+<rect x="139.1794" y="142.6618" width="1.6412" height="17.3382" fill="#0c555a"><title>root-group2-70ohm</title></rect>
+<rect x="138.4316" y="82.0000" width="3.1368" height="60.6618" fill="#0c555a"><title>root-group2-50ohm</title></rect>
+<rect x="138.0000" y="158.0000" width="4.0000" height="4.0000" fill="#ef8750"><title>input-solder-pad</title></rect>
+<text x="32.00" y="257.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R1C1</text>
+<text x="104.00" y="257.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R1C2</text>
+<text x="176.00" y="257.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R1C3</text>
+<text x="248.00" y="257.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R1C4</text>
+<text x="32.00" y="179.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R2C1</text>
+<text x="104.00" y="179.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R2C2</text>
+<text x="176.00" y="179.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R2C3</text>
+<text x="248.00" y="179.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R2C4</text>
+<text x="32.00" y="101.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R3C1</text>
+<text x="104.00" y="101.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R3C2</text>
+<text x="176.00" y="101.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R3C3</text>
+<text x="248.00" y="101.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R3C4</text>
+<text x="32.00" y="23.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R4C1</text>
+<text x="104.00" y="23.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R4C2</text>
+<text x="176.00" y="23.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R4C3</text>
+<text x="248.00" y="23.00" text-anchor="middle" dominant-baseline="middle" font-size="5.5" fill="#ffffff" font-family="sans-serif">R4C4</text>
+<circle cx="140" cy="160" r="1.5" fill="#ffffff" stroke="#ef8750" stroke-width="0.5"/>
+</svg>
