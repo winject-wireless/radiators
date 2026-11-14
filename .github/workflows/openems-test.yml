@@ -1,0 +1,41 @@
+name: openEMS Docker smoke test
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'docker/openems/**'
+      - 'antennas/test_gh/**'
+      - '.github/workflows/openems-test.yml'
+  pull_request:
+    paths:
+      - 'docker/openems/**'
+      - 'antennas/test_gh/**'
+      - '.github/workflows/openems-test.yml'
+permissions:
+  contents: read
+jobs:
+  test-openems:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show disk space
+        run: df -h
+      - name: Build headless openEMS Docker image
+        run: docker build --progress=plain -t radiators-openems:ci -f docker/openems/Dockerfile .
+      - name: Verify Python bindings
+        run: docker run --rm radiators-openems:ci
+      - name: Run test_gh FDTD smoke simulation
+        run: |
+          mkdir -p results
+          docker run --rm --cpus=2 --memory=6g \
+            -v "$PWD:/work" radiators-openems:ci \
+            python antennas/test_gh/smoke.py
+      - name: Upload simulation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openems-test-gh-results
+          path: results/test_gh/
+          if-no-files-found: warn
+          retention-days: 7
