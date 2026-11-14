@@ -88,8 +88,30 @@ jobs:
       - name: Restore prior published results for unchanged antennas
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: python3 site/restore_published.py --site-url https://winject-wireless.github.io/radiators/ --results results
-      - name: Build static result viewer
-        run: python3 site/build_site.py --results results --site site/dist
+      - name: Build and verify complete static result viewer
+        env:
+          REQUIRE_COMPLETE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$REQUIRE_COMPLETE" == "true" ]]; then args+=(--require-complete); fi
+          python3 site/build_site.py --results results --site site/dist "${args[@]}"
+          node --check site/dist/app.js
+          node --check site/dist/plotly.min.js
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          site = Path("site/dist")
+          manifest = json.loads((site/"manifest.json").read_text())
+          for entry in manifest["runs"]:
+              result = json.loads((site/entry["path"]).read_text())
+              for pattern in result["patterns"]:
+                  path = site/entry["path"]
+                  file = path.parent/pattern["file"]
+                  assert file.is_file(), file
+                  json.loads(file.read_text())
+          print("Verified", len(manifest["runs"]), "simulations and all referenced frequency patterns")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:

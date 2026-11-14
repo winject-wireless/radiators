@@ -16,7 +16,7 @@ const sliderOffsets={px:0,py:0,pz:0,roll:0,pitch:0,yaw:0};
 
 function status(message){el("status").textContent = message}
 function format(number,places=2){return Number.isFinite(number) ? Number(number).toFixed(places) : "—"}
-async function getJSON(url){const r = await fetch(url); if(!r.ok) throw Error(url + ": HTTP " + r.status); return r.json()}
+async function getJSON(url){const r = await fetch(url,{cache:"no-store"}); if(!r.ok) throw Error(url + ": HTTP " + r.status); return r.json()}
 const add = (a,b)=>a.map((v,i)=>v+b[i]);
 const scale = (a,s)=>a.map(v=>v*s);
 const cross = (a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
@@ -469,10 +469,14 @@ function updateSceneLegend(){
  const plane=el("showPlane").checked;
  const radiation=el("showRadiation").checked;
  const geometry=el("showGeometry").checked;
- el("graphLegend").querySelector('[data-legend="plane"]').hidden=!plane;
+ const legend=el("graphLegend");
+ const planeEntry=legend?.querySelector('[data-legend="plane"]');
+ const intersectionEntry=legend?.querySelector('[data-legend="intersection"]');
+ const feedEntry=legend?.querySelector('[data-legend="feed"]');
+ if(planeEntry)planeEntry.hidden=!plane;
  const hasSection=plane&&radiation&&Boolean(el("farfield").data?.some(t=>t.name==="Continuous plane intersection"));
- el("graphLegend").querySelector('[data-legend="intersection"]').hidden=!hasSection;
- el("graphLegend").querySelector('[data-legend="feed"]').hidden=!geometry;
+ if(intersectionEntry)intersectionEntry.hidden=!hasSection;
+ if(feedEntry)feedEntry.hidden=!geometry;
 }
 function axisPanAmount(camera,axis,dx,dy,viewPixels){
  const [sx,sy]=axisDragDirection(camera,axis);
