@@ -1,0 +1,62 @@
+name: Structured openEMS simulations
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'antennas/**'
+      - 'site/**'
+      - 'docker/openems/**'
+      - '.github/workflows/openems-structured.yml'
+  pull_request:
+    paths:
+      - 'antennas/**'
+      - 'site/**'
+      - 'docker/openems/**'
+      - '.github/workflows/openems-structured.yml'
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: radiators-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build solver
+        run: docker build --progress=plain -t radiators-openems:ci -f docker/openems/Dockerfile .
+      - name: Run example antenna simulation
+        run: |
+          mkdir -p results
+          docker run --rm --cpus=2 --memory=6g -v "$PWD:/work" radiators-openems:ci \
+            python antennas/simulate.py antennas/example_monopole.json --output results/example_monopole
+      - name: Build static result viewer
+        run: python3 site/build_site.py --results results --site site/dist
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: structured-openems-results
+          path: |
+            results/*/result.json
+            results/*/pattern_*.json
+            results/*/geometry.xml
+            site/dist/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          path: site/dist
+  deploy-pages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: simulate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
