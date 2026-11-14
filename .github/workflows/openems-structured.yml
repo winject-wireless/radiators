@@ -20,6 +20,7 @@ on:
       - '.github/workflows/openems-structured.yml'
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 concurrency:
@@ -62,9 +63,21 @@ jobs:
           echo "Selected antenna configurations:"
           cat changed-antennas.txt
           echo "count=$(wc -l < changed-antennas.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
-      - name: Build solver (only when antenna configs changed)
+      - name: Restore or bootstrap openEMS Docker image
+        id: image
         if: steps.changed.outputs.count != '0'
-        run: docker build --progress=plain -t radiators-openems:ci -f docker/openems/Dockerfile .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ensure-openems-image.sh
+      - name: Save new solver image artifact (only on first build)
+        if: steps.changed.outputs.count != '0' && steps.image.outputs.cache_hit == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.image.outputs.artifact_name }}
+          path: openems-image.tar.zst
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
       - name: Simulate changed antenna configs only
         if: steps.changed.outputs.count != '0'
         shell: bash
