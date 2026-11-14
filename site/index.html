@@ -44,9 +44,11 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"></path></svg>
         </button>
       </div>
-      <div class="scene-metrics" aria-label="Radiation pattern statistics">
-        <span id="peak">—</span><span id="eff">—</span>
+      <div class="scene-metrics" aria-label="Radiation pattern statistics and gain at view center">
+        <span id="peak">—</span><span id="centerGain">Center gain —</span>
+        <span id="eff">—</span><span id="centerPoint" title="World-space camera target, in millimetres">Center (0,0,0) mm</span>
       </div>
+      <div id="panStatus" class="pan-status" role="status" hidden></div>
       <div id="viewCenter" class="view-center" aria-hidden="true"></div>
       <div id="viewAxes" class="view-axes" role="group" aria-label="Drag an X Y or Z handle to pan along that world axis">
         <svg id="viewAxesSvg" class="view-axes-svg" width="112" height="112" viewBox="0 0 112 112" aria-hidden="true" focusable="false">
@@ -71,16 +73,15 @@
   </section>
 
   <section class="slice-control panel">
-    <div class="panel-heading">
+    <div class="panel-heading plane-heading">
       <h2>Plane controls <span class="subtle">· 6-DOF</span></h2>
-      <button id="poseReset" class="pose-reset" type="button">Reset plane</button>
-    </div>
-    <div class="plane-presets" role="group" aria-label="Plane view presets">
-      <span>View preset</span>
-      <div class="preset-actions">
-        <button class="preset active" type="button" data-plane="xy" aria-pressed="true">XY</button>
-        <button class="preset" type="button" data-plane="xz" aria-pressed="false">XZ</button>
-        <button class="preset" type="button" data-plane="yz" aria-pressed="false">YZ</button>
+      <div class="plane-header-actions">
+        <div class="preset-actions" role="group" aria-label="Plane view preset">
+          <button class="preset active" type="button" data-plane="xy" aria-pressed="true">XY</button>
+          <button class="preset" type="button" data-plane="xz" aria-pressed="false">XZ</button>
+          <button class="preset" type="button" data-plane="yz" aria-pressed="false">YZ</button>
+        </div>
+        <button id="poseReset" class="pose-reset" type="button">Reset plane</button>
       </div>
     </div>
     <div class="plane-groups">
