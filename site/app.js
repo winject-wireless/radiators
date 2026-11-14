@@ -572,18 +572,28 @@ function readPoseNumber(value){
  const num=Number(text);
  return Number.isFinite(num)&&Math.abs(num)<=1000000?num:null;
 }
+// Uniformly spaced detents map to ±1, ±2, ±4, ±8 in world units.
+function logarithmicJogOffset(detent){
+ const n=Math.max(-4,Math.min(4,Math.round(detent)));
+ return n===0?0:Math.sign(n)*Math.pow(2,Math.abs(n)-1);
+}
 function resetIncrementalSlider(id){
- // Jog control returns to zero; the accumulated numeric value remains intact.
  sliderOffsets[id]=0;
- el(id+"Slider").value="0";
+ const slider=el(id+"Slider");
+ slider.value="0";
+ slider.setAttribute("aria-valuetext","0 "+(["px","py","pz"].includes(id)?"mm":"°"));
 }
 function resetIncrementalSliders(){
  for(const id of POSE_AXIS_IDS)resetIncrementalSlider(id);
 }
-function applyIncrementalSlider(id,offset){
- if(!Number.isFinite(offset))return;
+function applyIncrementalSlider(id,detent){
+ if(!Number.isFinite(detent))return;
+ const offset=logarithmicJogOffset(detent);
  const delta=offset-sliderOffsets[id];
  sliderOffsets[id]=offset;
+ const slider=el(id+"Slider");
+ const unit=["px","py","pz"].includes(id)?"mm":"°";
+ slider.setAttribute("aria-valuetext",(offset>=0?"+":"")+offset+" "+unit);
  if(delta!==0){
   setPoseAxis(id,lastValidPose[id]+delta);
   if(!["px","py","pz"].includes(id))updatePresetButtons();
