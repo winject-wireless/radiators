@@ -31,13 +31,22 @@ function rotate(p,a){
  return [x,y,z];
 }
 function radiatingScale(){
- const geom=active?.input_config?.geometry||[];
- const values=[];
- for(const g of geom){
-  values.push(...g.start.map(Math.abs),...g.stop.map(Math.abs));
-  if(g.radius) values.push(Number(g.radius));
+ const preview=active?.geometry_preview||[];
+ let extent=10;
+ if(preview.length){
+  for(const shape of preview){
+   const points=shape.vertices||shape.points||[shape.start,shape.stop,shape.center].filter(Boolean);
+   for(const point of points)for(const value of point)extent=Math.max(extent,Math.abs(Number(value)||0));
+   extent=Math.max(extent,Number(shape.radius)||0);
+  }
+ }else{
+  for(const g of active?.input_config?.geometry||[]){
+   for(const point of [g.start,g.stop,g.center,g.origin].filter(Boolean))
+    for(const value of point)extent=Math.max(extent,Math.abs(Number(value)||0));
+   extent=Math.max(extent,Number(g.radius)||0);
+  }
  }
- return Math.max(10,...values)*1.65; // illustration scale only, NEVER a physical pattern radius
+ return extent*1.65; // Display scale only, NOT physical pattern radius
 }
 function materialColor(material){
  const mat=(active?.input_config?.materials||[]).find(x=>x.name===material);
@@ -82,17 +91,71 @@ function cylinderTraces(g,idx){
  }
  return [meshTrace(g.material+" cylinder "+(idx+1),vertices,faces,materialColor(g.material),.94)];
 }
+function previewSphere(p,index){
+ const vertices=[],faces=[],nphi=32,ntheta=16,r=p.radius,center=p.center;
+ for(let i=0;i<=ntheta;i++){
+  const theta=Math.PI*i/ntheta;
+  for(let j=0;j<nphi;j++){
+   const phi=2*Math.PI*j/nphi;
+   vertices.push([center[0]+r*Math.sin(theta)*Math.cos(phi),
+                  center[1]+r*Math.sin(theta)*Math.sin(phi),
+                  center[2]+r*Math.cos(theta)]);
+  }
+ }
+ for(let i=0;i<ntheta;i++)for(let j=0;j<nphi;j++){
+  const j2=(j+1)%nphi,a=i*nphi+j,b=i*nphi+j2,c=(i+1)*nphi+j,d=(i+1)*nphi+j2;
+  faces.push([a,c,d],[a,d,b]);
+ }
+ return meshTrace(p.name||"Sphere "+index,vertices,faces,materialColor(p.material),.85);
+}
+function previewWire(p,index){
+ const points=p.points||[],radius=Number(p.radius)||.5;
+ if(points.length<2)return [];
+ const vertices=[],faces=[],n=12;
+ for(let i=0;i<points.length;i++){
+  const tangent=i===0?points[1].map((v,k)=>v-points[0][k]):
+   i===points.length-1?points[i].map((v,k)=>v-points[i-1][k]):
+   points[i+1].map((v,k)=>v-points[i-1][k]);
+  const unit=normalize(tangent),trial=Math.abs(unit[2])<.9?[0,0,1]:[0,1,0];
+  const u=normalize(cross(unit,trial)),v=cross(unit,u);
+  for(let j=0;j<n;j++){
+   const theta=2*Math.PI*j/n;
+   vertices.push(add(points[i],add(scale(u,radius*Math.cos(theta)),scale(v,radius*Math.sin(theta)))));
+  }
+  if(i>0)for(let j=0;j<n;j++){
+   const next=(j+1)%n,a=(i-1)*n+j,b=(i-1)*n+next,c=i*n+j,d=i*n+next;
+   faces.push([a,b,d],[a,d,c]);
+  }
+ }
+ return [meshTrace(p.name||"Wire "+index,vertices,faces,materialColor(p.material),.95)];
+}
 function geometryTraces(){
- const cfg=active?.input_config||{},shapes=cfg.geometry||[],traces=[];
- shapes.forEach((g,i)=>{
-  if(g.shape==="box") traces.push(...boxTraces(g,i));
-  if(g.shape==="cylinder") traces.push(...cylinderTraces(g,i));
- });
- (cfg.sources||[]).filter(s=>s.enabled!==false).forEach((s,i)=>{
-  traces.push({type:"scatter3d",mode:"lines+markers",name:"Feed "+(s.name||i+1),
-   x:[s.start[0],s.stop[0]],y:[s.start[1],s.stop[1]],z:[s.start[2],s.stop[2]],
-   line:{color:"#fb6f80",width:8},marker:{color:"#ff6177",size:4},
-   hovertemplate:"Feed / "+(s.name||"port")+"<extra></extra>"});
+ const cfg=active?.input_config||{},traces=[],previews=active?.geometry_preview;
+ if(Array.isArray(previews)){
+  previews.forEach((p,i)=>{
+   if(p.vertices&&p.faces?.length)traces.push(meshTrace(p.name||"Geometry "+i,p.vertices,p.faces,materialColor(p.material),.9));
+   else if(p.shape==="wire"||p.shape==="helix")traces.push(...previewWire(p,i));
+   else if(p.shape==="sphere"||p.shape==="spherical_shell")traces.push(previewSphere(p,i));
+   else if(p.shape==="cylinder"||p.shape==="cylindrical_shell")
+    traces.push(...cylinderTraces({...p,material:p.material},i));
+   else if(p.vertices)traces.push(...boxTraces({start:[
+    Math.min(...p.vertices.map(v=>v[0])),Math.min(...p.vertices.map(v=>v[1])),Math.min(...p.vertices.map(v=>v[2]))],
+    stop:[Math.max(...p.vertices.map(v=>v[0])),Math.max(...p.vertices.map(v=>v[1])),Math.max(...p.vertices.map(v=>v[2]))],
+    material:p.material},i));
+  });
+ }else{
+  (cfg.geometry||[]).forEach((g,i)=>{
+   if(g.shape==="box")traces.push(...boxTraces(g,i));
+   if(g.shape==="cylinder")traces.push(...cylinderTraces(g,i));
+  });
+ }
+ (cfg.ports||cfg.sources||[]).filter(p=>p.enabled!==false).forEach((p,i)=>{
+  if(!p.start||!p.stop)return;
+  traces.push({type:"scatter3d",mode:"lines+markers",name:"Feed "+(p.name||i+1),
+   x:[p.start[0],p.stop[0]],y:[p.start[1],p.stop[1]],z:[p.start[2],p.stop[2]],
+   line:{color:p.excite===false?"#bac5d9":"#fb6f80",width:7},
+   marker:{color:"#ff6177",size:4},
+   hovertemplate:"Port "+(p.name||i+1)+"<extra></extra>"});
  });
  return traces;
 }
