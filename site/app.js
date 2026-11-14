@@ -380,69 +380,126 @@ function sceneTraces(){
  }
  return traces;
 }
+// Plotly's _fullLayout.scene.camera can lag the live WebGL camera
+// after turntable orbit and wheel zoom. Read the real GL camera first.
+function copyCamera(camera){
+ if(!camera?.eye||!camera.center)return null;
+ const c={
+  eye:{x:Number(camera.eye.x),y:Number(camera.eye.y),z:Number(camera.eye.z)},
+  center:{x:Number(camera.center.x),y:Number(camera.center.y),z:Number(camera.center.z)},
+  up:{x:0,y:0,z:1}
+ };
+ if(Object.values(c.eye).some(v=>!Number.isFinite(v))||
+    Object.values(c.center).some(v=>!Number.isFinite(v)))return null;
+ if(camera.projection?.type)c.projection={type:camera.projection.type};
+ return c;
+}
 function captureCamera(){
- const camera=el("farfield")._fullLayout?.scene?.camera;
- if(camera?.eye&&camera.center){
-  sceneCamera={
-   eye:{...camera.eye},
-   center:{...camera.center},
-   up:{...camera.up},
-   ...(camera.projection?{projection:{...camera.projection}}:{})
-  };
+ const graph=el("farfield");
+ const live=graph?._fullLayout?.scene?._scene;
+ let camera=null;
+ if(live&&typeof live.getCamera==="function"){
+  try{camera=copyCamera(live.getCamera());}
+  catch(error){console.warn("Live 3D camera unavailable",error);}
  }
- return sceneCamera||structuredClone(DEFAULT_CAMERA);
+ camera ||= copyCamera(graph?._fullLayout?.scene?.camera);
+ camera ||= copyCamera(sceneCamera);
+ sceneCamera=camera||copyCamera(DEFAULT_CAMERA);
+ return copyCamera(sceneCamera);
 }
 function rememberCamera(event){
- if(!event||!Object.keys(event).some(key=>key==="scene.camera"||key.startsWith("scene.camera.")))return;
+ if(!event)return;
+ const changed=Object.keys(event).some(key=>key==="scene.camera"||key.startsWith("scene.camera."));
+ if(!changed)return;
+ const fromEvent=copyCamera(event["scene.camera"]);
+ if(fromEvent){sceneCamera=fromEvent;return;}
  captureCamera();
 }
-function moveCameraAlongAxis(axis,amount){
- const camera=captureCamera();
- const next={...camera,center:{...camera.center}};
- next.center[axis]+=amount;
- sceneCamera=next;
- return Plotly.relayout("farfield",{"scene.camera":next});
-}
 function zoomCamera(factor){
+ if(!(factor>0))return Promise.resolve();
  const camera=captureCamera();
- const next={...camera,eye:{
-  x:camera.eye.x*factor,y:camera.eye.y*factor,z:camera.eye.z*factor
- }};
+ const distance=magnitude(Object.values(camera.eye));
+ const target=Math.max(.3,Math.min(15,distance*factor));
+ const next={...camera,eye:Object.fromEntries(
+  Object.entries(camera.eye).map(([axis,value])=>[axis,value*target/(distance||1)]))};
  sceneCamera=next;
- return Plotly.relayout("farfield",{"scene.camera":next});
+ return Plotly.relayout(el("farfield"),{"scene.camera":next});
+}
+const dot=(a,b)=>a.reduce((sum,v,i)=>sum+v*b[i],0);
+function axisDragDirection(camera,axis){
+ const eye=[camera.eye.x,camera.eye.y,camera.eye.z];
+ const view=magnitude(eye)>1e-6?normalize(eye):normalize([1,1,1]);
+ let right=cross([0,0,1],view);
+ if(magnitude(right)<1e-3)right=[1,0,0];
+ right=normalize(right);
+ const screenUp=normalize(cross(view,right));
+ const world={x:[1,0,0],y:[0,1,0],z:[0,0,1]}[axis];
+ if(!world)return [0,-1];
+ const px=dot(world,right),py=-dot(world,screenUp);
+ const length=Math.hypot(px,py);
+ // Looking straight down an axis: use vertical drag as a fallback.
+ return length<.06?[0,-1]:[px/length,py/length];
+}
+function axisPanAmount(camera,axis,dx,dy,viewPixels){
+ const [sx,sy]=axisDragDirection(camera,axis);
+ const projected=dx*sx+dy*sy;
+ // Camera center coordinates are normalized scene units, NOT millimeters.
+ // Keep a typical 100px drag under about one camera-center unit.
+ const eyeDistance=magnitude(Object.values(camera.eye));
+ const scaleFactor=Math.max(.6,Math.min(3,eyeDistance));
+ return -projected*1.6*scaleFactor/Math.max(160,viewPixels);
 }
 function setupAxisPan(){
  for(const button of document.querySelectorAll("[data-pan-axis]")){
   const axis=button.dataset.panAxis;
-  let startX=0,startY=0,baseline=null,pointer=null;
+  let gesture=null,framePending=false,frameCamera=null;
+  const apply=()=>{
+   framePending=false;
+   if(!frameCamera)return;
+   const next=frameCamera;frameCamera=null;
+   sceneCamera=next;
+   Plotly.relayout(el("farfield"),{"scene.camera":next}).catch(error=>console.error("3D pan error",error));
+  };
+  const queue=next=>{
+   frameCamera=next;sceneCamera=next;
+   if(!framePending){framePending=true;requestAnimationFrame(apply);}
+  };
   button.addEventListener("pointerdown",event=>{
-   if(event.button!==0)return;
+   if(event.pointerType==="mouse"&&event.button!==0)return;
    event.preventDefault();
-   captureCamera();
-   baseline=structuredClone(sceneCamera);
-   startX=event.clientX;startY=event.clientY;pointer=event.pointerId;
-   button.setPointerCapture(pointer);
+   gesture={pointer:event.pointerId,x:event.clientX,y:event.clientY,
+            camera:captureCamera()};
+   button.setPointerCapture(event.pointerId);
    button.classList.add("dragging");
   });
   button.addEventListener("pointermove",event=>{
-   if(pointer!==event.pointerId||!baseline)return;
-   const dx=event.clientX-startX,dy=event.clientY-startY;
-   const size=radiatingScale();
-   // Drag right moves +X/+Y; drag upward moves +Z.
-   const amount=(axis==="z"?-dy:dx)*size/240;
-   const next={...baseline,center:{...baseline.center}};
-   next.center[axis]+=amount;
-   sceneCamera=next;
-   Plotly.relayout("farfield",{"scene.camera":next});
+   if(!gesture||gesture.pointer!==event.pointerId)return;
+   event.preventDefault();
+   const width=Math.min(el("farfield").clientWidth||400,el("farfield").clientHeight||400);
+   const amount=axisPanAmount(gesture.camera,axis,
+                            event.clientX-gesture.x,event.clientY-gesture.y,width);
+   const next={...gesture.camera,center:{...gesture.camera.center}};
+   next.center[axis]=Math.max(-10,Math.min(10,next.center[axis]+amount));
+   queue(next);
   });
   const release=event=>{
-   if(pointer!==event.pointerId)return;
-   pointer=null;baseline=null;
+   if(!gesture||gesture.pointer!==event.pointerId)return;
+   gesture=null;
    button.classList.remove("dragging");
    if(button.hasPointerCapture(event.pointerId))button.releasePointerCapture(event.pointerId);
   };
   button.addEventListener("pointerup",release);
   button.addEventListener("pointercancel",release);
+  button.addEventListener("lostpointercapture",release);
+  // Arrow keys allow incremental world-axis panning without a pointer.
+  button.addEventListener("keydown",event=>{
+   if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(event.key))return;
+   event.preventDefault();
+   const camera=captureCamera(),step=(event.key==="ArrowLeft"||event.key==="ArrowDown")?-.06:.06;
+   const next={...camera,center:{...camera.center}};
+   next.center[axis]=Math.max(-10,Math.min(10,next.center[axis]+step));
+   queue(next);
+  });
  }
 }
 async function renderScene(){
@@ -453,6 +510,9 @@ async function renderScene(){
  try{
   do{
    sceneDirty=false;
+   // Synchronize with the live WebGL view before any data or plane redraw.
+   // Avoid accidentally restoring a stale, pre-pan camera.
+   if(sceneCamera!==null)captureCamera();
    await Plotly.react("farfield",sceneTraces(),
     {...PALETTE,margin:{l:0,r:0,t:0,b:0},uirevision:"z-up-camera-preserved-v3",
      scene:{aspectmode:"data",bgcolor:"#101c2e",
@@ -487,11 +547,11 @@ async function changeCameraTool(next){
   btn.classList.toggle("active",selected);
   btn.setAttribute("aria-pressed",String(selected));
  }
- // Save the live camera before switching tools; a relayout of dragmode
- // must not reset the eye, center, or zoom.
- const current=captureCamera();
+ // Persist the live camera, then update *only* the interaction mode.
+ // Reapplying a stale scene.camera here caused view jumps on Pan/Orbit switches.
+ captureCamera();
  if(el("farfield")._fullLayout)
-  await Plotly.relayout("farfield",{"scene.dragmode":next,"scene.camera":current});
+  await Plotly.relayout(el("farfield"),{"scene.dragmode":next});
 }
 async function resetCamera(){
  sceneCamera={
