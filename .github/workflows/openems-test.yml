@@ -1,0 +1,55 @@
+name: openEMS Docker smoke test
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'docker/openems/**'
+      - 'scripts/ensure-openems-image.sh'
+      - 'antennas/test_gh/**'
+      - '.github/workflows/openems-test.yml'
+  pull_request:
+    paths:
+      - 'docker/openems/**'
+      - 'antennas/test_gh/**'
+      - '.github/workflows/openems-test.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  test-openems:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show disk space
+        run: df -h
+      - name: Restore or bootstrap openEMS Docker image
+        id: image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ensure-openems-image.sh
+      - name: Save new solver image artifact (only on first build)
+        if: steps.image.outputs.cache_hit == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.image.outputs.artifact_name }}
+          path: openems-image.tar.zst
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+      - name: Verify Python bindings
+        run: docker run --rm radiators-openems:ci
+      - name: Run test_gh FDTD smoke simulation
+        run: |
+          mkdir -p results
+          docker run --rm --cpus=2 --memory=6g \
+            -v "$PWD:/work" radiators-openems:ci \
+            python antennas/test_gh/smoke.py
+      - name: Upload simulation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openems-test-gh-results
+          path: results/test_gh/
+          if-no-files-found: warn
+          retention-days: 7

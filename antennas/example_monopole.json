@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "name": "quarter-wave-monopole-demo",
+  "description": "Illustrative 2.45 GHz PEC monopole; retains schema v1 compatibility. Requires mesh-convergence validation.",
+  "units": "mm",
+  "domain": {
+    "start": [
+      -100,
+      -100,
+      -80
+    ],
+    "stop": [
+      100,
+      100,
+      120
+    ],
+    "boundary": [
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8"
+    ]
+  },
+  "mesh": {
+    "resolution_mm": 5,
+    "growth_ratio": 1.4,
+    "max_cells": 5000000
+  },
+  "solver": {
+    "max_timesteps": 20000,
+    "end_criteria": 0.0001,
+    "resources": {
+      "cpus": 2,
+      "memory_gib": 5
+    }
+  },
+  "excitation": {
+    "center_hz": 2450000000,
+    "bandwidth_hz": 350000000
+  },
+  "materials": [
+    {
+      "name": "conductor",
+      "type": "pec"
+    }
+  ],
+  "geometry": [
+    {
+      "material": "conductor",
+      "shape": "box",
+      "start": [
+        -50,
+        -50,
+        0
+      ],
+      "stop": [
+        50,
+        50,
+        0
+      ],
+      "priority": 10
+    },
+    {
+      "material": "conductor",
+      "shape": "cylinder",
+      "start": [
+        0,
+        0,
+        3
+      ],
+      "stop": [
+        0,
+        0,
+        29
+      ],
+      "radius": 1,
+      "priority": 10
+    }
+  ],
+  "sources": [
+    {
+      "name": "feed",
+      "type": "lumped_port",
+      "port_number": 1,
+      "impedance_ohm": 50,
+      "start": [
+        0,
+        0,
+        0
+      ],
+      "stop": [
+        0,
+        0,
+        3
+      ],
+      "direction": "z",
+      "enabled": true
+    }
+  ],
+  "s11": [
+    {
+      "start": 2300000000,
+      "step": 10000000,
+      "end": 2600000000
+    }
+  ],
+  "radiation_pattern_frequencies_hz": [
+    2400000000,
+    2450000000,
+    2500000000
+  ],
+  "radiation_pattern_grid": {
+    "theta_step_deg": 10,
+    "phi_step_deg": 10
+  }
+}

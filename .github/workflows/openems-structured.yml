@@ -1,0 +1,120 @@
+name: Structured openEMS simulations
+on:
+  workflow_dispatch:
+    inputs:
+      antenna:
+        description: 'Antenna config path to simulate (e.g. antennas/example_monopole.json)'
+        required: true
+        type: string
+  push:
+    paths:
+      - 'antennas/**'
+      - 'site/**'
+      - 'docker/openems/**'
+      - 'scripts/**'
+      - '.github/workflows/openems-structured.yml'
+  pull_request:
+    paths:
+      - 'antennas/**'
+      - 'site/**'
+      - 'docker/openems/**'
+      - 'scripts/**'
+      - '.github/workflows/openems-structured.yml'
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+concurrency:
+  group: radiators-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed antenna configurations
+        id: changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          INPUT_ANTENNA: ${{ inputs.antenna }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > changed-antennas.txt
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            [[ "$INPUT_ANTENNA" =~ ^antennas/[a-zA-Z0-9_-]+\.json$ ]] || { echo "Invalid antenna path"; exit 1; }
+            [[ -f "$INPUT_ANTENNA" ]] || { echo "Antenna not found: $INPUT_ANTENNA"; exit 1; }
+            printf '%s\n' "$INPUT_ANTENNA" >> changed-antennas.txt
+          else
+            if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+              git fetch origin main
+              BASE_SHA="$(git merge-base HEAD origin/main)"
+            fi
+            git diff --name-only --diff-filter=ACMR "$BASE_SHA" HEAD -- 'antennas/*.json' |
+              while IFS= read -r candidate; do
+                if [[ "$candidate" =~ ^antennas/[a-zA-Z0-9_-]+\.json$ ]] && [[ -f "$candidate" ]]; then
+                  printf '%s\n' "$candidate"
+                fi
+              done > changed-antennas.txt
+          fi
+          echo "Selected antenna configurations:"
+          cat changed-antennas.txt
+          echo "count=$(wc -l < changed-antennas.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+      - name: Restore or bootstrap openEMS Docker image
+        id: image
+        if: steps.changed.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ensure-openems-image.sh
+      - name: Save new solver image artifact (only on first build)
+        if: steps.changed.outputs.count != '0' && steps.image.outputs.cache_hit == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.image.outputs.artifact_name }}
+          path: openems-image.tar.zst
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+      - name: Simulate independent antennas concurrently within runner CPU/RAM
+        if: steps.changed.outputs.count != '0'
+        run: |
+          python3 scripts/run_simulations.py --list changed-antennas.txt --results results \
+            --cpus-per-job 2 --memory-gib-per-job 5 --reserve-memory-gib 2
+      - name: Restore prior published results for unchanged antennas
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python3 site/restore_published.py --site-url https://winject-wireless.github.io/radiators/ --results results
+      - name: Build static result viewer
+        run: python3 site/build_site.py --results results --site site/dist
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: structured-openems-results
+          path: |
+            changed-antennas.txt
+            results/*/result.json
+            results/*/pattern_*.json
+            results/*/geometry.xml
+            results/*/runner.log
+            results/scheduler.json
+            site/dist/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          path: site/dist
+  deploy-pages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: simulate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
