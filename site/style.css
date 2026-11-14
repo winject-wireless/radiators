@@ -136,3 +136,33 @@ button{cursor:pointer}
  .scene-toolbar{top:6px;right:6px}
  .scene-metrics{top:6px;left:6px;gap:3px;font-size:10px}
 }
+
+/* Keep the antenna/frequency/view/visibility toolbar on one compact row. */
+.controls{
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  overflow-x:auto;
+  overflow-y:hidden;
+  gap:8px;
+  padding:6px 10px;
+  min-height:44px;
+  scrollbar-width:thin;
+  -webkit-overflow-scrolling:touch;
+}
+.controls > *{flex:0 0 auto}
+.controls .compact-label{white-space:nowrap}
+.controls .view-tabs{flex-shrink:0}
+.controls .smallcheck{flex:0 0 auto;white-space:nowrap}
+.scene-heading{display:flex;flex-wrap:nowrap;min-width:0}
+.scene-heading h2{flex-basis:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.axis-feed{background:#fb6f80}
+@media(max-width:980px){
+  .controls{gap:6px;padding:5px 8px;min-height:40px}
+  .scene-heading h2{flex-basis:auto}
+}
+@media(max-width:700px){
+  .controls{flex-wrap:nowrap;gap:5px;min-height:38px}
+  .controls select{min-width:86px;max-width:145px}
+  .scene-heading h2{flex-basis:auto}
+}
