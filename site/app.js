@@ -4,7 +4,7 @@ const el = id => document.getElementById(id);
 const PALETTE = {paper_bgcolor:"#101c2e",plot_bgcolor:"#101c2e",font:{color:"#d6e5f5",size:10}};
 const PLOT_CFG = {responsive:true,displaylogo:false};
 const DEG = Math.PI / 180;
-let runs = [], active = null, field = null, mode = "combined", requestVersion = 0;
+let runs = [], active = null, field = null, mode = "combined";
 const DEFAULT_CAMERA={up:{x:0,y:0,z:1},center:{x:0,y:0,z:0},eye:{x:1.55,y:1.55,z:1.1}};
 let sceneCamera=null,cameraEventsBound=false;
 let orbitCenter=null; // Track the current pan target while orbiting.
@@ -918,8 +918,8 @@ function updatePresetButtons(){
   button.setAttribute("aria-pressed",String(Boolean(selected)));
  }
 }
-async function renderS11(){
- const s=active.s11,x=s.frequency_hz.map(f=>f/1e9);
+async function renderS11(result=active){
+ const s=result.s11,x=s.frequency_hz.map(f=>f/1e9);
  await Plotly.react("s11Plot",[
   {x,y:s.logmag_db,type:"scatter",mode:"lines",name:"|S11| dB",line:{color:"#61dce5",width:2}},
   {x,y:s.phase_deg,type:"scatter",mode:"lines",name:"Phase °",yaxis:"y2",line:{color:"#ffba79",width:2}}
@@ -935,46 +935,71 @@ async function renderS11(){
   yaxis:{title:"VSWR",gridcolor:"#263e57",rangemode:"tozero",autorange:true}},PLOT_CFG);
 }
 async function renderPattern(){
- const seq=++requestVersion;
+ const token=++selectedPatternVersion;
+ const runPath=el("run").value,run=active;
  try{
-  if(!active)return;
-  status("Loading pattern…");
-  const pattern=active.patterns[Number(el("freq").value)];
-  const path=el("run").value.replace(/result\.json$/,"");
-  const f=await getJSON(path+pattern.file);
-  if(seq!==requestVersion)return;
-  field=f;
-  el("peak").textContent="Peak D "+format(f.max_directivity_dbi)+" dBi";
+  if(!run||!run.patterns?.length)throw Error("No simulation is selected");
+  const index=Number(el("freq").value);
+  const pattern=run.patterns[index];
+  if(!pattern)throw Error("Unknown frequency index "+index);
+  status("Loading "+format(pattern.frequency_hz/1e9,3)+" GHz pattern…");
+  const base=runPath.replace(/result\.json$/,"");
+  const result=await getJSON(base+pattern.file);
+  if(token!==selectedPatternVersion||runPath!==el("run").value)return;
+  if(!Array.isArray(result.directivity_dbi)||!result.directivity_dbi.length)
+   throw Error("Pattern has no directivity grid: "+pattern.file);
+  field=result;
+  cachedField=null;
+  el("peak").textContent="Peak D "+format(result.max_directivity_dbi)+" dBi";
   updateCenterStats(sceneCamera||DEFAULT_CAMERA);
+  status("Rendering "+format(result.frequency_hz/1e9,3)+" GHz…");
   await renderScene();
-  status("Ready · "+format(f.frequency_hz/1e9,3)+" GHz");
- }catch(error){status("Pattern error: "+error.message);console.error(error)}
+  if(token!==selectedPatternVersion||runPath!==el("run").value)return;
+  status("Ready · "+format(result.frequency_hz/1e9,3)+" GHz");
+ }catch(error){
+  if(token===selectedPatternVersion){
+   status("Pattern load failed: "+error.message);
+   console.error("Pattern load failed",error);
+  }
+ }
 }
 async function renderRun(){
- const seq=++requestVersion;
+ const token=++selectedRunVersion;
+ ++selectedPatternVersion;
+ const path=el("run").value;
+ el("freq").disabled=true;
  try{
-  status("Loading simulation…");field=null;
-  const result=await getJSON(el("run").value);
-  if(seq!==requestVersion)return;
-  active=result;
-  // A different antenna should be framed initially from the default camera;
-  // frequency changes and plane edits retain the existing view.
-  sceneCamera=null;
-  orbitCenter=null;
-  activePanAxis=null;
-  updatePanStatus();
-  updateAxisGizmo(DEFAULT_CAMERA);
-  cachedField=null;
-  resetIncrementalSliders();
+  status("Loading simulation "+path.split("/").slice(-2,-1)[0]+"…");
+  const result=await getJSON(path);
+  if(token!==selectedRunVersion||el("run").value!==path)return;
+  if(!Array.isArray(result.patterns)||!result.patterns.length)
+   throw Error("Simulation has no frequency patterns");
+  active=result;field=null;
+  sceneCamera=null;orbitCenter=null;activePanAxis=null;cachedField=null;
+  updatePanStatus();updateAxisGizmo(DEFAULT_CAMERA);resetIncrementalSliders();
   el("mesh").textContent=Number(active.mesh_total_cells).toLocaleString()+" cells";
   el("config").textContent=JSON.stringify(active.input_config,null,2);
   el("freq").replaceChildren(...active.patterns.map((p,index)=>{
    const option=document.createElement("option");
-   option.value=index;option.textContent=format(p.frequency_hz/1e9,3)+" GHz";return option;
+   option.value=index;
+   option.textContent=format(p.frequency_hz/1e9,3)+" GHz";
+   return option;
   }));
-  await renderS11();
+  // Keep the selected frequency, when possible, across antennas.
+  const preferred=active.patterns.findIndex(p=>p.frequency_hz===2450000000);
+  el("freq").value=String(preferred<0?0:preferred);
+  el("freq").disabled=false;
+  status("Rendering S11 for "+active.name+"…");
+  await renderS11(result);
+  if(token!==selectedRunVersion||el("run").value!==path)return;
   await renderPattern();
- }catch(error){status("Result error: "+error.message);console.error(error)}
+ }catch(error){
+  if(token===selectedRunVersion){
+   el("freq").disabled=false;
+   status("Simulation load failed: "+error.message);
+   console.error("Simulation load failed",error);
+  }
+ }
 }
 function setMode(next){
  mode=next;document.body.dataset.mode=next;
