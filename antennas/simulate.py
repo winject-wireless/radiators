@@ -123,6 +123,11 @@ def main():
             raise ValueError(f"Unsupported shape {g['shape']}")
         for axis, lo, hi in zip("xyz", a, b):
             mesh.AddLine(axis, [float(lo), float(hi)])
+            if g["shape"] == "cylinder":
+                radius = float(g["radius"])
+                for pos in (float(lo - radius), float(lo + radius), float(hi - radius), float(hi + radius)):
+                    if float(dstart["xyz".index(axis)]) < pos < float(dstop["xyz".index(axis)]):
+                        mesh.AddLine(axis, pos)
 
     sources = [s for s in cfg["sources"] if s.get("enabled", True)]
     require(len(sources) == 1, "v1 requires exactly one enabled lumped port (S11)")
@@ -135,7 +140,6 @@ def main():
     for axis, lo, hi in zip("xyz", start, stop):
         mesh.AddLine(axis, [float(lo), float(hi)])
 
-    fdtd.AddEdges2Grid(dirs="xyz", properties=list(materials.values())[0]) if False else None
     mesh.SmoothMeshLines("all", res, growth)
     cell_counts = [len(mesh.GetLines(axis)) - 1 for axis in "xyz"]
     cell_total = math.prod(cell_counts)
