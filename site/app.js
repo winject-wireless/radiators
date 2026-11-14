@@ -586,7 +586,7 @@ function setTimeoutResize(){
   const input=el(id),slider=el(id+"Slider");
   slider.addEventListener("input",()=>{
    setPoseAxis(id,Number(slider.value));
-   if(!id.startsWith("p"))updatePresetButtons();
+   if(!["px","py","pz"].includes(id))updatePresetButtons();
    scheduleSceneRender();
   });
   input.addEventListener("input",()=>{
@@ -598,13 +598,13 @@ function setTimeoutResize(){
    lastValidPose[id]=number;
    input.removeAttribute("aria-invalid");
    updatePoseSliderRange(id,number);
-   if(!id.startsWith("p"))updatePresetButtons();
+   if(!["px","py","pz"].includes(id))updatePresetButtons();
    scheduleSceneRender();
   });
   input.addEventListener("blur",()=>{
    const value=readPoseNumber(input.value);
    setPoseAxis(id,value===null?lastValidPose[id]:value);
-   if(!id.startsWith("p"))updatePresetButtons();
+   if(!["px","py","pz"].includes(id))updatePresetButtons();
    scheduleSceneRender();
   });
   input.addEventListener("keydown",event=>{
