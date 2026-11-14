@@ -603,10 +603,14 @@ function axisPanAmount(camera,axis,dx,dy,viewPixels){
  const p=projectWorldAxis(camera,axis);
  const projectionSq=p.x*p.x+p.y*p.y;
  const eyeDistance=magnitude(Object.values(camera.eye));
- // Invert the projected axis (not just its screen direction): moving
- // diagonally or at grazing camera angles must not accelerate the pan.
- if(projectionSq<.025)return -(dy/Math.max(180,viewPixels))*eyeDistance*1.2;
- return -((dx*p.x+dy*p.y)/projectionSq)*eyeDistance*1.2/Math.max(180,viewPixels);
+ // Project the pointer displacement onto the world axis and divide by
+ // its squared screen projection. The thumb follows the POSITIVE world-axis
+ // direction (not its inverse); a moderate 100px drag shifts the target
+ // roughly 0.1 of the scene's display radius at the default camera.
+ // Near head-on views the projected axis is singular, so use a gentle
+ // vertical fallback instead of an unbounded acceleration.
+ if(projectionSq<.025)return -(dy/Math.max(180,viewPixels))*eyeDistance*.15;
+ return ((dx*p.x+dy*p.y)/projectionSq)*eyeDistance*.15/Math.max(180,viewPixels);
 }
 function setupAxisPan(){
  for(const button of document.querySelectorAll("[data-pan-axis]")){
