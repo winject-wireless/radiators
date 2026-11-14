@@ -87,6 +87,12 @@ function snapshot(expr){return JSON.parse(vm.runInContext("JSON.stringify("+expr
  const css=fs.readFileSync(path.join(root,"style.css"),"utf8");
  assert(html.includes('id="viewCenter"'),"Fixed center reticle is missing");
  assert(css.includes("left:50%;top:50%"),"Center reticle is no longer centered");
+ // The Plotly canvas and its full-screen error/interaction layers must not
+ // intercept the in-plot zoom/reset/export buttons.
+ assert(/\.scene-stage\s+\.scene\s*\{[^}]*z-index\s*:\s*0\b/.test(css),
+   "Plotly canvas must be in its own stacking layer beneath toolbar");
+ assert(/\.scene-toolbar\s*\{[^}]*z-index\s*:\s*[1-9]/.test(css),
+   "Toolbar must render above the Plotly interaction layer");
  assert(!js.includes("centerPointTrace()"),"World-space marker was reintroduced at a different screen point");
  assert(js.includes('const millimetresPerDomainUnit=2*sceneHalfExtent()'),
    "Camera target values must be converted from domain coordinates to physical units");
