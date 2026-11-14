@@ -67,3 +67,7 @@ button{cursor:pointer}
 .planar-tools button{min-width:27px;height:24px;border:1px solid #385270;border-radius:5px;background:#1b3651;color:#d1e1f8;font-size:12px;line-height:1;padding:2px 6px}
 .planar-tools button:hover,.planar-tools button:focus-visible{background:#24527b}
 .planar-tools button:disabled{opacity:.4;cursor:default}
+
+/* Axis legend for 2D plane, including narrow displays. */
+.planar-panel .panel-foot{flex-wrap:wrap;row-gap:2px}
+#planeAxes{color:#c2dcf2}
