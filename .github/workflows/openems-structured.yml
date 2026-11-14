@@ -11,12 +11,14 @@ on:
       - 'antennas/**'
       - 'site/**'
       - 'docker/openems/**'
+      - 'scripts/**'
       - '.github/workflows/openems-structured.yml'
   pull_request:
     paths:
       - 'antennas/**'
       - 'site/**'
       - 'docker/openems/**'
+      - 'scripts/**'
       - '.github/workflows/openems-structured.yml'
 permissions:
   contents: read
@@ -78,18 +80,11 @@ jobs:
           compression-level: 0
           retention-days: 90
           if-no-files-found: error
-      - name: Simulate changed antenna configs only
+      - name: Simulate independent antennas concurrently within runner CPU/RAM
         if: steps.changed.outputs.count != '0'
-        shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p results
-          while IFS= read -r cfg; do
-            name="$(basename "${cfg%.json}")"
-            echo "Simulating $cfg"
-            docker run --rm --cpus=2 --memory=6g -v "$PWD:/work" radiators-openems:ci \
-              python antennas/simulate.py "$cfg" --output "results/$name"
-          done < changed-antennas.txt
+          python3 scripts/run_simulations.py --list changed-antennas.txt --results results \
+            --cpus-per-job 2 --memory-gib-per-job 5 --reserve-memory-gib 2
       - name: Restore prior published results for unchanged antennas
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: python3 site/restore_published.py --site-url https://winject-wireless.github.io/radiators/ --results results
@@ -104,6 +99,8 @@ jobs:
             results/*/result.json
             results/*/pattern_*.json
             results/*/geometry.xml
+            results/*/runner.log
+            results/scheduler.json
             site/dist/
           if-no-files-found: warn
           retention-days: 14
