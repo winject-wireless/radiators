@@ -98,6 +98,7 @@ jobs:
           python3 site/build_site.py --results results --site site/dist "${args[@]}"
           node --check site/dist/app.js
           node --check site/dist/plotly.min.js
+          node site/check_viewer.js site/dist
           python3 - <<'PY'
           import json
           from pathlib import Path
