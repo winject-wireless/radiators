@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'docker/openems/**'
+      - 'scripts/ensure-openems-image.sh'
       - 'antennas/test_gh/**'
       - '.github/workflows/openems-test.yml'
   pull_request:
