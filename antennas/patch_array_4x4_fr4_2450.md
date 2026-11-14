@@ -1,4 +1,6 @@
-# FR4 4 × 4 inset-fed patch array, 2.4–2.5 GHz\n\n> **Simulation status (PR #4, 2026-11-15): FAILS the gain target.** An openEMS run completed successfully but found **−4.46 dBi realized broadside gain at 2.45 GHz**, with only **1.22% radiation efficiency**. This is an experimental simulation model for viewing and debugging, **not a validated antenna or a fabrication-ready PCB**. The very low efficiency needs model and feed-network investigation, followed by mesh convergence and physical measurements.
+# FR4 4 × 4 inset-fed patch array, 2.4–2.5 GHz
+
+> **Simulation status (PR #4, 2026-11-15): FAILS the gain target.** An openEMS run completed successfully but found **−4.46 dBi realized broadside gain at 2.45 GHz**, with only **1.22% radiation efficiency**. This is an experimental simulation model for viewing and debugging, **not a validated antenna or a fabrication-ready PCB**. The very low efficiency needs model and feed-network investigation, followed by mesh convergence and physical measurements.
 
 ## Initial openEMS results
 
