@@ -5,7 +5,12 @@ const PALETTE = {paper_bgcolor:"#101c2e",plot_bgcolor:"#101c2e",font:{color:"#d6
 const PLOT_CFG = {responsive:true,displaylogo:false};
 const DEG = Math.PI / 180;
 let runs = [], active = null, field = null, mode = "combined", requestVersion = 0;
-let planarZoom = 1; // Radial zoom only; 6-DOF pose is controlled elsewhere.
+const DEFAULT_CAMERA={up:{x:0,y:0,z:1},center:{x:0,y:0,z:0},eye:{x:1.55,y:1.55,z:1.1}};
+let sceneCamera=null,sceneDragMode="turntable",cameraEventsBound=false;
+let sceneRendering=false,sceneDirty=false,sceneFrameScheduled=false;
+const POSE_AXIS_IDS=["px","py","pz","roll","pitch","yaw"];
+const POSE_PRESETS={xy:[0,0,0],xz:[90,0,0],yz:[90,0,90]};
+const lastValidPose={px:0,py:0,pz:0,roll:0,pitch:0,yaw:0};
 
 function status(message){el("status").textContent = message}
 function format(number,places=2){return Number.isFinite(number) ? Number(number).toFixed(places) : "—"}
@@ -374,79 +379,123 @@ function sceneTraces(){
  }
  return traces;
 }
+function rememberCamera(event){
+ if(!event||!Object.keys(event).some(key=>key==="scene.camera"||key.startsWith("scene.camera.")))return;
+ const camera=el("farfield")._fullLayout?.scene?.camera;
+ if(camera?.eye&&camera.center){
+  sceneCamera={
+   eye:{...camera.eye},
+   center:{...camera.center},
+   up:{x:0,y:0,z:1},
+   ...(camera.projection?{projection:{...camera.projection}}:{})
+  };
+ }
+}
 async function renderScene(){
- if(!active || !field)return;
- await Plotly.react("farfield",sceneTraces(),
-  {...PALETTE,margin:{l:0,r:0,t:0,b:0},uirevision:"camera-z-up-v2",
-   scene:{aspectmode:"data",bgcolor:"#101c2e",
-    dragmode:"turntable", // Constrain orbit: global +Z is always up
-    camera:{up:{x:0,y:0,z:1},eye:{x:1.55,y:1.55,z:1.1}},
-    xaxis:{title:"X (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"},
-    yaxis:{title:"Y (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"},
-    zaxis:{title:"Z (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"}}},PLOT_CFG);
-}
-function sampleDirectivity(p,direction){
- // Bilinear angular interpolation. The phi index wraps at 360°.
- const dir=normalize(direction),theta=Math.acos(Math.max(-1,Math.min(1,dir[2])))/DEG;
- const phi=((Math.atan2(dir[1],dir[0])/DEG)%360+360)%360;
- const t=p.theta_deg, f=p.phi_deg,vals=p.directivity_dbi;
- const tLast=t.length-1, tstep=(t[tLast]-t[0])/tLast, fstep=360/f.length;
- const ti=Math.min(tLast-1,Math.max(0,Math.floor((theta-t[0])/tstep)));
- const tt=Math.min(1,Math.max(0,(theta-t[ti])/(t[ti+1]-t[ti])));
- const fi=Math.min(f.length-1,Math.floor(phi/fstep)),fj=(fi+1)%f.length;
- const ff=(phi-fi*fstep)/fstep;
- const v0=(1-ff)*vals[ti][fi]+ff*vals[ti][fj];
- const v1=(1-ff)*vals[ti+1][fi]+ff*vals[ti+1][fj];
- return v0*(1-tt)+v1*tt;
-}
-function signedAxisLabel(direction, localName){
- const principal=["X","Y","Z"];
- for(let i=0;i<3;i++){
-  if(Math.abs(Math.abs(direction[i])-1)<1e-5 &&
-     direction.every((v,k)=>k===i||Math.abs(v)<1e-5))
-   return (direction[i]>0?"+":"−")+principal[i];
+ if(!active||!field)return;
+ sceneDirty=true;
+ if(sceneRendering)return;
+ sceneRendering=true;
+ try{
+  do{
+   sceneDirty=false;
+   await Plotly.react("farfield",sceneTraces(),
+    {...PALETTE,margin:{l:0,r:0,t:0,b:0},uirevision:"z-up-camera-preserved-v3",
+     scene:{aspectmode:"data",bgcolor:"#101c2e",
+      dragmode:sceneDragMode,camera:sceneCamera||DEFAULT_CAMERA,
+      xaxis:{title:"X (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"},
+      yaxis:{title:"Y (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"},
+      zaxis:{title:"Z (mm)",gridcolor:"#253c56",zerolinecolor:"#395775"}}},
+    {...PLOT_CFG,displayModeBar:false,scrollZoom:true,doubleClick:false});
+   if(!cameraEventsBound&&typeof el("farfield").on==="function"){
+    el("farfield").on("plotly_relayout",rememberCamera);
+    cameraEventsBound=true;
+   }
+  }while(sceneDirty);
+ }finally{
+  sceneRendering=false;
  }
- return "+"+localName;
 }
-function reverseAxisLabel(label){
- return label.startsWith("+")?"−"+label.slice(1):label.startsWith("−")?"+"+label.slice(1):"−"+label;
+// Coalesce pointer-driven changes into one 3D re-render per animation frame.
+function scheduleSceneRender(){
+ if(sceneFrameScheduled)return;
+ sceneFrameScheduled=true;
+ requestAnimationFrame(()=>{
+  sceneFrameScheduled=false;
+  renderScene().catch(error=>{status("3D plot error: "+error.message);console.error(error)});
+ });
 }
-function planeAxisNotes(u,v){
- const fmt=vec=>"("+vec.map(x=>Math.abs(x)<1e-7?"0":x.toFixed(2)).join(", ")+")";
- return "Horizontal "+fmt(u)+" · Vertical "+fmt(v)+" (X, Y, Z)";
-}
-async function renderPlanar(){
- if(!field)return;
- const p=pose(),u=rotate([1,0,0],p.angles),v=rotate([0,1,0],p.angles);
- const angles=[],powers=[],dbi=[];
- const horizontal=signedAxisLabel(u,"U"),vertical=signedAxisLabel(v,"V");
- el("planeAxes").textContent=horizontal+" horizontal · "+vertical+" vertical";
- el("planeAxes").title=planeAxisNotes(u,v);
- for(let deg=0;deg<=360;deg+=2){
-  const radians=deg*DEG;
-  const direction=add(scale(u,Math.cos(radians)),scale(v,Math.sin(radians)));
-  const db=sampleDirectivity(field,direction);
-  angles.push(deg);dbi.push(db);powers.push(Math.pow(10,(db-field.max_directivity_dbi)/10));
+async function changeCameraTool(next){
+ if(next!=="pan"&&next!=="turntable")return;
+ sceneDragMode=next;
+ for(const [id,tool] of [["orbitView","turntable"],["panView","pan"]]){
+  const btn=el(id),selected=tool===next;
+  btn.classList.toggle("active",selected);
+  btn.setAttribute("aria-pressed",String(selected));
  }
- const maxRadius=1/planarZoom;
- const guide={type:"scatterpolar",mode:"lines",hoverinfo:"skip",showlegend:false,
-              line:{color:"rgba(165,198,227,.55)",width:1.5}};
- await Plotly.react("planarPlot",[
-  {...guide,theta:[0,0,180],r:[maxRadius,0,maxRadius]},
-  {...guide,theta:[90,90,270],r:[maxRadius,0,maxRadius]},
-  {
-   type:"scatterpolar",theta:angles,r:powers,customdata:dbi,mode:"lines",
-   line:{color:"#5fd8e2",width:2},fill:"toself",fillcolor:"rgba(51,193,218,.13)",
-   hovertemplate:"Angle %{theta:.0f}°<br>Directivity %{customdata:.2f} dBi<extra></extra>"
-  }
- ],{...PALETTE,margin:{l:42,r:42,t:32,b:32},showlegend:false,
-  polar:{bgcolor:"#101c2e",
-   radialaxis:{range:[0,maxRadius],gridcolor:"#304762",tickfont:{size:9},showline:false},
-   angularaxis:{direction:"counterclockwise",rotation:0,
-    tickmode:"array",tickvals:[0,90,180,270],
-    ticktext:[horizontal,vertical,reverseAxisLabel(horizontal),reverseAxisLabel(vertical)],
-    tickfont:{size:11,color:"#d4eafa"},gridcolor:"#304762",showline:true,linecolor:"#405977"}},
-  dragmode:false}, {...PLOT_CFG,displayModeBar:false,scrollZoom:false,doubleClick:false});
+ // relayout changes drag interaction only; critically, no new camera is set.
+ if(el("farfield")._fullLayout)
+  await Plotly.relayout("farfield",{"scene.dragmode":next});
+}
+async function resetCamera(){
+ sceneCamera={
+  up:{...DEFAULT_CAMERA.up},
+  center:{...DEFAULT_CAMERA.center},
+  eye:{...DEFAULT_CAMERA.eye}
+ };
+ if(el("farfield")._fullLayout)
+  await Plotly.relayout("farfield",{"scene.camera":sceneCamera});
+}
+function formatPoseNumber(value){
+ // Explicit ASCII + / - and two decimal places, including on mobile.
+ return (value>=0?"+":"")+value.toFixed(2);
+}
+function readPoseNumber(value){
+ const text=String(value).trim().replace(/\u2212/g,"-");
+ if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text))return null;
+ const num=Number(text);
+ return Number.isFinite(num)&&Math.abs(num)<=1000000?num:null;
+}
+function updatePoseSliderRange(id,value){
+ const slider=el(id+"Slider");
+ let extent=Math.max(Math.abs(Number(slider.min)),Math.abs(Number(slider.max)));
+ if(Math.abs(value)>extent){
+  const rounding=id.startsWith("p")?25:45;
+  extent=Math.ceil(Math.abs(value)/rounding)*rounding;
+  slider.min=String(-extent);
+  slider.max=String(extent);
+ }
+ // Range may round manually entered values to its step. The numeric input
+ // remains authoritative, preserving finer manual decimal precision.
+ slider.value=String(value);
+}
+function setPoseAxis(id,value){
+ if(!Number.isFinite(value)||Math.abs(value)>1000000)return;
+ lastValidPose[id]=value;
+ const input=el(id);
+ input.value=formatPoseNumber(value);
+ input.removeAttribute("aria-invalid");
+ updatePoseSliderRange(id,value);
+}
+function updatePresetButtons(){
+ const values=["roll","pitch","yaw"].map(id=>readPoseNumber(el(id).value));
+ for(const button of document.querySelectorAll("[data-plane]")){
+  const preset=POSE_PRESETS[button.dataset.plane];
+  const selected=preset&&values.every((v,i)=>v!==null&&Math.abs(v-preset[i])<.001);
+  button.classList.toggle("active",Boolean(selected));
+  button.setAttribute("aria-pressed",String(Boolean(selected)));
+ }
+}
+function updatePositionSliders(){
+ const extent=Math.max(50,Math.ceil(radiatingScale()/25)*25);
+ for(const id of ["px","py","pz"]){
+  const slider=el(id+"Slider");
+  const bound=Math.max(extent,Math.abs(lastValidPose[id]));
+  const max=Math.ceil(bound/25)*25;
+  slider.min=String(-max);
+  slider.max=String(max);
+  slider.value=String(lastValidPose[id]);
+ }
 }
 async function renderS11(){
  const s=active.s11,x=s.frequency_hz.map(f=>f/1e9);
@@ -477,7 +526,7 @@ async function renderPattern(){
   el("peak").textContent="Peak "+format(f.max_directivity_dbi)+" dBi";
   el("eff").textContent=Number.isFinite(f.radiation_efficiency) ?
    "Efficiency "+format(100*f.radiation_efficiency,1)+"%" : "Efficiency n/a";
-  await Promise.all([renderScene(),renderPlanar()]);
+  await renderScene();
   status("Ready · "+format(f.frequency_hz/1e9,3)+" GHz");
  }catch(error){status("Pattern error: "+error.message);console.error(error)}
 }
@@ -488,6 +537,11 @@ async function renderRun(){
   const result=await getJSON(el("run").value);
   if(seq!==requestVersion)return;
   active=result;
+  // A different antenna should be framed initially from the default camera;
+  // frequency changes and plane edits retain the existing view.
+  sceneCamera=null;
+  cachedField=null;
+  updatePositionSliders();
   el("mesh").textContent=Number(active.mesh_total_cells).toLocaleString()+" cells";
   el("config").textContent=JSON.stringify(active.input_config,null,2);
   el("freq").replaceChildren(...active.patterns.map((p,index)=>{
@@ -500,64 +554,83 @@ async function renderRun(){
 }
 function setMode(next){
  mode=next;document.body.dataset.mode=next;
- for(const button of document.querySelectorAll("[data-mode]")){
-  if(button.tagName==="BUTTON")button.classList.toggle("active",button.dataset.mode===next);
+ for(const button of document.querySelectorAll(".view-tabs button")){
+  button.classList.toggle("active",button.dataset.mode===next);
  }
- el("showGeometry").checked=(next==="combined"||next==="geometry"||next==="planar");
- el("showRadiation").checked=(next!=="geometry");
- el("showPlane").checked=(next==="combined"||next==="planar");
- renderScene();
+ el("showGeometry").checked=next!=="radiation";
+ el("showRadiation").checked=next!=="geometry";
+ el("showPlane").checked=next==="combined";
+ scheduleSceneRender();
  setTimeoutResize();
 }
 function setTimeoutResize(){
- // Delayed layout change handled through the next animation frame where available.
- if(typeof requestAnimationFrame==="function")requestAnimationFrame(()=>{
-  for(const id of ["farfield","planarPlot","s11Plot","vswrPlot"])Plotly.Plots.resize(el(id));
+ requestAnimationFrame(()=>{
+  for(const id of ["farfield","s11Plot","vswrPlot"]){
+   const graph=el(id);
+   if(graph?._fullLayout)Plotly.Plots.resize(graph);
+  }
  });
 }
 (function setupControls(){
- // The polar plot never changes pose; only these buttons change its radial view scale.
- const zoomButtons = [
-  ["planarZoomIn",()=>Math.min(8,planarZoom*1.25)],
-  ["planarZoomOut",()=>Math.max(0.5,planarZoom/1.25)],
-  ["planarZoomReset",()=>1]
- ];
- function updatePlanarZoomButtons(){
-  el("planarZoomIn").disabled=planarZoom>=8;
-  el("planarZoomOut").disabled=planarZoom<=0.5;
+ for(const [id,dragmode] of [["orbitView","turntable"],["panView","pan"]]){
+  el(id).addEventListener("click",()=>changeCameraTool(dragmode));
  }
- for(const [id,next] of zoomButtons){
-  el(id).addEventListener("click",()=>{
-   planarZoom=next();
-   updatePlanarZoomButtons();
-   renderPlanar();
-  });
- }
- updatePlanarZoomButtons();
+ el("resetView").addEventListener("click",resetCamera);
  for(const button of document.querySelectorAll(".view-tabs button")){
   button.addEventListener("click",()=>setMode(button.dataset.mode));
  }
- for(const id of ["showGeometry","showRadiation","showPlane"])el(id).addEventListener("change",renderScene);
- for(const id of ["px","py","pz","roll","pitch","yaw"]){
-  el(id).addEventListener("input",()=>{renderScene();renderPlanar()});
- }
- el("poseReset").addEventListener("click",()=>{
-  for(const id of ["px","py","pz","roll","pitch","yaw"])el(id).value="0";
-  renderScene();renderPlanar();
- });
- // Align the angular cut to global XY, XZ or YZ planes.
- const planeRotations={xy:[0,0,0],xz:[90,0,0],yz:[90,0,90]};
- for(const preset of document.querySelectorAll("[data-plane]")){
-  preset.addEventListener("click",()=>{
-   const angles=planeRotations[preset.dataset.plane];
-   if(!angles)return;
-   ["roll","pitch","yaw"].forEach((id,index)=>{el(id).value=String(angles[index])});
-   el("showPlane").checked=true;
-   renderScene();renderPlanar();
+ for(const id of ["showGeometry","showRadiation","showPlane"])
+  el(id).addEventListener("change",scheduleSceneRender);
+
+ for(const id of POSE_AXIS_IDS){
+  const input=el(id),slider=el(id+"Slider");
+  slider.addEventListener("input",()=>{
+   setPoseAxis(id,Number(slider.value));
+   if(!id.startsWith("p"))updatePresetButtons();
+   scheduleSceneRender();
+  });
+  input.addEventListener("input",()=>{
+   const number=readPoseNumber(input.value);
+   if(number===null){
+    input.setAttribute("aria-invalid","true");
+    return; // Allow a partial input such as "-" while typing.
+   }
+   lastValidPose[id]=number;
+   input.removeAttribute("aria-invalid");
+   updatePoseSliderRange(id,number);
+   if(!id.startsWith("p"))updatePresetButtons();
+   scheduleSceneRender();
+  });
+  input.addEventListener("blur",()=>{
+   const value=readPoseNumber(input.value);
+   setPoseAxis(id,value===null?lastValidPose[id]:value);
+   if(!id.startsWith("p"))updatePresetButtons();
+   scheduleSceneRender();
+  });
+  input.addEventListener("keydown",event=>{
+   if(event.key==="Enter"){event.preventDefault();input.blur();}
+   if(event.key==="Escape"){
+    input.value=formatPoseNumber(lastValidPose[id]);input.blur();
+   }
   });
  }
- el("run").addEventListener("change",renderRun);
- el("freq").addEventListener("change",renderPattern);
+ el("poseReset").addEventListener("click",()=>{
+  for(const id of POSE_AXIS_IDS)setPoseAxis(id,0);
+  el("showPlane").checked=true;
+  updatePresetButtons();
+  scheduleSceneRender();
+ });
+ for(const preset of document.querySelectorAll("[data-plane]")){
+  preset.addEventListener("click",()=>{
+   const angles=POSE_PRESETS[preset.dataset.plane];
+   if(!angles)return;
+   ["roll","pitch","yaw"].forEach((id,index)=>setPoseAxis(id,angles[index]));
+   el("showPlane").checked=true;
+   updatePresetButtons();
+   scheduleSceneRender();
+  });
+ }
+ updatePresetButtons();
 })();
 (async function init(){
  try{
