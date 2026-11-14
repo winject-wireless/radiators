@@ -7,7 +7,9 @@ const DEG = Math.PI / 180;
 let runs = [], active = null, field = null, mode = "combined";
 const DEFAULT_CAMERA={up:{x:0,y:0,z:1},center:{x:0,y:0,z:0},eye:{x:1.55,y:1.55,z:1.1}};
 let sceneCamera=null,cameraEventsBound=false;
-let orbitCenter=null; // Track the current pan target while orbiting.
+// Single authoritative camera orbit target. Zoom, wheel and orbit never write it.
+let orbitCenter={...DEFAULT_CAMERA.center};
+let zoomSequence=Promise.resolve();
 let activePanAxis=null;
 let selectedRunVersion=0;
 let selectedPatternVersion=0;
@@ -387,31 +389,33 @@ function planeTraces(){
 }
 // The Plotly camera center is dimensionless scene space. Use the SAME
 // display-space normalization for axis panning, the reticle and its readout.
-function cameraTargetMm(camera=sceneCamera||DEFAULT_CAMERA){
- const r=radiatingScale();
- return ["x","y","z"].map(axis=>Number(camera?.center?.[axis]||0)*r);
+function cameraTargetMm(){
+ const r=radiatingScale(),center=orbitCenter||DEFAULT_CAMERA.center;
+ return ["x","y","z"].map(axis=>Number(center[axis]||0)*r);
 }
 function panPlaneName(axis){return {x:"YZ",y:"XZ",z:"XY"}[axis]||"—";}
-// World-axis guide is effectively unbounded within the fixed 3D scene bounds.
-// Thin 1px line sections fade exponentially away from the camera target.
-// Segment opacity is used instead of extending the plotted data autorange.
-const PAN_FADE_STOPS=[0,.15,.33,.60,1.0,1.65,2.7,4.5,7.5,12];
+// Fade the 1px axis to the edges of the visible cube. Plotly's WebGL
+// scene fits geometry bounds: never place the guide 12x outside the scene.
+const PAN_FADE_STOPS=[0,.12,.27,.46,.67,.84,1];
+function sceneHalfExtent(){return radiatingScale()*1.35;}
 function panAxisTraces(){
  if(!activePanAxis)return [];
- const axis=activePanAxis,at="xyz".indexOf(axis);
- // The only sampling/reticle point is the current camera orbit/pan center.
- const center=cameraTargetMm(sceneCamera||DEFAULT_CAMERA);
+ const axis=activePanAxis,at="xyz".indexOf(axis),center=cameraTargetMm();
  const foot=center.slice();foot[at]=0;
- const radius=Math.max(10,radiatingScale());
- const color={x:[241,132,132],y:[120,220,165],z:[130,186,255]}[axis];
- const colorAt=alpha=>"rgba("+color.join(",")+","+alpha.toFixed(3)+")";
+ const limit=sceneHalfExtent(),color={x:[241,132,132],y:[120,220,165],z:[130,186,255]}[axis];
+ const colorAt=a=>"rgba("+color.join(",")+","+a.toFixed(3)+")";
  const traces=[];
+ const clamp=(value)=>Math.max(-limit,Math.min(limit,value));
  for(const direction of [-1,1]){
+  const distance=Math.max(0,Math.min(2*limit,
+    direction>0?limit-center[at]:center[at]+limit));
+  if(distance<=0)continue;
   for(let i=1;i<PAN_FADE_STOPS.length;i++){
    const from=center.slice(),to=center.slice();
-   from[at]+=direction*radius*PAN_FADE_STOPS[i-1];
-   to[at]+=direction*radius*PAN_FADE_STOPS[i];
-   const alpha=.88*Math.exp(-.55*(i-1));
+   from[at]=clamp(center[at]+direction*distance*PAN_FADE_STOPS[i-1]);
+   to[at]=clamp(center[at]+direction*distance*PAN_FADE_STOPS[i]);
+   if(Math.abs(from[at]-to[at])<1e-6)continue;
+   const alpha=.85*Math.exp(-.62*(i-1));
    traces.push({type:"scatter3d",mode:"lines",
     name:i===1&&direction===-1?"Pan "+axis.toUpperCase()+" axis":"Axis fade",
     x:[from[0],to[0]],y:[from[1],to[1]],z:[from[2],to[2]],
@@ -419,10 +423,12 @@ function panAxisTraces(){
     hoverinfo:"skip",showlegend:false});
   }
  }
- const ortho=[0,1,2].filter(i=>i!==at),size=radius*.53;
+ const orth=[0,1,2].filter(i=>i!==at),size=limit*.43;
  const corners=[];
  for(const [u,v] of [[-1,-1],[1,-1],[1,1],[-1,1]]){
-  const pt=foot.slice();pt[ortho[0]]+=u*size;pt[ortho[1]]+=v*size;
+  const pt=foot.slice();
+  pt[orth[0]]=clamp(foot[orth[0]]+u*size);
+  pt[orth[1]]=clamp(foot[orth[1]]+v*size);
   corners.push(pt);
  }
  traces.push(meshTrace(panPlaneName(axis)+" reference plane",
@@ -477,8 +483,7 @@ function copyCamera(camera){
  return c;
 }
 function captureCamera(){
- const graph=el("farfield");
- const live=graph?._fullLayout?.scene?._scene;
+ const graph=el("farfield"),live=graph?._fullLayout?.scene?._scene;
  let camera=null;
  if(live&&typeof live.getCamera==="function"){
   try{camera=copyCamera(live.getCamera());}
@@ -486,17 +491,18 @@ function captureCamera(){
  }
  camera ||= copyCamera(graph?._fullLayout?.scene?.camera);
  camera ||= copyCamera(sceneCamera);
- sceneCamera=camera||copyCamera(DEFAULT_CAMERA);
- return copyCamera(sceneCamera);
+ camera ||= copyCamera(DEFAULT_CAMERA);
+ // The library may change camera.center while zooming. Only XYZ panning
+ // or an explicit reset may change the authoritative orbit target.
+ camera.center={...orbitCenter};
+ sceneCamera=camera;
+ return copyCamera(camera);
 }
 function rememberCamera(event){
  if(!event)return;
- const changed=Object.keys(event).some(key=>key==="scene.camera"||key.startsWith("scene.camera."));
- if(!changed)return;
+ if(!Object.keys(event).some(key=>key==="scene.camera"||key.startsWith("scene.camera.")))return;
  const next=copyCamera(event["scene.camera"])||captureCamera();
- // The XYZ handles define the orbit pivot. Orbiting changes orientation but
- // must not silently move that point back to the original model center.
- if(orbitCenter)next.center={...orbitCenter};
+ next.center={...orbitCenter};
  sceneCamera=next;
  updateAxisGizmo(next);
  updateCenterStats(next);
@@ -562,13 +568,23 @@ function updatePanStatus(){
 }
 function zoomCamera(factor){
  if(!(factor>0))return Promise.resolve();
- const camera=captureCamera();
- const distance=magnitude(Object.values(camera.eye));
- const target=Math.max(.3,Math.min(15,distance*factor));
- const next={...camera,eye:Object.fromEntries(
-  Object.entries(camera.eye).map(([axis,value])=>[axis,value*target/(distance||1)]))};
- sceneCamera=next;
- return Plotly.relayout(el("farfield"),{"scene.camera":next});
+ // Serialize wheel/toolbar zooms so each step uses the preceding eye.
+ zoomSequence=zoomSequence.catch(()=>{}).then(async()=>{
+  const camera=captureCamera();
+  const distance=magnitude(Object.values(camera.eye));
+  const target=Math.max(.30,Math.min(15,distance*factor));
+  const next={...camera,center:{...orbitCenter},eye:Object.fromEntries(
+   Object.entries(camera.eye).map(([axis,value])=>[axis,value*target/(distance||1)]))};
+  sceneCamera=next;
+  if(el("farfield")._fullLayout)
+   await Plotly.relayout(el("farfield"),{"scene.camera":next});
+  // Zoom moves the eye only. Sampling target and world-space center remain
+  // invariant, regardless of Plotly's camera normalization.
+  updateAxisGizmo(next);
+  updateCenterStats(next);
+  updatePanStatus();
+ });
+ return zoomSequence;
 }
 const dot=(a,b)=>a.reduce((sum,v,i)=>sum+v*b[i],0);
 const WORLD_AXES={x:[1,0,0],y:[0,1,0],z:[0,0,1]};
@@ -710,15 +726,15 @@ async function renderScene(){
    if(sceneCamera!==null)captureCamera();
    await Plotly.react("farfield",sceneTraces(),
     {...PALETTE,margin:{l:0,r:0,t:0,b:0},showlegend:false,
-     uirevision:"z-up-camera-preserved-v4",
-     scene:{aspectmode:"data",bgcolor:"#101c2e",
+     uirevision:"z-up-camera-preserved-v5",
+     scene:{aspectmode:"cube",aspectratio:{x:1,y:1,z:1},bgcolor:"#101c2e",
       dragmode:"turntable",camera:sceneCamera||DEFAULT_CAMERA,
       // Pin the physical data range; long fading pan guides must never
       // alter auto-ranging, model scale or the user's camera zoom.
       xaxis:{title:"X (mm)",range:[-radiatingScale()*1.35,radiatingScale()*1.35],gridcolor:"#253c56",zerolinecolor:"#395775"},
       yaxis:{title:"Y (mm)",range:[-radiatingScale()*1.35,radiatingScale()*1.35],gridcolor:"#253c56",zerolinecolor:"#395775"},
       zaxis:{title:"Z (mm)",range:[-radiatingScale()*1.35,radiatingScale()*1.35],gridcolor:"#253c56",zerolinecolor:"#395775"}}},
-    {...PLOT_CFG,displayModeBar:false,scrollZoom:true,doubleClick:false});
+    {...PLOT_CFG,displayModeBar:false,scrollZoom:false,doubleClick:false});
    if(!cameraEventsBound&&typeof el("farfield").on==="function"){
     el("farfield").on("plotly_relayout",rememberCamera);
     cameraEventsBound=true;
@@ -1003,7 +1019,7 @@ async function renderRun(){
   if(!Array.isArray(result.patterns)||!result.patterns.length)
    throw Error("Simulation has no frequency patterns");
   active=result;field=null;
-  sceneCamera=null;orbitCenter=null;activePanAxis=null;cachedField=null;
+  sceneCamera=null;orbitCenter={...DEFAULT_CAMERA.center};activePanAxis=null;cachedField=null;
   updatePanStatus();updateAxisGizmo(DEFAULT_CAMERA);resetIncrementalSliders();
   el("mesh").textContent=Number(active.mesh_total_cells).toLocaleString()+" cells";
   el("config").textContent=JSON.stringify(active.input_config,null,2);
@@ -1070,8 +1086,14 @@ function setTimeoutResize(){
    if(graph._fullLayout)updateAxisGizmo(captureCamera());
   });
  };
- for(const eventName of ["pointermove","mousemove","pointerup","mouseup","wheel"])
+ for(const eventName of ["pointermove","mousemove","pointerup","mouseup"])
   graph.addEventListener(eventName,refreshGizmo,{passive:true});
+ graph.addEventListener("wheel",event=>{
+  event.preventDefault();
+  const pixels=event.deltaY*(event.deltaMode===1?16:event.deltaMode===2?graph.clientHeight:1);
+  const factor=Math.exp(Math.max(-250,Math.min(250,pixels))*.0012);
+  zoomCamera(factor).catch(error=>{status("Zoom error: "+error.message);console.error(error)});
+ },{passive:false});
  for(const button of document.querySelectorAll(".view-tabs button")){
   button.addEventListener("click",()=>setMode(button.dataset.mode));
  }
