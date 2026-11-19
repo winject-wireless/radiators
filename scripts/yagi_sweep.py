@@ -230,6 +230,9 @@ def collect_case(outdir, p, fine, wall_seconds=0, failed=None):
                    vswr=result["s11"]["vswr"][ci],
                    impedance_real_ohm=result["impedance"]["real_ohm"][ci],
                    impedance_imag_ohm=result["impedance"]["imag_ohm"][ci])
+        if not all(math.isfinite(rec[key]) for key in
+                   ("s11_db", "vswr", "impedance_real_ohm", "impedance_imag_ohm")):
+            raise ValueError("Nonfinite input impedance or S11")
         mismatch = 10 ** (rec["s11_db"] / 10)  # power reflected
         rec["matching_efficiency"] = max(0, min(1, 1 - mismatch))
         fg, dirg, etas = [], [], []
@@ -361,8 +364,18 @@ def save_report(dest, records):
                       100*r["total_efficiency_2450"], r["front_back_2450_db"],
                       ("%.0f" % r["cpu_seconds"]) if "cpu_seconds" in r else "n/a"))
     if rank:
-        best = rank[0]
-        lines += ["", "## Highest scored candidate", "",
+        # Prefer a mesh-refined candidate for the final recommendation.
+        verified = [r for r in rank if r["fine"]]
+        best = verified[0] if verified else rank[0]
+        by_eff = max(rank, key=lambda r: r["total_efficiency_2450"])
+        by_directivity = max(rank, key=lambda r: r["directivity_forward_2450_dbi"])
+        lines += ["", "## Objective-specific leaders", "",
+                  "- Best total feed-to-radiated efficiency: %s (%.2f%%)" %
+                  (by_eff["case"], 100*by_eff["total_efficiency_2450"]),
+                  "- Best forward directivity: %s (%.2f dBi)" %
+                  (by_directivity["case"], by_directivity["directivity_forward_2450_dbi"]),
+                  "- Best broad-band realized-gain score: %s" % rank[0]["case"], ""]
+        lines += ["", "## Preferred candidate (fine mesh when available)", "",
                   "- Parameters: " + json.dumps(params_dict(tuple(best[k] for k in FIELDS))),
                   "- Mesh: " + ("fine (1.6 mm)" if best["fine"] else "coarse (2 mm)"),
                   "- Forward realized gain: %.2f dBi" % best["forward_gain_2450_dbi"],
