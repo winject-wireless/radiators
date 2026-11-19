@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - 'scripts/yagi_sweep.py'
+      - 'scripts/restore_openems_image.py'
       - 'antennas/yagi_16rod_bonded_boom_measured_loop_2450.json'
       - '.github/workflows/yagi-sweep-check.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/yagi_sweep.py'
+      - 'scripts/restore_openems_image.py'
       - 'antennas/yagi_16rod_bonded_boom_measured_loop_2450.json'
       - '.github/workflows/yagi-sweep-check.yml'
 permissions:
@@ -24,6 +26,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile Python sweep generator
-        run: python -m py_compile scripts/yagi_sweep.py
+        run: python -m py_compile scripts/yagi_sweep.py scripts/restore_openems_image.py
       - name: Generate and validate all screening geometries
         run: python scripts/yagi_sweep.py --self-test
