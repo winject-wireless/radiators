@@ -46,7 +46,7 @@ jobs:
           --dest results/yagi_sweep
           --parallel 4
           --cpus-per-case 4
-          --memory-gib-per-case 12
+          --memory-gib-per-case 16
       - name: Archive ranked antenna simulations
         if: always()
         uses: actions/upload-artifact@v4
