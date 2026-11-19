@@ -410,14 +410,31 @@ def main():
     record_file = args.dest / "all_results.json"
     records = json.loads(record_file.read_text(encoding="utf-8")) if record_file.exists() else []
     check_docker(args.image, args.dest / "docker_build.log")
+    # The host can have 64 GiB while Docker Desktop/WSL2 exposes less.
+    # Respect resources actually visible to Docker, not the marketing spec.
+    info = subprocess.run(["docker", "info", "--format", "{{json .}}"],
+                          capture_output=True, text=True, check=True)
+    dinfo = json.loads(info.stdout)
+    total_cpus = int(dinfo["NCPU"])
+    total_mem_gib = int(dinfo["MemTotal"]) // (1024 ** 3)
+    workers = min(args.parallel, total_cpus // args.cpus_per_case,
+                  (total_mem_gib - 8) // args.memory_gib_per_case)
+    if workers < 1:
+        raise RuntimeError("Docker has %d vCPUs and %d GiB; need at least %d CPUs "
+                           "and %d GiB (including 8 GiB host reserve). Increase WSL2/"
+                           "Docker Desktop resources or reduce per-case budgets." %
+                           (total_cpus, total_mem_gib, args.cpus_per_case,
+                            args.memory_gib_per_case + 8))
+    print("Docker resources: %d CPUs, %d GiB; running %d parallel cases" %
+          (total_cpus, total_mem_gib, workers), flush=True)
     run_phase("A-screen", planned_cases(), base, args.image, args.dest, records,
-              args.cpus_per_case, args.memory_gib_per_case, args.parallel)
+              args.cpus_per_case, args.memory_gib_per_case, workers)
     seen = {tuple(r[k] for k in FIELDS) for r in records}
     run_phase("B-local", local_cases(records, seen), base, args.image, args.dest, records,
-              args.cpus_per_case, args.memory_gib_per_case, args.parallel)
+              args.cpus_per_case, args.memory_gib_per_case, workers)
     seen = {tuple(r[k] for k in FIELDS) for r in records}
     run_phase("C-interaction", interaction_cases(records, seen), base, args.image, args.dest, records,
-              args.cpus_per_case, args.memory_gib_per_case, args.parallel)
+              args.cpus_per_case, args.memory_gib_per_case, workers)
     completed = {r["case"] for r in records}
     run_phase("D-fine", fine_cases(records, completed), base, args.image, args.dest, records,
               args.cpus_per_case, args.memory_gib_per_case, args.parallel, fine=True)
