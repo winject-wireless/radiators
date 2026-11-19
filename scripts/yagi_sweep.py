@@ -139,7 +139,7 @@ def check_docker(image, logpath):
     if chk.returncode:
         print("No cached openEMS image; building on this machine.", flush=True)
         with logpath.open("w", encoding="utf-8") as log:
-            built = subprocess.run(DOCKER + ["build", "--progress=plain", "-t", image,
+            built = subprocess.run(DOCKER + ["build", "-t", image,
                                             "-f", "docker/openems/Dockerfile", "."],
                                    stdout=log, stderr=subprocess.STDOUT)
         if built.returncode:
