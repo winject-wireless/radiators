@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: yagi-measured-sweep
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   sweep:
