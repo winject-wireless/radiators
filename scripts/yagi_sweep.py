@@ -14,6 +14,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -24,6 +25,7 @@ FIELDS = ("pitch", "front_gap", "back_gap", "offset")
 BASE_PARAMS = (24, 24, 24, 16)  # mm; offset is a positive distance toward -Y
 LIMITS = ((18, 30), (12, 36), (12, 36), (12, 28))
 STEPS = (2, 4, 4, 2)
+DOCKER = ["docker"]  # May use passwordless sudo if runner account lacks socket permissions.
 
 
 def params_dict(p):
@@ -110,18 +112,35 @@ def make_geometry(base, p, fine=False):
 
 
 def check_docker(image, logpath):
-    res = subprocess.run(["docker", "info", "--format", "{{.OSType}}"],
+    global DOCKER
+    res = subprocess.run(DOCKER + ["info", "--format", "{{.OSType}}"],
                          capture_output=True, text=True, timeout=45)
+    if res.returncode and "permission denied" in (res.stdout + res.stderr).lower():
+        # EC2/WSL/Linux account may not yet belong to the docker group.
+        # Use only an already-authorized, non-interactive sudo; never prompt.
+        if os.name == "posix" and shutil.which("sudo"):
+            alternate = ["sudo", "-n", "docker"]
+            elevated = subprocess.run(alternate + ["info", "--format", "{{.OSType}}"],
+                                      capture_output=True, text=True, timeout=45)
+            if elevated.returncode == 0:
+                DOCKER = alternate
+                res = elevated
+                print("Docker socket denied unprivileged access; "
+                      "using preauthorized sudo -n docker.", flush=True)
     if res.returncode or res.stdout.strip().lower() != "linux":
-        raise RuntimeError("Docker must be available in Linux-container mode: "
+        raise RuntimeError("Docker Linux daemon is not accessible to this runner. "
+                           "If the error is /var/run/docker.sock permission denied, "
+                           "add the GitHub runner account to the docker group and "
+                           "restart its runner service/session, or authorize "
+                           "passwordless 'sudo docker'. Output: "
                            + res.stdout + " " + res.stderr)
-    chk = subprocess.run(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL,
+    chk = subprocess.run(DOCKER + ["image", "inspect", image], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
     if chk.returncode:
         print("No cached openEMS image; building on this machine.", flush=True)
         with logpath.open("w", encoding="utf-8") as log:
-            built = subprocess.run(["docker", "build", "--progress=plain", "-t", image,
-                                    "-f", "docker/openems/Dockerfile", "."],
+            built = subprocess.run(DOCKER + ["build", "--progress=plain", "-t", image,
+                                            "-f", "docker/openems/Dockerfile", "."],
                                    stdout=log, stderr=subprocess.STDOUT)
         if built.returncode:
             raise RuntimeError("Docker image build failed; inspect " + str(logpath))
@@ -289,12 +308,18 @@ def simulate(image, base, dest, p, fine, cpu, memory):
               "cat /sys/fs/cgroup/memory.peak > /work/{1}/memory_peak.txt 2>/dev/null || true; "
               "exit $rc").format("/sys/fs/cgroup", out_rel)
     # Deliberately keep root as container user for Windows Docker Desktop bind mounts.
-    cmd = ["docker", "run", "--rm", "--cpus", str(cpu), "--memory", str(memory) + "g",
+    cmd = DOCKER + ["run", "--rm", "--cpus", str(cpu), "--memory", str(memory) + "g",
            "--memory-swap", str(memory) + "g", "--pids-limit", "512",
            "-e", "OMP_NUM_THREADS=" + str(cpu),
            "-e", "OPENBLAS_NUM_THREADS=1",
            "--mount", "type=bind,source=" + str(Path.cwd().resolve()) + ",target=/work",
            "-w", "/work", image, "bash", "-lc", script]
+    # Use the runner's UID/GID on native Linux so Docker outputs don't become
+    # root-owned in the persistent self-hosted checkout.
+    if os.name == "posix":
+        cmd[1:1] = []  # No-op; Docker subcommand follows any optional sudo prefix.
+        subcmd_index = len(DOCKER)
+        cmd[subcmd_index + 1:subcmd_index + 1] = ["--user", "%d:%d" % (os.getuid(), os.getgid())]
     begin = time.monotonic()
     with (work / "runner.log").open("w", encoding="utf-8") as log:
         run = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT)
@@ -425,7 +450,7 @@ def main():
     check_docker(args.image, args.dest / "docker_build.log")
     # The host can have 64 GiB while Docker Desktop/WSL2 exposes less.
     # Respect resources actually visible to Docker, not the marketing spec.
-    info = subprocess.run(["docker", "info", "--format", "{{json .}}"],
+    info = subprocess.run(DOCKER + ["info", "--format", "{{json .}}"],
                           capture_output=True, text=True, check=True)
     dinfo = json.loads(info.stdout)
     total_cpus = int(dinfo["NCPU"])
