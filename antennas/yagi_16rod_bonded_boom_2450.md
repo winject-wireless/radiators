@@ -87,6 +87,13 @@ A new independent baseline, **`yagi_16rod_bonded_boom_measured_loop_2450.json`**
 
 An **ellipse** of the same outer dimensions would instead have an approximate centerline perimeter **133.693 mm (1.0926 λ)**. The outline distinction matters and should be checked against the real metal, not inferred from the overall dimensions alone.
 
+### Orientation confirmed from user's description and photograph
+
+- The **plane of the loop opening is parallel to the length of the boom** (the X–Z plane in this simulation); it is **not** a loop whose aperture faces along the boom, i.e. not a Y–Z plane loop.
+- The loop's **57.9 mm long axis is parallel to the director/reflector rods** (Z axis); its **33.4 mm short axis is along the boom** (X axis).
+- The simulation already uses this X–Z plane orientation. No 90-degree rotation is needed. Only the distance between loop plane and boom (its Y offset), the gap/feed and real electrical contacts remain unmeasured.
+- Do not confuse a loop whose *plane* is parallel to the boom with one whose *normal (aperture axis)* points parallel to the boom: those are orthogonal configurations with different radiation and coupling.
+
 ### Unmeasured feed assumptions
 
 - The actual **feed gap and attachment points** are hidden by the antenna's feed enclosure. Do **not** assume a specified gap size was measured.
