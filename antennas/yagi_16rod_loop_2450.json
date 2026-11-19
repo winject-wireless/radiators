@@ -24,11 +24,39 @@
     ]
   },
   "mesh": {
-    "max_cell_mm": 4,
-    "local_min_cell_mm": 0.9,
-    "auto_refine_max_span_mm": 80,
+    "max_cell_mm": 5,
+    "local_min_cell_mm": 1.6,
+    "auto_refine_max_span_mm": 30,
     "growth_ratio": 1.35,
-    "max_cells": 7000000
+    "max_cells": 7000000,
+    "refinements": [
+      {
+        "start": [
+          374,
+          -4,
+          -32
+        ],
+        "stop": [
+          404,
+          4,
+          32
+        ],
+        "resolution_mm": 1.5
+      },
+      {
+        "start": [
+          398,
+          -2,
+          -6
+        ],
+        "stop": [
+          404,
+          2,
+          6
+        ],
+        "resolution_mm": 0.9
+      }
+    ]
   },
   "solver": {
     "max_timesteps": 25000,
