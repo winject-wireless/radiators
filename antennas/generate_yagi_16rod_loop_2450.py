@@ -27,7 +27,7 @@ def generate():
     cfg = dict(
         schema_version=2,
         name="2.45GHz 16-rod loop-excited Yagi from reference photo",
-        description="Photo-informed 16 straight rods (15 directors and 1 reflector) plus a separately driven elliptical folded loop. Nominal ~16 dBi class comparison only; no EM gain or 50-ohm match verified. Ideal PEC without metal boom, brackets, coax, balun, or protective caps.",
+        description="EXPERIMENTAL: photo-inspired 16 straight rods + oval loop, 2.45 GHz. Converged openEMS baseline FAILED: peak realized gain -2.45 dBi, forward -X gain -11.47 dBi, S11 -1.16 dB, VSWR 14.97, pattern peaks sideways. Do not fabricate. Ideal PEC, no boom/coax/balun.",
         units="mm",
         domain=dict(start=[-121,-96,-100], stop=[545,96,100], boundary=["PML_8"]*6),
         mesh=dict(grid_mode="uniform", uniform_step_mm=2, max_cell_mm=2,
