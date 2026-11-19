@@ -109,6 +109,23 @@ def setup_mesh(mesh, cfg, geometry_bounds, source_bounds, geometry_previews, por
     resolution=positive(mesh_cfg.get("resolution_mm",mesh_cfg.get("max_cell_mm",5)),"mesh max_cell_mm")
     growth=float(mesh_cfg.get("growth_ratio",1.4))
     require(1.01<=growth<=2,"mesh.growth_ratio must be 1.01..2")
+    if mesh_cfg.get("grid_mode", "feature") == "uniform":
+        # A rectilinear grid aligned to constant spacing avoids near-coincident
+        # geometry extrema turning the Courant timestep into femtoseconds.
+        # Use this mode for long arrays of rods and curved thin-wire feeds.
+        step=positive(mesh_cfg.get("uniform_step_mm",resolution),"mesh.uniform_step_mm")
+        counts=[]
+        for i,axis in enumerate("xyz"):
+            n=max(1,int(math.ceil(float(domain_stop[i]-domain_start[i])/step)))
+            require(n<=2500, f"Uniform grid {axis}: too many intervals ({n})")
+            mesh.AddLine(axis,np.linspace(domain_start[i],domain_stop[i],n+1).tolist())
+            counts.append(n)
+        cells=math.prod(counts)
+        require(cells<=int(mesh_cfg.get("max_cells",5000000)),
+                f"Uniform mesh exceeds cell budget: {cells}")
+        return counts,cells
+    require(mesh_cfg.get("grid_mode","feature") == "feature",
+            "mesh.grid_mode must be 'feature' or 'uniform'")
     for i,axis in enumerate("xyz"):
         mesh.AddLine(axis,[float(domain_start[i]),float(domain_stop[i])])
     for lo,hi in geometry_bounds+source_bounds:
