@@ -11,12 +11,12 @@ OUT = HERE / "yagi_16rod_loop_2450.json"
 def generate():
     # Photo-derived baseline; reflector + 15 directors + folded-loop feed.
     cx, rx, rz = 390.0, 11.0, 28.0
-    half_gap = 2.25
+    half_gap = 2.0
     delta = math.asin(half_gap / rz)
     loop_points = [[round(cx+rx*math.cos(a), 5), 0,
                     round(rz*math.sin(a), 5)]
                    for a in (delta+(2*math.pi-2*delta)*j/96 for j in range(97))]
-    feed_x = round(cx+rx*math.cos(delta), 5)
+    feed_x = 401.0  # exact x-grid plane; within 0.03 mm of the wire terminals
     directors = []
     for i in range(15):
         x = float(26*i)
@@ -29,12 +29,10 @@ def generate():
         name="2.45GHz 16-rod loop-excited Yagi from reference photo",
         description="Photo-informed 16 straight rods (15 directors and 1 reflector) plus a separately driven elliptical folded loop. Nominal ~16 dBi class comparison only; no EM gain or 50-ohm match verified. Ideal PEC without metal boom, brackets, coax, balun, or protective caps.",
         units="mm",
-        domain=dict(start=[-120,-95,-100], stop=[545,95,100], boundary=["PML_8"]*6),
-        mesh=dict(max_cell_mm=5, local_min_cell_mm=1.6, auto_refine_max_span_mm=30,
-                  growth_ratio=1.35, max_cells=7000000,
-                  refinements=[dict(start=[374,-4,-32], stop=[404,4,32], resolution_mm=1.5),
-                               dict(start=[398,-2,-6], stop=[404,2,6], resolution_mm=0.9)]),
-        solver=dict(max_timesteps=25000, end_criteria=0.0001, resources=dict(cpus=2, memory_gib=5)),
+        domain=dict(start=[-121,-96,-100], stop=[545,96,100], boundary=["PML_8"]*6),
+        mesh=dict(grid_mode="uniform", uniform_step_mm=2, max_cell_mm=2,
+                  growth_ratio=1.35, max_cells=3800000),
+        solver=dict(max_timesteps=20000, end_criteria=0.0001, resources=dict(cpus=2, memory_gib=5)),
         excitation=dict(center_hz=2450000000, bandwidth_hz=200000000),
         materials=[dict(name="pec", type="pec")],
         geometry=[*directors,
