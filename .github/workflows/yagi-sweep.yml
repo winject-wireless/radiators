@@ -1,0 +1,62 @@
+name: Measured Yagi parameter optimization
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/yagi-sweep.yml'
+      - 'scripts/yagi_sweep.py'
+
+# Never run an untrusted pull_request on a persistent self-hosted runner.
+permissions:
+  contents: read
+
+concurrency:
+  group: yagi-measured-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    # Works for Windows + Docker Desktop Linux containers or a Linux/WSL2 runner.
+    # Only trusted main-branch source; intentionally not triggered by PRs.
+    runs-on: self-hosted
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inspect Docker/runner resources
+        run: |
+          docker version
+          docker info
+          python --version
+      - name: Validate sweep geometries
+        run: python scripts/yagi_sweep.py --self-test
+      - name: Optimize measured 2.45 GHz loop Yagi
+        run: >-
+          python scripts/yagi_sweep.py
+          --base antennas/yagi_16rod_bonded_boom_measured_loop_2450.json
+          --dest results/yagi_sweep
+          --parallel 4
+          --cpus-per-case 4
+          --memory-gib-per-case 12
+      - name: Archive ranked antenna simulations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: measured-yagi-parameter-sweep
+          path: |
+            results/yagi_sweep/summary.md
+            results/yagi_sweep/ranking.csv
+            results/yagi_sweep/all_results.json
+            results/yagi_sweep/docker_build.log
+            results/yagi_sweep/*/config.json
+            results/yagi_sweep/*/result.json
+            results/yagi_sweep/*/pattern_*Hz.json
+            results/yagi_sweep/*/runner.log
+            results/yagi_sweep/*/cpu_*.txt
+            results/yagi_sweep/*/memory_peak.txt
+          if-no-files-found: warn
+          retention-days: 21
