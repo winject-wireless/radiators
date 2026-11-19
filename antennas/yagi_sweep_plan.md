@@ -40,9 +40,9 @@ Maximize **forward realized gain**, not maximum 3D directivity and not radiation
 
 ## 16-vCPU / 64-GB self-hosted machine
 
-The sweep runs **four Docker containers concurrently**, each with **4 vCPUs and 16 GiB RAM**, totaling the full **16 vCPUs / 64 GiB simulation budget**. The Windows host has **128 GB installed**, so the remaining host RAM is outside the 64 GiB Linux-container budget. We no longer reserve 8 GiB inside the simulation budget or silently reduce concurrency: the sweep checks that Docker/WSL2 exposes at least 16 vCPUs and 64 GiB, then runs all four cases. If Docker/WSL2 exposes less, the run fails with explicit instructions rather than quietly running fewer jobs. On Windows with 128 GB RAM, set `%UserProfile%\\.wslconfig` to `[wsl2]`, `processors=16`, `memory=96GB` as a practical WSL2 allocation so 64 GiB can be used by openEMS while leaving space for WSL2 itself and Windows; run `wsl --shutdown` from PowerShell, then restart the runner. This changes the WSL2 VM resource ceiling, not the physical host RAM.
+The sweep launches **8 Docker containers concurrently**, **2 vCPUs per case** and **8 GiB maximum per container**: a total of **16 vCPUs / 64 GiB combined memory ceilings**. Docker `--memory=8g` is only a **limit**, not a reservation: each simulation uses what its FDTD grid needs. The host is Windows with 128 GB RAM and the Linux runner is in WSL2. WSL2 does **not** need a 96 GB ceiling unless actual measured memory pressure warrants it. The scheduler requires Docker to expose the 16 requested vCPUs and at least 8 GiB of Linux memory (enough for one container's ceiling); it does not require all eight memory limits to fit as preallocated RAM. Concurrent heavy runs can still exceed the physical WSL2 limit, so record peak RSS and OOM failures before changing the ceiling. Eight 2-vCPU simulations should offer higher throughput than four 4-vCPU simulations **if** solver per-run scaling is sublinear; compare measured FDTD wall/CPU seconds to verify.
 
-This is a **manual- and trusted-main-only** GitHub workflow, never on `pull_request`, to avoid running untrusted PR code on a persistent machine. The runner must have Docker installed and its daemon must be usable by the GitHub Actions runner account. On Windows 11, Docker Desktop must be running in **Linux containers** mode, with the GitHub runner running in a session that can access Docker Desktop. On Linux or WSL2, standard Linux Docker works. On first use, the image `radiators-openems:ci` is built locally if missing.
+This is a **manual- and trusted-main-only** GitHub workflow, never on `pull_request`, to avoid running untrusted PR code on a persistent machine. The runner must have Docker installed and its daemon must be usable by the GitHub Actions runner account. On Windows 11, Docker Desktop must be running in **Linux containers** mode, with the GitHub runner running in a session that can access Docker Desktop. On Linux or WSL2, standard Linux Docker works. If absent locally, the workflow downloads the existing prebuilt `radiators-openems:ci` image from GitHub Actions artifacts rather than recompiling it.
 
 Artifacts include:
 - `summary.md`: ranked table, goal-specific leaders and preferred fine-mesh design.
@@ -56,7 +56,7 @@ Run locally:
 
 ```bash
 python scripts/yagi_sweep.py --self-test
-python scripts/yagi_sweep.py --parallel 4 --cpus-per-case 4 --memory-gib-per-case 12
+python scripts/yagi_sweep.py --parallel 8 --cpus-per-case 2 --memory-gib-per-case 8
 ```
 
 GitHub Action: `.github/workflows/yagi-sweep.yml`. Results are uploaded as **measured-yagi-parameter-sweep** artifact; do not publish every sweep case to Pages.
