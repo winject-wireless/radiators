@@ -46,5 +46,5 @@ def generate():
     return cfg
 
 if __name__ == "__main__":
-    OUT.write_text(json.dumps(generate(), indent=2)+"\\n")
+    OUT.write_text(json.dumps(generate(), indent=2)+"\n")
     print(f"Wrote {OUT}")
