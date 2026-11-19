@@ -100,7 +100,7 @@ def make_geometry(base, p, fine=False):
                           "unmeasured rod pitch, feed/loop position and reflector spacing varied. "
                           "Optimized for forward -X realized gain at 2.4/2.45/2.5 GHz. "
                           "Not a validated physical build.")
-    cfg["solver"]["resources"] = dict(cpus=4, memory_gib=12)
+    cfg["solver"]["resources"] = dict(cpus=4, memory_gib=16)
     cfg["outputs"]["radiation_frequencies_hz"] = list(FREQS)
     cfg["outputs"]["radiation_grid"] = dict(theta_step_deg=3, phi_step_deg=5)
     cfg["outputs"]["include_polarization"] = False  # shorter artifacts
