@@ -36,6 +36,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Validate measured-Yagi sweep generator
+        if: hashFiles('scripts/yagi_sweep.py') != ''
+        run: |
+          python3 -m py_compile scripts/yagi_sweep.py
+          python3 scripts/yagi_sweep.py --self-test
       - name: Detect changed antenna configurations
         id: changed
         env:
