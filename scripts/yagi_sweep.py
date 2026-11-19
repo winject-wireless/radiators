@@ -100,7 +100,7 @@ def make_geometry(base, p, fine=False):
                           "unmeasured rod pitch, feed/loop position and reflector spacing varied. "
                           "Optimized for forward -X realized gain at 2.4/2.45/2.5 GHz. "
                           "Not a validated physical build.")
-    cfg["solver"]["resources"] = dict(cpus=4, memory_gib=16)
+    cfg["solver"]["resources"] = dict(cpus=2, memory_gib=8)
     cfg["outputs"]["radiation_frequencies_hz"] = list(FREQS)
     cfg["outputs"]["radiation_grid"] = dict(theta_step_deg=3, phi_step_deg=5)
     cfg["outputs"]["include_polarization"] = False  # shorter artifacts
@@ -420,9 +420,9 @@ def main():
     parser.add_argument("--base", type=Path, default=BASE)
     parser.add_argument("--dest", type=Path, default=Path("results/yagi_sweep"))
     parser.add_argument("--image", default="radiators-openems:ci")
-    parser.add_argument("--parallel", type=int, default=4)
-    parser.add_argument("--cpus-per-case", type=int, default=4)
-    parser.add_argument("--memory-gib-per-case", type=int, default=16)
+    parser.add_argument("--parallel", type=int, default=8)
+    parser.add_argument("--cpus-per-case", type=int, default=2)
+    parser.add_argument("--memory-gib-per-case", type=int, default=8)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     assert args.cpus_per_case*args.parallel <= 16, "CPU budget > 16"
