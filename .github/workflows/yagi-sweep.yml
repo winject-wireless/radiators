@@ -44,9 +44,9 @@ jobs:
           python scripts/yagi_sweep.py
           --base antennas/yagi_16rod_bonded_boom_measured_loop_2450.json
           --dest results/yagi_sweep
-          --parallel 4
-          --cpus-per-case 4
-          --memory-gib-per-case 16
+          --parallel 8
+          --cpus-per-case 2
+          --memory-gib-per-case 8
       - name: Archive ranked antenna simulations
         if: always()
         uses: actions/upload-artifact@v4
