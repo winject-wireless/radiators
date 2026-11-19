@@ -42,6 +42,29 @@ Photo pitch cross-check: about 79 pixels between successive directors; the boom 
 - The solid PEC boom models the external conductor surface of a square aluminum tube. Hollow wall details, fasteners, oxidation, interfaces, plastic caps and conductive paint are omitted.
 - A 2-mm uniform FDTD grid avoids the nearly coincident geometry cells that previously caused time-step collapse. It does **not** establish mesh convergence, especially near the loop feed.
 
+## Driven-loop resonance calculation (2026-11-19)
+
+The original loop in `yagi_16rod_bonded_boom_2450.json` was **not dimensioned from a resonance equation**. It is an ellipse with centerline semiaxes 28 × 11 mm, so its centerline perimeter is **128.4148 mm**. The wavelength at 2.45 GHz is **122.3643 mm**. A one-wavelength perimeter is a *first approximation* for a full-wave loop or long thin folded-dipole-like driver, **not an exact resonance condition** for this wide oval in a coupled, boom-bonded Yagi.
+
+An additional independent simulation config, `yagi_16rod_bonded_boom_loop_1lambda_2450.json`, holds the width at **22 mm**, adjusts ellipse centerline height to **52.709 mm**, and changes the perimeter to **122.3643 mm** by solving the ellipse perimeter equation (Ramanujan approximation). The center of the loop, offset from the metal boom, feed gap and other 16 passive elements remain unchanged for a controlled comparison. The source port x coordinate is within ~0.032 mm of the resized loop terminals.
+
+The new candidate sweeps **2.25–2.65 GHz in 5 MHz steps**; success requires observing a **zero-crossing of the input reactance** (or minimum |X|), not merely a deep S11 or high peak directivity. Even at X≈0, resistive matching and directional gain are separate requirements. If the reactance does not cross zero, repeat with smaller/larger perimeters while keeping parasitic geometry fixed. A centerline circumference near one free-space wavelength does **not** make the model automatically resonant at 2.45 GHz.
+
+### Existing coupled-model results before resizing the loop
+
+[PR #6 preliminary openEMS simulation](https://github.com/winject-wireless/radiators/actions/runs/44506731649) completed; on the original 56×22 mm oval with the bonded 16×16 mm PEC boom, at 2.45 GHz:
+
+| Metric | Initial bonded-boom result |
+|---|---:|
+| Main-beam direction | −X (correct endfire) |
+| Peak / forward directivity | +9.91 dBi |
+| Peak / forward realized gain | +5.13 dBi |
+| S11 | −1.76 dB |
+| Input impedance | 268.9 + j245.1 Ω |
+| Ideal-PEC radiation efficiency | ~100% |
+
+Input reactance does not cross zero anywhere in the evaluated **2.35–2.55 GHz** range; the actual modeled loop is not resonant in this band. The 1λ candidate is a **testable starting geometry**, not a validated electrical correction. A sufficiently fine mesh, accurate metal lengths (excluding plastic caps) and real loop feeding/mounting topology are still needed.
+
 ## Simulator verification criteria
 
 1. Confirm the solver reaches its energy stop criterion and does not truncate excitation.
