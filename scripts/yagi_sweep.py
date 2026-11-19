@@ -444,32 +444,38 @@ def main():
     record_file = args.dest / "all_results.json"
     records = json.loads(record_file.read_text(encoding="utf-8")) if record_file.exists() else []
     check_docker(args.image, args.dest / "docker_build.log")
-    # User's Windows host has 128 GB; dedicate a 16-vCPU / 64-GiB budget
-    # to openEMS in WSL2. Do not silently throttle to 3 workers or reserve
-    # another 8 GiB in addition to the budget. The Docker daemon must expose
-    # enough resources; fail clearly if WSL2 is configured with smaller limits.
+    # Per-container --memory is an upper limit, not an upfront reservation.
+    # Four 16-GiB containers can use far less than 64 GiB combined.
+    # Require the 16 requested CPU slots, and sufficient WSL2 memory for
+    # any *single* container; do not impose the sum of memory ceilings.
     info = subprocess.run(DOCKER + ["info", "--format", "{{json .}}"],
                           capture_output=True, text=True, check=True)
     dinfo = json.loads(info.stdout)
     total_cpus = int(dinfo["NCPU"])
     total_mem_gib = int(dinfo["MemTotal"]) / (1024 ** 3)
     requested_cpus = args.parallel * args.cpus_per_case
-    requested_gib = args.parallel * args.memory_gib_per_case
-    if total_cpus < requested_cpus or total_mem_gib < requested_gib:
+    maximum_container_gib = args.memory_gib_per_case
+    if total_cpus < requested_cpus:
         raise RuntimeError(
-            "Requested %d parallel openEMS cases = %d vCPUs and %d GiB RAM, "
-            "but Docker/WSL2 exposes only %d vCPUs and %.2f GiB RAM. "
-            "Set Windows %%UserProfile%%\\.wslconfig to [wsl2] "
-            "processors=16 and memory=96GB (recommended with 128GB host), "
-            "then run 'wsl --shutdown' in PowerShell and restart the runner. "
-            "No automatic downscaling was applied." %
-            (args.parallel, requested_cpus, requested_gib,
-             total_cpus, total_mem_gib))
+            "Requested %d openEMS vCPUs but Docker/WSL2 exposes only %d. "
+            "Increase WSL2 processor count to %d or adjust the sweep."
+            % (requested_cpus, total_cpus, requested_cpus))
+    if total_mem_gib < maximum_container_gib:
+        raise RuntimeError(
+            "One openEMS container has a %d GiB memory ceiling, but Docker/WSL2 "
+            "exposes only %.2f GiB in total. Increase WSL2 memory or lower the "
+            "per-container ceiling." % (maximum_container_gib, total_mem_gib))
     workers = args.parallel
-    print("Docker resources: %d CPUs, %.2f GiB; allocating FULL SWEEP budget: "
-          "%d concurrent cases × %d vCPUs / %d GiB = %d vCPUs / %d GiB"
+    print("Docker resources: %d CPUs, %.2f GiB RAM; running %d concurrent "
+          "cases × %d vCPUs with %d GiB per-container memory CAPS. "
+          "Actual RAM usage is demand-driven, not %d GiB preallocated."
           % (total_cpus, total_mem_gib, workers, args.cpus_per_case,
-             args.memory_gib_per_case, requested_cpus, requested_gib), flush=True)
+             maximum_container_gib, workers * maximum_container_gib), flush=True)
+    if total_mem_gib < workers * maximum_container_gib:
+        print("Note: combined container memory ceilings exceed WSL2 RAM, "
+              "which is valid; monitor actual total RSS and cgroup memory. "
+              "Concurrent high-memory cases can still create OOM pressure.",
+              flush=True)
     run_phase("A-screen", planned_cases(), base, args.image, args.dest, records,
               args.cpus_per_case, args.memory_gib_per_case, workers)
     seen = {tuple(r[k] for k in FIELDS) for r in records}
