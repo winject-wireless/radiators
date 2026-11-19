@@ -27,10 +27,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Inspect Docker/runner resources
+      - name: Inspect runner tools (daemon access checked by optimizer)
         run: |
-          docker version
-          docker info
+          docker --version
           python --version
       - name: Validate sweep geometries
         run: python scripts/yagi_sweep.py --self-test
