@@ -40,7 +40,7 @@
   },
   "excitation": {
     "center_hz": 2450000000,
-    "bandwidth_hz": 200000000
+    "bandwidth_hz": 350000000
   },
   "materials": [
     {
