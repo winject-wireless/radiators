@@ -72,3 +72,29 @@ The completed measured racetrack-loop model from [run #44512439048](https://gith
 - Accepted-power radiation efficiency: **approximately 100%** (1.0025 in raw PEC numerics, within discretization error).
 
 This baseline is far below the target. Optimizing spatial coupling can improve directivity and feed match, but may not solve the feed topology if the actual loop-to-coax connections differ substantially from the modeled ideal lumped port.
+
+## First self-hosted run — host permission blocker
+
+[Workflow run #44517868884](https://github.com/winject-wireless/radiators/actions/runs/44517868884) was assigned to the connected runner **THEROOFTOPPRINZ**. Ubuntu Python and CLI tools work and geometry self-tests pass. The simulation could **not start** because runner user `ubuntu` is denied access to `unix:///var/run/docker.sock`. Non-interactive `sudo -n docker` is also not preauthorized.
+
+**Fix on runner host (requires a privileged login, cannot be fixed by this nonprivileged workflow):**
+
+```bash
+sudo usermod -aG docker ubuntu
+# Restart the GitHub Actions runner process/service so group membership applies.
+cd /home/ubuntu/actions-runner
+sudo ./svc.sh stop && sudo ./svc.sh start    # if configured as a service
+# Otherwise stop and restart ./run.sh from a fresh session.
+```
+
+After restart, as `ubuntu` verify:
+
+```bash
+id -nG
+docker info --format '{{.OSType}}'
+```
+
+The second command must output `linux` without `sudo`. Then rerun `Measured Yagi parameter optimization` via **Actions → Run workflow → main**.
+
+**Security:** Membership in the `docker` group effectively grants root-equivalent host access. This runner must only accept trusted main-branch workflows; never enable untrusted PR execution on it.
+
