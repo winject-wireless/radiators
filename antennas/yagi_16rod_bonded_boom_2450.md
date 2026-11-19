@@ -65,6 +65,43 @@ The new candidate sweeps **2.25–2.65 GHz in 5 MHz steps**; success requires ob
 
 Input reactance does not cross zero anywhere in the evaluated **2.35–2.55 GHz** range; the actual modeled loop is not resonant in this band. The 1λ candidate is a **testable starting geometry**, not a validated electrical correction. A sufficiently fine mesh, accurate metal lengths (excluding plastic caps) and real loop feeding/mounting topology are still needed.
 
+## Updated actual loop measurements and modeled geometry (2026-11-19)
+
+The user directly measured **57.9 mm outer-to-outer loop height**, **33.4 mm outer-to-outer loop width**, an apparent **16.7 mm outer bend radius**, and **4.0 mm metal conductor diameter**. This supersedes the original guessed 56 × 22 mm, 1.8-mm-wire oval as the primary photo-matching geometry. Retain the earlier configurations only as controlled alternatives.
+
+A new independent baseline, **`yagi_16rod_bonded_boom_measured_loop_2450.json`**, models the shape as a **racetrack/capsule**: two semicircular end bends, joined by straight vertical legs. This interpretation matches the provided 16.7-mm bend radius (= half of 33.4-mm outer width), but the photo partly obscures the side legs; the exact outline is not verified.
+
+| Quantity | Value / calculation |
+|---|---|
+| Full outer height (Z) | 57.9 mm (measured) |
+| Full outer width (X) | 33.4 mm (measured) |
+| Metal diameter | 4.0 mm (measured) |
+| Outer bend radius | 16.7 mm (user approximate) |
+| Wire-centerline bend radius | 16.7−2.0 = **14.7 mm** |
+| Centerline height | 57.9−4.0 = **53.9 mm** |
+| Centerline width | 33.4−4.0 = **29.4 mm** |
+| Straight section length per side | 57.9−33.4 = **24.5 mm** |
+| Continuous racetrack centerline perimeter | 2×24.5 + 2π×14.7 = **141.363 mm** |
+| Free-space wavelength at 2450 MHz | **122.364 mm** |
+| Racetrack centerline circumference / λ | **1.1553** |
+
+An **ellipse** of the same outer dimensions would instead have an approximate centerline perimeter **133.693 mm (1.0926 λ)**. The outline distinction matters and should be checked against the real metal, not inferred from the overall dimensions alone.
+
+### Unmeasured feed assumptions
+
+- The actual **feed gap and attachment points** are hidden by the antenna's feed enclosure. Do **not** assume a specified gap size was measured.
+- For this preliminary configuration, use an **8 mm terminal-center separation** between the loop endpoints at X=374.7 mm, Z=−4 / +4 mm. At 4-mm conductor diameter, this is a nominal **4 mm clear metal-to-metal gap** if the ends have hemispherical wire caps. The 50 Ω lumped port bridges the modeled endpoints at aligned grid X=375 mm. Changing this feed gap or its position will affect impedance.
+- Keep the provisional loop-plane offset **Y=−16 mm**, outside the 16-mm square conductive boom (boom Y=−8..+8). The real mounting plane, feed contacts, electrical bonding, and white cover geometry are **unknown**; this is only a convenient non-shorting hypothesis.
+- The provisional rod/boom measurements and physical cap-vs-metal uncertainties remain as documented above. Only the loop dimensions in this new candidate are now measurement-grounded.
+- The 2-mm grid has only **two cells across a 4-mm conductor diameter**, so a successful run is a **coarse exploratory result**, not an RF-accuracy guarantee. Validate with a refined grid and a realistic feeding model.
+- The new candidate measures **S11 / input impedance from 2.1 to 2.7 GHz** and far-field at 2.4/2.45/2.5 GHz. Do not claim a 2.45-GHz resonance from circumference alone; find the reactance zero after simulation and verify beam pointing and match.
+
+### New simulation configuration
+
+```bash
+python antennas/simulate.py antennas/yagi_16rod_bonded_boom_measured_loop_2450.json --output results/yagi_16rod_bonded_boom_measured_loop_2450
+```
+
 ## Simulator verification criteria
 
 1. Confirm the solver reaches its energy stop criterion and does not truncate excitation.
