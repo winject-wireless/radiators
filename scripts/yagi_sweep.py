@@ -137,13 +137,9 @@ def check_docker(image, logpath):
     chk = subprocess.run(DOCKER + ["image", "inspect", image], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
     if chk.returncode:
-        print("No cached openEMS image; building on this machine.", flush=True)
-        with logpath.open("w", encoding="utf-8") as log:
-            built = subprocess.run(DOCKER + ["build", "-t", image,
-                                            "-f", "docker/openems/Dockerfile", "."],
-                                   stdout=log, stderr=subprocess.STDOUT)
-        if built.returncode:
-            raise RuntimeError("Docker image build failed; inspect " + str(logpath))
+        raise RuntimeError("Prebuilt openEMS image is missing: %s. "
+                           "Run scripts/restore_openems_image.py with actions:read "
+                           "before starting the sweep; do not compile openEMS here." % image)
 
 
 def planned_cases():
