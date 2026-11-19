@@ -7,10 +7,12 @@ on:
     paths:
       - '.github/workflows/yagi-sweep.yml'
       - 'scripts/yagi_sweep.py'
+      - 'scripts/restore_openems_image.py'
 
 # Never run an untrusted pull_request on a persistent self-hosted runner.
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: yagi-measured-sweep
@@ -33,6 +35,10 @@ jobs:
           python --version
       - name: Validate sweep geometries
         run: python scripts/yagi_sweep.py --self-test
+      - name: Restore prebuilt openEMS Docker image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/restore_openems_image.py
       - name: Optimize measured 2.45 GHz loop Yagi
         run: >-
           python scripts/yagi_sweep.py
