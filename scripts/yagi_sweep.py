@@ -422,11 +422,11 @@ def main():
     parser.add_argument("--image", default="radiators-openems:ci")
     parser.add_argument("--parallel", type=int, default=4)
     parser.add_argument("--cpus-per-case", type=int, default=4)
-    parser.add_argument("--memory-gib-per-case", type=int, default=12)
+    parser.add_argument("--memory-gib-per-case", type=int, default=16)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     assert args.cpus_per_case*args.parallel <= 16, "CPU budget > 16"
-    assert args.memory_gib_per_case*args.parallel <= 52, "Leave >=12 GiB for host"
+    assert args.memory_gib_per_case*args.parallel <= 64, "Simulation RAM budget > 64 GiB"
     assert args.dest.resolve().is_relative_to(Path.cwd().resolve()), "Output must be in repo"
     base = json.loads(args.base.read_text(encoding="utf-8"))
     if args.self_test:
@@ -444,23 +444,32 @@ def main():
     record_file = args.dest / "all_results.json"
     records = json.loads(record_file.read_text(encoding="utf-8")) if record_file.exists() else []
     check_docker(args.image, args.dest / "docker_build.log")
-    # The host can have 64 GiB while Docker Desktop/WSL2 exposes less.
-    # Respect resources actually visible to Docker, not the marketing spec.
+    # User's Windows host has 128 GB; dedicate a 16-vCPU / 64-GiB budget
+    # to openEMS in WSL2. Do not silently throttle to 3 workers or reserve
+    # another 8 GiB in addition to the budget. The Docker daemon must expose
+    # enough resources; fail clearly if WSL2 is configured with smaller limits.
     info = subprocess.run(DOCKER + ["info", "--format", "{{json .}}"],
                           capture_output=True, text=True, check=True)
     dinfo = json.loads(info.stdout)
     total_cpus = int(dinfo["NCPU"])
-    total_mem_gib = int(dinfo["MemTotal"]) // (1024 ** 3)
-    workers = min(args.parallel, total_cpus // args.cpus_per_case,
-                  (total_mem_gib - 8) // args.memory_gib_per_case)
-    if workers < 1:
-        raise RuntimeError("Docker has %d vCPUs and %d GiB; need at least %d CPUs "
-                           "and %d GiB (including 8 GiB host reserve). Increase WSL2/"
-                           "Docker Desktop resources or reduce per-case budgets." %
-                           (total_cpus, total_mem_gib, args.cpus_per_case,
-                            args.memory_gib_per_case + 8))
-    print("Docker resources: %d CPUs, %d GiB; running %d parallel cases" %
-          (total_cpus, total_mem_gib, workers), flush=True)
+    total_mem_gib = int(dinfo["MemTotal"]) / (1024 ** 3)
+    requested_cpus = args.parallel * args.cpus_per_case
+    requested_gib = args.parallel * args.memory_gib_per_case
+    if total_cpus < requested_cpus or total_mem_gib < requested_gib:
+        raise RuntimeError(
+            "Requested %d parallel openEMS cases = %d vCPUs and %d GiB RAM, "
+            "but Docker/WSL2 exposes only %d vCPUs and %.2f GiB RAM. "
+            "Set Windows %%UserProfile%%\\.wslconfig to [wsl2] "
+            "processors=16 and memory=96GB (recommended with 128GB host), "
+            "then run 'wsl --shutdown' in PowerShell and restart the runner. "
+            "No automatic downscaling was applied." %
+            (args.parallel, requested_cpus, requested_gib,
+             total_cpus, total_mem_gib))
+    workers = args.parallel
+    print("Docker resources: %d CPUs, %.2f GiB; allocating FULL SWEEP budget: "
+          "%d concurrent cases × %d vCPUs / %d GiB = %d vCPUs / %d GiB"
+          % (total_cpus, total_mem_gib, workers, args.cpus_per_case,
+             args.memory_gib_per_case, requested_cpus, requested_gib), flush=True)
     run_phase("A-screen", planned_cases(), base, args.image, args.dest, records,
               args.cpus_per_case, args.memory_gib_per_case, workers)
     seen = {tuple(r[k] for k in FIELDS) for r in records}
@@ -471,7 +480,7 @@ def main():
               args.cpus_per_case, args.memory_gib_per_case, workers)
     completed = {r["case"] for r in records}
     run_phase("D-fine", fine_cases(records, completed), base, args.image, args.dest, records,
-              args.cpus_per_case, args.memory_gib_per_case, args.parallel, fine=True)
+              args.cpus_per_case, args.memory_gib_per_case, workers, fine=True)
     save_report(args.dest, records)
     print((args.dest / "summary.md").read_text(encoding="utf-8"), flush=True)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
