@@ -18,6 +18,7 @@
   <label class="compact-label">Simulation <select id="simulation" aria-label="Simulation group"></select></label>
   <label class="compact-label" id="caseControl">Case <select id="case" aria-label="Case for selected simulation"></select></label>
   <label class="compact-label">Frequency <select id="freq" aria-label="Radiation frequency"></select></label>
+  <label class="pattern-size-control" title="Display-only scaling. The normalized far-field pattern has no physical size in millimetres.">Pattern size <input id="patternScale" type="range" min="0.25" max="4" step="0.25" value="1" aria-label="Pattern display size relative to automatic size"><output id="patternScaleValue" for="patternScale">1.00×</output></label>
   <div class="view-tabs" role="group" aria-label="3D viewer mode">
     <button class="active" data-mode="combined" type="button">Both</button>
     <button data-mode="geometry" type="button">Geometry</button>
