@@ -79,7 +79,7 @@ class SweepTests(unittest.TestCase):
         cfg["sweep"]["mode"] = "zip"
         self.assertEqual(len(expand_cases(cfg, path)), 2)
         cfg.pop("sweep")
-        cfg["parameters"] = {"wire_mm": 2, "turns": 4}
+        cfg["parameters"].update({"wire_mm": 2, "turns": 4})
         result = expand_cases(cfg, path)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["case_id"], "default")
