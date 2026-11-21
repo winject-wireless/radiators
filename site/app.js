@@ -4,7 +4,7 @@ const el = id => document.getElementById(id);
 const PALETTE = {paper_bgcolor:"#101c2e",plot_bgcolor:"#101c2e",font:{color:"#d6e5f5",size:10}};
 const PLOT_CFG = {responsive:true,displaylogo:false};
 const DEG = Math.PI / 180;
-let runs = [], active = null, field = null, mode = "combined";
+let runs = [], simulations = [], active = null, field = null, mode = "combined";
 const DEFAULT_CAMERA={up:{x:0,y:0,z:1},center:{x:0,y:0,z:0},eye:{x:1.55,y:1.55,z:1.1}};
 let sceneCamera=null,cameraEventsBound=false;
 // Single authoritative camera orbit target. Zoom, wheel and orbit never write it.
@@ -1075,6 +1075,24 @@ async function renderRun(){
   }
  }
 }
+// A sweep has a case selector; a normal simulation keeps one dropdown.
+function selectSimulation(){
+ const selected=simulations.find(item=>item.id===el("simulation").value);
+ if(!selected||!Array.isArray(selected.cases)||!selected.cases.length){
+  status("No antenna cases for selected simulation");
+  return;
+ }
+ el("caseControl").hidden=!selected.sweep;
+ el("run").replaceChildren(...selected.cases.map(item=>{
+  const option=document.createElement("option");
+  option.value=item.path;
+  option.textContent=item.name||item.id;
+  return option;
+ }));
+ el("run").value=selected.cases[0].path;
+ renderRun();
+}
+
 function setMode(next){
  mode=next;document.body.dataset.mode=next;
  for(const button of document.querySelectorAll(".view-tabs button")){
@@ -1102,6 +1120,7 @@ function setTimeoutResize(){
  el("zoomIn").addEventListener("click",()=>zoomCamera(.8));
  el("zoomOut").addEventListener("click",()=>zoomCamera(1.25));
  // Required: selecting a different antenna or frequency must reload its data.
+ el("simulation").addEventListener("change",selectSimulation);
  el("run").addEventListener("change",renderRun);
  el("freq").addEventListener("change",renderPattern);
  setupAxisPan();
@@ -1196,11 +1215,19 @@ function setTimeoutResize(){
 (async function init(){
  try{
   if(!window.Plotly)throw Error("Plotly library is unavailable");
-  runs=(await getJSON("./manifest.json")).runs;
-  if(!runs.length){status("No published results yet");return}
-  el("run").replaceChildren(...runs.map(run=>{
-   const option=document.createElement("option");option.value=run.path;option.textContent=run.name;return option;
+  const manifest=await getJSON("./manifest.json");
+  runs=manifest.runs||[];
+  simulations=manifest.simulations||runs.map(item=>({
+   id:item.simulation_id||item.path, name:item.name, sweep:false,
+   cases:[{id:"default",name:"Default",path:item.path}]
   }));
-  await renderRun();
+  if(!simulations.length){status("No published results yet");return}
+  el("simulation").replaceChildren(...simulations.map(item=>{
+   const option=document.createElement("option");
+   option.value=item.id;
+   option.textContent=item.name;
+   return option;
+  }));
+  selectSimulation();
  }catch(error){status("Viewer error: "+error.message);console.error(error)}
 })();
