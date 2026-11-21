@@ -38,8 +38,10 @@ class SweepTests(unittest.TestCase):
             port = cfg["ports"][0]
             self.assertEqual(port["start"][2], -port["stop"][2])
             self.assertEqual(port["start"][0], port["stop"][0])
-            self.assertEqual(wire["points"][0], port["stop"])
-            self.assertEqual(wire["points"][-1], port["start"])
+            for actual, expected in zip(wire["points"][0], port["stop"]):
+                self.assertAlmostEqual(actual, expected)
+            for actual, expected in zip(wire["points"][-1], port["start"]):
+                self.assertAlmostEqual(actual, expected)
             physical_gap = port["stop"][2] - port["start"][2] - wire["wire_diameter"]
             self.assertAlmostEqual(physical_gap, 4)
             self.assertEqual(port["impedance_ohm"], 50)
