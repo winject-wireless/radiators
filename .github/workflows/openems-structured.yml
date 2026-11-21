@@ -200,6 +200,11 @@ jobs:
         run: |
           python3 scripts/run_simulations.py --list selected-antennas.txt --results results \
             --skip-complete --cpus-per-job 2 --memory-gib-per-job 5 --reserve-memory-gib 2
+      # Self-hosted Linux runners do not necessarily have 'node' on PATH.
+      - name: Install Node.js for viewer validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Build and verify complete static result viewer
         env:
           REQUIRE_TARGET: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -210,6 +215,7 @@ jobs:
             args+=(--require-result yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450)
           fi
           python3 site/build_site.py --results results --site site/dist "${args[@]}"
+          node --check site/dist/simulation_selectors.js
           node --check site/dist/app.js
           node --check site/dist/plotly.min.js
           node site/check_viewer.js site/dist
