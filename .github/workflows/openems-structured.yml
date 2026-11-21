@@ -128,6 +128,8 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_missing_simulations.py' -v
           python3 -m unittest discover -s site -p 'test_result_quality.py' -v
           python3 -m py_compile antennas/simulate.py antennas/simulate_v2.py site/build_site.py
+          node --check site/editor.js
+          node site/check_editor.js
           python3 scripts/sweep.py examples/racetrack_loop_sweep.json
           python3 scripts/sweep.py examples/helix_sweep.json
       - name: Detect changed antenna configurations
@@ -249,6 +251,9 @@ jobs:
           python3 site/build_site.py --results results --site site/dist "${args[@]}"
           node --check site/dist/simulation_selectors.js
           node --check site/dist/app.js
+          node --check site/dist/editor.js
+          node --check site/dist/jscad-modeling.min.js
+          node site/check_editor.js site/dist
           node --check site/dist/plotly.min.js
           node site/check_viewer.js site/dist
           node site/check_camera.js site/dist
