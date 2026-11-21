@@ -103,13 +103,44 @@ jobs:
         # PRs changing only the viewer still need the published simulation data
         # so the same viewer and intersection checks can execute in CI.
         run: python3 site/restore_published.py --site-url https://winject-wireless.github.io/radiators/ --results results
+      # Restore completed legacy and refined Yagi results without rerunning openEMS.
+      # These archives bootstrap the full published collection; subsequent builds
+      # also restore the previous published Pages manifest above.
+      - name: Download completed historical Yagi results
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: structured-openems-results
+          run-id: 44512439048
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: _archived/legacy
+      - name: Download completed best-parameter fine-mesh Yagi
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: yagi-best-p24-f24-b36-y14-fine
+          run-id: 44854383879
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: _archived/fine
+      - name: Merge complete archived antenna results into viewer inputs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          python3 site/merge_archived_results.py \
+            --source _archived/legacy --source _archived/fine \
+            --results results --changed changed-antennas.txt
       - name: Build and verify complete static result viewer
         env:
-          REQUIRE_COMPLETE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          REQUIRE_TARGET: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           set -euo pipefail
           args=()
-          if [[ "$REQUIRE_COMPLETE" == "true" ]]; then args+=(--require-complete); fi
+          if [[ "$REQUIRE_TARGET" == "true" ]]; then
+            args+=(--require-result yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450)
+          fi
           python3 site/build_site.py --results results --site site/dist "${args[@]}"
           node --check site/dist/app.js
           node --check site/dist/plotly.min.js
