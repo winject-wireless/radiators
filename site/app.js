@@ -1010,7 +1010,7 @@ async function renderS11(result=active){
 }
 async function renderPattern(){
  const token=++selectedPatternVersion;
- const runPath=el("run").value,run=active;
+ const runPath=el("case").value,run=active;
  try{
   if(!run||!run.patterns?.length)throw Error("No simulation is selected");
   const index=Number(el("freq").value);
@@ -1019,7 +1019,7 @@ async function renderPattern(){
   status("Loading "+format(pattern.frequency_hz/1e9,3)+" GHz pattern…");
   const base=runPath.replace(/result\.json$/,"");
   const result=await getJSON(base+pattern.file);
-  if(token!==selectedPatternVersion||runPath!==el("run").value)return;
+  if(token!==selectedPatternVersion||runPath!==el("case").value)return;
   if(!Array.isArray(result.directivity_dbi)||!result.directivity_dbi.length)
    throw Error("Pattern has no directivity grid: "+pattern.file);
   field=result;
@@ -1028,7 +1028,7 @@ async function renderPattern(){
   updateCenterStats(sceneCamera||DEFAULT_CAMERA);
   status("Rendering "+format(result.frequency_hz/1e9,3)+" GHz…");
   await renderScene();
-  if(token!==selectedPatternVersion||runPath!==el("run").value)return;
+  if(token!==selectedPatternVersion||runPath!==el("case").value)return;
   status("Ready · "+format(result.frequency_hz/1e9,3)+" GHz");
  }catch(error){
   if(token===selectedPatternVersion){
@@ -1040,12 +1040,12 @@ async function renderPattern(){
 async function renderRun(){
  const token=++selectedRunVersion;
  ++selectedPatternVersion;
- const path=el("run").value;
+ const path=el("case").value;
  el("freq").disabled=true;
  try{
   status("Loading simulation "+path.split("/").slice(-2,-1)[0]+"…");
   const result=await getJSON(path);
-  if(token!==selectedRunVersion||el("run").value!==path)return;
+  if(token!==selectedRunVersion||el("case").value!==path)return;
   if(!Array.isArray(result.patterns)||!result.patterns.length)
    throw Error("Simulation has no frequency patterns");
   active=result;field=null;
@@ -1065,7 +1065,7 @@ async function renderRun(){
   el("freq").disabled=false;
   status("Rendering S11 for "+active.name+"…");
   await renderS11(result);
-  if(token!==selectedRunVersion||el("run").value!==path)return;
+  if(token!==selectedRunVersion||el("case").value!==path)return;
   await renderPattern();
  }catch(error){
   if(token===selectedRunVersion){
@@ -1075,21 +1075,22 @@ async function renderRun(){
   }
  }
 }
-// A sweep has a case selector; a normal simulation keeps one dropdown.
+// The two selectors have distinct levels: Simulation -> only its own Cases.
+// For non-sweeps, Case remains visible with a single "Default" entry.
 function selectSimulation(){
- const selected=simulations.find(item=>item.id===el("simulation").value);
- if(!selected||!Array.isArray(selected.cases)||!selected.cases.length){
-  status("No antenna cases for selected simulation");
-  return;
- }
- el("caseControl").hidden=!selected.sweep;
- el("run").replaceChildren(...selected.cases.map(item=>{
+ const cases=RadiatorsSelectors.casesForSimulation(simulations,el("simulation").value);
+ el("case").replaceChildren(...cases.map(item=>{
   const option=document.createElement("option");
   option.value=item.path;
   option.textContent=item.name||item.id;
   return option;
  }));
- el("run").value=selected.cases[0].path;
+ el("case").disabled=!cases.length;
+ if(!cases.length){
+  status("No cases for the selected simulation");
+  return;
+ }
+ el("case").value=cases[0].path;
  renderRun();
 }
 
@@ -1121,7 +1122,7 @@ function setTimeoutResize(){
  el("zoomOut").addEventListener("click",()=>zoomCamera(1.25));
  // Required: selecting a different antenna or frequency must reload its data.
  el("simulation").addEventListener("change",selectSimulation);
- el("run").addEventListener("change",renderRun);
+ el("case").addEventListener("change",renderRun);
  el("freq").addEventListener("change",renderPattern);
  setupAxisPan();
  // WebGL updates its live camera throughout pointer drags, but Plotly's
@@ -1216,11 +1217,9 @@ function setTimeoutResize(){
  try{
   if(!window.Plotly)throw Error("Plotly library is unavailable");
   const manifest=await getJSON("./manifest.json");
+  simulations=RadiatorsSelectors.readSimulations(manifest);
+  // The legacy flattened manifest.runs is intentionally not a selector source.
   runs=manifest.runs||[];
-  simulations=manifest.simulations||runs.map(item=>({
-   id:item.simulation_id||item.path, name:item.name, sweep:false,
-   cases:[{id:"default",name:"Default",path:item.path}]
-  }));
   if(!simulations.length){status("No published results yet");return}
   el("simulation").replaceChildren(...simulations.map(item=>{
    const option=document.createElement("option");
