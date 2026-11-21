@@ -179,7 +179,22 @@ jobs:
         if: steps.plan.outputs.count != '0'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/ensure-openems-image.sh
+          SELECTED_RUNNER: ${{ needs.select-runner.outputs.selected-type }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$SELECTED_RUNNER" == "self-hosted" ]]; then
+            # Self-hosted runner images are persistent and may not have gh/jq/zstd.
+            # The stdlib Python restorer reuses a local image or retrieves the
+            # versioned artifact without compiling openEMS.
+            python3 scripts/restore_openems_image.py
+            digest="$(sha256sum docker/openems/Dockerfile | cut -d' ' -f1)"
+            echo "artifact_name=openems-image-${digest}" >> "$GITHUB_OUTPUT"
+            echo "cache_hit=true" >> "$GITHUB_OUTPUT"
+          else
+            # Hosted runners can bootstrap/cache an image if no artifact exists.
+            bash scripts/ensure-openems-image.sh
+          fi
       - name: Save new solver image artifact (only on first build)
         if: steps.plan.outputs.count != '0' && steps.image.outputs.cache_hit == 'false'
         uses: actions/upload-artifact@v4
