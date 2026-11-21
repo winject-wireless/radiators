@@ -160,7 +160,33 @@ if bundle is None:
                        + "\n".join(failures))
 (args.site / "plotly.min.js").write_bytes(bundle)
 
-for filename in ("app.js", "style.css", "simulation_selectors.js"):
+# JSCAD geometry kernel for the browser-based editor (pinned, bundled locally).
+jscad_version = "2.12.1"
+jscad_sources = (
+    f"https://cdn.jsdelivr.net/npm/@jscad/modeling@{jscad_version}/dist/jscad-modeling.min.js",
+    f"https://unpkg.com/@jscad/modeling@{jscad_version}/dist/jscad-modeling.min.js",
+)
+jscad_bundle = None
+jscad_failures = []
+for url in jscad_sources:
+    try:
+        with urlopen(Request(url, headers={"User-Agent": "radiators-pages-builder/1.0"}),
+                     timeout=35) as response:
+            candidate = response.read()
+        if len(candidate) < 100_000 or b"jscadModeling" not in candidate:
+            raise ValueError(f"Invalid JSCAD bundle ({len(candidate)} bytes)")
+        jscad_bundle = candidate
+        print(f"Bundled JSCAD {jscad_version} from {url} ({len(candidate)} bytes)")
+        break
+    except Exception as error:
+        jscad_failures.append(f"{url}: {error}")
+if jscad_bundle is None:
+    raise RuntimeError("Failed to bundle JSCAD; refusing a broken editor deployment:\n"
+                       + "\n".join(jscad_failures))
+(args.site / "jscad-modeling.min.js").write_bytes(jscad_bundle)
+
+for filename in ("app.js", "style.css", "simulation_selectors.js",
+                 "editor.js", "editor.css", "editor.html"):
     copy2(src_dir / filename, args.site / filename)
 html = (src_dir / "index.html").read_text()
 if 'src="./simulation_selectors.js"' not in html:
@@ -171,6 +197,12 @@ for filename in ("app.js", "style.css", "simulation_selectors.js", "plotly.min.j
     digest = hashlib.sha256((args.site / filename).read_bytes()).hexdigest()[:12]
     html = html.replace(f"./{filename}\"", f"./{filename}?v={digest}\"")
 (args.site / "index.html").write_text(html)
+
+editor_html = (args.site / "editor.html").read_text()
+for filename in ("editor.js", "editor.css", "plotly.min.js", "jscad-modeling.min.js"):
+    digest = hashlib.sha256((args.site / filename).read_bytes()).hexdigest()[:12]
+    editor_html = editor_html.replace(f"./{filename}\"", f"./{filename}?v={digest}\"")
+(args.site / "editor.html").write_text(editor_html)
 
 for sim in simulations.values():
     sim["cases"].sort(key=lambda case: case["id"])
