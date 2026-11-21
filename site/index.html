@@ -29,7 +29,7 @@
 </nav>
 <main class="workspace">
   <section class="viewport panel">
-    <div class="panel-heading scene-heading"><h2>3D view · Geometry + radiation</h2></div>
+    <div class="panel-heading scene-heading"><h2>3D view · Geometry + radiation</h2><span title="Pattern radius is proportional to normalized far-field electric field magnitude (|E|), not a length in mm. The geometry axes measure millimetres.">Pattern radius: normalized |E|</span></div>
     <div id="sceneStage" class="scene-stage">
       <div id="farfield" class="scene" aria-label="Interactive Z-up 3D radiation pattern; drag to orbit the current pan center"></div>
       <div class="scene-toolbar" role="group" aria-label="View and export controls">
@@ -147,7 +147,7 @@
 <details class="configuration">
   <summary>Simulation configuration &amp; notes</summary>
   <pre id="config"></pre>
-  <p>Colors indicate directivity in dBi, not realized gain. Verify feed design, boundaries, and mesh convergence independently.</p>
+  <p>Colors indicate directivity in dBi, not realized gain. Far-field radial size is normalized electric-field amplitude and is not a physical length in mm. Verify feed design, boundaries, and mesh convergence independently.</p>
 </details>
 </body>
 </html>

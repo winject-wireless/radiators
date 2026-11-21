@@ -189,6 +189,12 @@ function geometryTraces(){
  });
  return traces;
 }
+// The far-field radius is an arbitrary display normalization, NOT a distance in mm.
+// Use normalized E-field magnitude: a -6.02 dB directivity drop means half radius.
+// Power-ratio radius (/10) crushes sidelobes and makes the pattern look too small.
+function patternRadialFraction(db,peak){
+ return Math.pow(10,(db-peak)/20);
+}
 // Use the same sampled surface for the 3D pattern and plane intersection.
 function patternGrid(p){
  const th=p.theta_deg.map(t=>t*DEG),ph=p.phi_deg.map(t=>t*DEG);
@@ -197,7 +203,7 @@ function patternGrid(p){
   const row=[],db=[];
   for(let j=0;j<ph.length;j++){
    const d=Number(p.directivity_dbi[i][j]);
-   const r=visual*Math.pow(10,(d-peak)/10);
+   const r=visual*patternRadialFraction(d,peak);
    row.push([r*Math.sin(th[i])*Math.cos(ph[j]),
              r*Math.sin(th[i])*Math.sin(ph[j]),
              r*Math.cos(th[i])]);
