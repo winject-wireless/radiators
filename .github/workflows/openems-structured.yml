@@ -81,6 +81,22 @@ jobs:
     runs-on: ${{ fromJSON(needs.select-runner.outputs.runner) }}
     timeout-minutes: 330
     steps:
+      # A prior root-run Docker process may leave root-owned files in the
+      # persistent worktree; checkout needs permission to remove them.
+      - name: Repair persisted self-hosted checkout ownership
+        if: needs.select-runner.outputs.selected-type == 'self-hosted'
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace="$(realpath "$GITHUB_WORKSPACE")"
+          runner_workspace="$(realpath "$RUNNER_WORKSPACE")"
+          [[ "$workspace" == "$runner_workspace/"* ]] || {
+            echo "::error::Refusing to modify ownership outside runner workspace"
+            exit 1
+          }
+          if [[ -d "$workspace" ]]; then
+            sudo -n chown -R "$(id -u):$(id -g)" "$workspace"
+          fi
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
