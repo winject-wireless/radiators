@@ -28,6 +28,7 @@ button{cursor:pointer}
   background:#0d1a2b;border-bottom:1px solid #26384d
 }
 .compact-label{display:inline-flex;align-items:center;gap:9px;color:#a6bad3;font-size:11px;white-space:nowrap;min-width:0}
+[hidden]{display:none!important}
 .compact-label select{
   display:block;min-width:0;height:34px;padding:6px 29px 6px 10px;
   background:#192a40;color:#edf5fc;border:1px solid #34516c;border-radius:7px;
@@ -35,8 +36,10 @@ button{cursor:pointer}
 }
 .controls>.compact-label:first-child{flex:0 1 325px}
 .controls>.compact-label:first-child select{width:235px;max-width:100%}
-.controls>.compact-label:nth-child(2){flex:0 0 auto}
-.controls>.compact-label:nth-child(2) select{width:143px;max-width:100%}
+#caseControl{flex:0 1 390px}
+#caseControl select{width:315px;max-width:100%}
+.controls>.compact-label:nth-child(3){flex:0 0 auto}
+.controls>.compact-label:nth-child(3) select{width:143px;max-width:100%}
 .view-tabs{display:flex;border:1px solid #35506b;border-radius:8px;overflow:hidden;flex:0 0 auto}
 .view-tabs button{
   padding:8px 12px;min-height:33px;white-space:nowrap;
