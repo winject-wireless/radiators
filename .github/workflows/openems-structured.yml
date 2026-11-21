@@ -41,6 +41,11 @@ jobs:
         run: |
           python3 -m py_compile scripts/yagi_sweep.py
           python3 scripts/yagi_sweep.py --self-test
+      - name: Validate generic parameter sweeps without openEMS
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_sweep.py' -v
+          python3 scripts/sweep.py examples/racetrack_loop_sweep.json
+          python3 scripts/sweep.py examples/helix_sweep.json
       - name: Detect changed antenna configurations
         id: changed
         env:
@@ -66,6 +71,10 @@ jobs:
                   printf '%s\n' "$candidate"
                 fi
               done > changed-antennas.txt
+            git diff --name-only --diff-filter=ACMR "$BASE_SHA" HEAD -- \
+              'antennas/generators/*.py' 'scripts/sweep.py' > changed-sweep-code.txt
+            python3 scripts/select_sweep_dependents.py --changed changed-sweep-code.txt >> changed-antennas.txt
+            sort -u changed-antennas.txt -o changed-antennas.txt
           fi
           echo "Selected antenna configurations:"
           cat changed-antennas.txt
@@ -127,6 +136,7 @@ jobs:
           name: structured-openems-results
           path: |
             changed-antennas.txt
+            results/*/case_config.json
             results/*/result.json
             results/*/pattern_*.json
             results/*/geometry.xml

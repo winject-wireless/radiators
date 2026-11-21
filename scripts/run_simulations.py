@@ -15,6 +15,8 @@ import subprocess
 import sys
 import time
 
+from sweep import expand_cases
+
 
 def cpu_capacity():
     cpus = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count() or 1
@@ -53,21 +55,27 @@ def ram_capacity_bytes():
 
 def load_requests(path, default_cpu, default_memory_gib):
     found = []
+    names = set()
     for filename in path.read_text().splitlines():
         filename = filename.strip()
         if not filename:
             continue
         if not re.fullmatch(r"antennas/[A-Za-z0-9_-]+\.json", filename):
             raise ValueError(f"Unexpected antenna path: {filename!r}")
-        cfg = Path(filename)
-        if not cfg.is_file():
+        if filename in names:
+            continue
+        names.add(filename)
+        cfg_path = Path(filename)
+        if not cfg_path.is_file():
             raise FileNotFoundError(filename)
-        settings = json.loads(cfg.read_text()).get("solver", {}).get("resources", {})
-        cpus = int(settings.get("cpus", default_cpu))
-        memory_gib = float(settings.get("memory_gib", default_memory_gib))
-        if not (1 <= cpus <= 128 and 0.25 <= memory_gib <= 1024 and math.isfinite(memory_gib)):
-            raise ValueError(f"{cfg}: invalid solver.resources")
-        found.append((filename, cpus, int(memory_gib * 1024 ** 3)))
+        raw = json.loads(cfg_path.read_text())
+        for case in expand_cases(raw, cfg_path):
+            settings = case["config"].get("solver", {}).get("resources", {})
+            cpus = int(settings.get("cpus", default_cpu))
+            memory_gib = float(settings.get("memory_gib", default_memory_gib))
+            if not (1 <= cpus <= 128 and 0.25 <= memory_gib <= 1024 and math.isfinite(memory_gib)):
+                raise ValueError(f"{cfg_path}: invalid solver.resources")
+            found.append((filename, case, cpus, int(memory_gib * 1024 ** 3)))
     return found
 
 
@@ -91,9 +99,9 @@ def main():
     memory_budget = max(0, memory_available - reserve)
     print(f"Runner resources: {cpu_budget} CPUs; available RAM {memory_available / 1024 ** 3:.2f} GiB; "
           f"RAM reserved {args.reserve_memory_gib} GiB", flush=True)
-    for filename, cpus, memory in requests:
+    for filename, case, cpus, memory in requests:
         if cpus > cpu_budget or memory > memory_budget:
-            raise RuntimeError(f"{filename}: asks for {cpus} CPUs and {memory / 1024 ** 3:.2f} GiB, "
+            raise RuntimeError(f"{filename} ({case['case_id']}): asks for {cpus} CPUs and {memory / 1024 ** 3:.2f} GiB, "
                                f"budget is {cpu_budget} CPUs and {memory_budget / 1024 ** 3:.2f} GiB")
 
     args.results.mkdir(parents=True, exist_ok=True)
@@ -107,11 +115,13 @@ def main():
         # Start any task that fits the remaining resources; don't block a
         # smaller runnable task behind a larger pending task.
         for item in pending[:]:
-            filename, cpus, memory = item
+            filename, case, cpus, memory = item
             if cpus > free_cpu or memory > free_memory:
                 continue
-            out = args.results / Path(filename).stem
+            out = args.results / case["output_name"]
             out.mkdir(parents=True, exist_ok=True)
+            config_path = out / "case_config.json"
+            config_path.write_text(json.dumps(case["config"], indent=2))
             log = (out / "runner.log").open("w")
             command = [
                 "docker", "run", "--rm",
@@ -122,11 +132,11 @@ def main():
                 "-v", f"{Path.cwd().resolve()}:/work",
                 "--workdir", "/work",
                 args.image,
-                "python", "antennas/simulate.py", filename,
-                "--output", f"results/{Path(filename).stem}",
+                "python", "antennas/simulate.py", str(config_path),
+                "--output", str(out),
             ]
             proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
-            print(f"START {filename} pid={proc.pid} CPUs={cpus} RAM={memory / 1024 ** 3:.2f} GiB; "
+            print(f"START {case['output_name']} from {filename} pid={proc.pid} CPUs={cpus} RAM={memory / 1024 ** 3:.2f} GiB; "
                   f"free CPUs={free_cpu - cpus} free RAM={(free_memory - memory) / 1024 ** 3:.2f} GiB",
                   flush=True)
             running.append((item, proc, log, out / "runner.log"))
@@ -143,13 +153,13 @@ def main():
             if ret is None:
                 continue
             log.close()
-            name, cpus, memory = item
+            name, case, cpus, memory = item
             free_cpu += cpus
             free_memory += memory
             completed.append((item, proc, log, path))
-            print(f"{'DONE' if ret == 0 else 'FAIL'} {name} exit={ret}: {path}", flush=True)
+            print(f"{'DONE' if ret == 0 else 'FAIL'} {case['output_name']} exit={ret}: {path}", flush=True)
             if ret != 0:
-                failures.append((name, ret, str(path)))
+                failures.append((case["output_name"], ret, str(path)))
                 print("Last 50 lines from failed simulation:", flush=True)
                 for line in path.read_text(errors="replace").splitlines()[-50:]:
                     print(line, flush=True)

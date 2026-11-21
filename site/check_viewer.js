@@ -17,13 +17,14 @@ for (const match of js.matchAll(/querySelector\('\[data-legend="([^"]+)"\]'\)/g)
   assert(html.includes('data-legend="' + match[1] + '"'),
          "Viewer JavaScript references missing legend " + match[1]);
 }
-for (const [control, handler] of [["run", "renderRun"], ["freq", "renderPattern"]]) {
+for (const [control, handler] of [["simulation", "selectSimulation"], ["run", "renderRun"], ["freq", "renderPattern"]]) {
   const escaped = handler;
   const expr = new RegExp('el\\(["\\x27]' + control +
       '["\\x27]\\)\\.addEventListener\\(["\\x27]change["\\x27],\\s*' + escaped + '\\)');
   assert(expr.test(js), "Missing " + control + " change event handler: " + handler);
 }
-assert(ids.has("farfield") && ids.has("graphLegend") && ids.has("run") && ids.has("freq"),
+assert(ids.has("farfield") && ids.has("graphLegend") && ids.has("simulation") &&
+       ids.has("caseControl") && ids.has("run") && ids.has("freq"),
        "Required 3D viewer controls are absent");
 assert(html.includes('src="./plotly.min.js?v='), "Viewer must load bundled Plotly");
 assert(fs.statSync(path.join(root, "plotly.min.js")).size > 1_000_000,
@@ -31,6 +32,20 @@ assert(fs.statSync(path.join(root, "plotly.min.js")).size > 1_000_000,
 
 const manifest = JSON.parse(read("manifest.json"));
 assert(Array.isArray(manifest.runs) && manifest.runs.length, "Viewer has no simulations");
+assert.equal(manifest.schema_version,2, "Expected grouped manifest version 2");
+assert(Array.isArray(manifest.simulations), "Grouped simulation index missing");
+assert(manifest.simulations.length, "Grouped simulation index empty");
+const casesByPath=new Map();
+for(const sim of manifest.simulations){
+ assert(sim.id && sim.name && Array.isArray(sim.cases) && sim.cases.length,
+   "Invalid simulation group");
+ if(!sim.sweep)assert.equal(sim.cases.length,1,"Non-sweep must have one case");
+ for(const item of sim.cases){
+  assert(!casesByPath.has(item.path),"Duplicate grouped path: "+item.path);
+  casesByPath.set(item.path,sim.id);
+ }
+}
+assert.equal(casesByPath.size,manifest.runs.length,"Manifest group/flat indices disagree");
 const listed = new Set();
 let frequencies = 0;
 for (const run of manifest.runs) {
@@ -49,13 +64,19 @@ for (const run of manifest.runs) {
            "Missing far-field grid: " + name);
     frequencies++;
   }
-  listed.add(path.basename(dirname));
+  assert(casesByPath.has(run.path),"Missing case group: "+run.path);
+  assert.equal(casesByPath.get(run.path),run.simulation_id,"Simulation ID mismatch");
+  listed.add(run.simulation_id||path.basename(dirname));
 }
-const configDir = path.join(__dirname, "..", "antennas");
-const expected = fs.readdirSync(configDir).filter(n => n.endsWith(".json"))
-                   .map(n => path.basename(n, ".json"));
-for (const antenna of expected) {
-  assert(listed.has(antenna), "Simulation missing from Pages manifest: " + antenna);
+// Preview/PR builds can restore only the previously published results.
+// Production completeness (including every expected sweep case) is enforced
+// by build_site.py --require-complete before the viewer smoke tests.
+if(process.env.REQUIRE_COMPLETE==="true"){
+ const configDir=path.join(__dirname,"..","antennas");
+ const expected=fs.readdirSync(configDir).filter(n=>n.endsWith(".json"))
+                  .map(n=>path.basename(n,".json"));
+ for(const antenna of expected)
+  assert(listed.has(antenna),"Simulation missing from Pages manifest: "+antenna);
 }
 console.log("Viewer smoke checks passed:", listed.size,
             "antennas,", frequencies, "frequency patterns, all UI bindings");

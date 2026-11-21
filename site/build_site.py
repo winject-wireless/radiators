@@ -8,7 +8,9 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
+import sys
 from shutil import copy2, rmtree
 from urllib.request import Request, urlopen
 
@@ -27,6 +29,9 @@ p.add_argument("--require-complete", action="store_true",
 args = p.parse_args()
 
 src_dir = Path(__file__).resolve().parent
+sys.path.insert(0, str(src_dir.parent / "scripts"))
+from sweep import expand_cases
+
 args.site.mkdir(parents=True, exist_ok=True)
 data = args.site / "data"
 if data.exists():
@@ -34,9 +39,13 @@ if data.exists():
 data.mkdir()
 
 configs = sorted((src_dir.parent / "antennas").glob("*.json"))
-expected = {config.stem for config in configs}
-published = set()
+expected = {
+    config.stem: {case["case_id"] for case in expand_cases(json.loads(config.read_text()), config)}
+    for config in configs
+}
+published = {}
 runs = []
+simulations = {}
 for result in sorted(args.results.glob("*/result.json")):
     folder = result.parent
     info = json.loads(result.read_text())
@@ -73,16 +82,42 @@ for result in sorted(args.results.glob("*/result.json")):
         if float(pattern.get("frequency_hz", 0)) != float(entry.get("frequency_hz", -1)):
             raise ValueError(f"Pattern frequency mismatch: {source}")
         copy2(source, target / name)
-    published.add(folder.name)
+    metadata = info.get("input_config", {}).get("simulation", {})
+    simulation_id = metadata.get("id", folder.name)
+    case_id = metadata.get("case_id", "default")
+    if (not isinstance(simulation_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", simulation_id)
+            or not isinstance(case_id, str) or not re.fullmatch(r"(?:default|case-[0-9]{4})", case_id)):
+        raise ValueError(f"Invalid simulation or case ID: {result}")
+    if simulation_id not in expected:
+        raise ValueError(f"Published result for unknown/deleted simulation: {simulation_id}")
+    if case_id in published.setdefault(simulation_id, set()):
+        raise ValueError(f"Duplicate simulation case: {simulation_id}/{case_id}")
+    published[simulation_id].add(case_id)
+    simulation_name = metadata.get("name", info["name"])
+    is_sweep = bool(metadata.get("sweep", False))
+    case = {
+        "id": case_id,
+        "name": metadata.get("case_name", "Default"),
+        "parameters": metadata.get("parameters", {}),
+        "path": f"data/{folder.name}/result.json",
+        "generated_at_utc": info.get("generated_at_utc"),
+    }
+    sim = simulations.setdefault(simulation_id, {
+        "id": simulation_id, "name": simulation_name, "sweep": is_sweep, "cases": []
+    })
+    if sim["sweep"] != is_sweep or sim["name"] != simulation_name:
+        raise ValueError(f"Inconsistent simulation metadata: {simulation_id}")
+    sim["cases"].append(case)
     runs.append({"name": info["name"], "description": info.get("description", ""),
-                 "path": f"data/{folder.name}/result.json",
-                 "generated_at_utc": info.get("generated_at_utc")})
+                 "path": case["path"], "generated_at_utc": info.get("generated_at_utc"),
+                 "simulation_id": simulation_id, "case_id": case_id})
 
 if args.require_complete:
-    missing = sorted(expected - published)
+    missing = {name: sorted(cases - published.get(name, set()))
+               for name, cases in expected.items() if cases != published.get(name, set())}
     if missing:
-        raise RuntimeError("Refusing incomplete Pages deployment. Missing antenna results: "
-                           + ", ".join(missing))
+        raise RuntimeError("Refusing incomplete Pages deployment. Missing/extra antenna cases: "
+                           + str(missing))
     if not published:
         raise RuntimeError("Refusing to publish a viewer without any simulation results.")
 else:
@@ -120,7 +155,14 @@ for filename in ("app.js", "style.css", "plotly.min.js"):
     html = html.replace(f"./{filename}\"", f"./{filename}?v={digest}\"")
 (args.site / "index.html").write_text(html)
 
-manifest = {"schema_version": 1, "runs": runs}
+for sim in simulations.values():
+    sim["cases"].sort(key=lambda case: case["id"])
+manifest = {
+    "schema_version": 2,
+    "simulations": sorted(simulations.values(), key=lambda sim: sim["name"].lower()),
+    # Legacy flattened index is retained for older consumers and smoke checks.
+    "runs": runs,
+}
 (args.site / "manifest.json").write_text(json.dumps(manifest, indent=2))
 print(f"Built viewer with {len(runs)} complete simulation(s); "
       f"{sum(len(json.loads((args.results / Path(r['path']).parts[1] / 'result.json').read_text())['patterns']) for r in runs)} frequency pattern(s)")
