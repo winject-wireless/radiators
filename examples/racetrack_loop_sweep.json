@@ -1,0 +1,48 @@
+{
+  "schema_version": 2,
+  "name": "2.45 GHz centered-feed racetrack aspect/diameter sweep",
+  "description": "Standalone PEC one-wavelength loop. Compare aspect ratio and copper-equivalent PEC wire diameter; no Yagi, reflector or ground. Verify convergence and feed topology before using RF metrics.",
+  "units": "mm",
+  "parameters": {
+    "design_frequency_hz": 2450000000,
+    "feed_gap_mm": 4
+  },
+  "sweep": {
+    "mode": "product",
+    "parameters": {
+      "aspect_ratio": {"values": [1.4, 1.6, 1.8, 2.0]},
+      "conductor_mm": {"values": [1, 2, 3, 4]}
+    }
+  },
+  "generator": {
+    "language": "python",
+    "path": "antennas/generators/racetrack_loop.py"
+  },
+  "domain": {
+    "start": [-110, -110, -110],
+    "stop": [110, 110, 110],
+    "boundary": ["PML_8", "PML_8", "PML_8", "PML_8", "PML_8", "PML_8"]
+  },
+  "mesh": {
+    "grid_mode": "feature",
+    "max_cell_mm": 3,
+    "growth_ratio": 1.35,
+    "max_cells": 12000000
+  },
+  "solver": {
+    "max_timesteps": 20000,
+    "end_criteria": 0.0001,
+    "resources": {"cpus": 2, "memory_gib": 6}
+  },
+  "excitation": {"center_hz": 2450000000, "bandwidth_hz": 350000000},
+  "materials": [{"name": "pec-metal", "type": "pec"}],
+  "geometry": [],
+  "ports": [],
+  "outputs": {
+    "s11": [{"start": 2200000000, "step": 5000000, "end": 2700000000}],
+    "radiation_frequencies_hz": [2450000000],
+    "include_impedance": true,
+    "include_realized_gain": true,
+    "radiation_grid": {"theta_step_deg": 10, "phi_step_deg": 10}
+  }
+}
