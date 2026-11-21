@@ -27,7 +27,7 @@ class CenteredYagiLoopTests(unittest.TestCase):
         self.assertAlmostEqual(max(ys) - min(ys) + loop["wire_diameter"], 33.4, places=3)
         self.assertAlmostEqual(max(zs) - min(zs) + loop["wire_diameter"], 57.9, places=3)
         self.assertGreater(max(zs) - min(zs), max(ys) - min(ys))
-        rods = [g for g in self.geometry if re.fullmatch(r"director-\\d\\d|reflector-01", g["name"])]
+        rods = [g for g in self.geometry if re.fullmatch(r"director-\d\d|reflector-01", g["name"])]
         self.assertEqual(len(rods), 16)
         for rod in rods:
             self.assertEqual(rod["start"][:2], rod["stop"][:2],
