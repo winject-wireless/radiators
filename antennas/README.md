@@ -74,3 +74,114 @@ versioned workflow artifact when available.
 - openEMS NF2FF output is a far-field model; translating the displayed 2D
   cutting plane does not change electromagnetic far-field results.
 - The output is not a substitute for measurements or RF regulatory certification.
+
+
+## Generic parameter sweeps
+
+A simulation remains one top-level `antennas/<simulation>.json` file. An optional
+`sweep` expands it into independent antenna cases. The UI groups results by
+**simulation → case**, hiding the case selector for a normal single-case simulation.
+
+Start with [examples/helix_sweep.json](../examples/helix_sweep.json) for
+parametric JSON primitives or
+[examples/racetrack_loop_sweep.json](../examples/racetrack_loop_sweep.json)
+for a programmatic racetrack wire generator. Both examples are **outside**
+`antennas/` so they do not launch expensive FDTD jobs on every push.
+
+### Defining parameters
+
+```json
+{
+  "parameters": {"ground_radius_mm": 45},
+  "sweep": {
+    "mode": "product",
+    "parameters": {
+      "wire_mm": {"values": [1, 2, 3, 4]},
+      "turns": {"range": {"start": 3, "stop": 5, "step": 1}}
+    }
+  }
+}
+```
+
+`product` forms the Cartesian product of axes (here 12 cases).
+`zip` pairs equal-length parameter arrays instead. Range values include the
+start and stop when the step reaches the stop; otherwise the last value is
+the final value that does not pass it. The maximum is 128 cases/config.
+Fixed `parameters` apply to all cases. A config without `sweep` is one
+`default` case and retains the normal output path.
+
+For existing native CSXCAD geometry (boxes, wire curves, cylinders, helices,
+ports, even mesh and domain coordinates), replace literal JSON values with
+typed placeholders:
+
+```json
+{
+  "wire_diameter": {"$param": "wire_mm"},
+  "height": {"$expr": "turns * 6"},
+  "radius": {"$expr": "ground_radius_mm / 2"}
+}
+```
+
+`$expr` is a deliberately restricted numeric grammar: literals, named
+parameters, +, -, *, /, %, **, parentheses, and
+`min/max/abs/sqrt/sin/cos/tan/floor/ceil` and `pi/e`. No `eval`,
+Python attribute access, imports, loops or arbitrary calls. Objects with
+`$param` must contain only that key.
+
+### Parametric geometry with Python
+
+When the antenna topology itself changes (a racetrack curve, a Yagi with a
+variable element count, or different feed-point construction), specify:
+
+```json
+"generator": {
+  "language": "python",
+  "path": "antennas/generators/racetrack_loop.py"
+}
+```
+
+The trusted, repository-committed Python module must define
+`generate(config, params) -> config`. It receives a copy of the base schema
+and returns the **same schema** with generated `geometry`, `ports`, and
+optionally mesh, domain or material sections. Typed placeholders are resolved
+after the generator returns. The generator path is restricted to
+`antennas/generators/<name>.py`. Only run trusted generator code.
+
+**Why Python rather than OpenSCAD/JSCAD by default?** The solver needs
+electrical materials, wire diameter, port directions and mesh constraints,
+not just a CAD solid. A generic STL mesh conversion loses those electrical
+semantics. Python reuses the existing CSXCAD JSON primitives without a CAD
+dependency. OpenSCAD/JSCAD mesh import may be added as an optional geometry
+source later, but still needs native feed/port annotations.
+
+### Running and viewing
+
+```bash
+# Validate and list resolved cases without running openEMS:
+python3 scripts/sweep.py examples/racetrack_loop_sweep.json
+python3 -m unittest discover -s scripts -p 'test_sweep.py' -v
+
+# To run a sweep through the normal changed-config pipeline:
+cp examples/racetrack_loop_sweep.json antennas/racetrack_loop_sweep.json
+printf 'antennas/racetrack_loop_sweep.json\n' > changed-antennas.txt
+python3 scripts/run_simulations.py --list changed-antennas.txt --results results
+```
+
+Each expanded case has a reproducible `case_config.json`, solver log,
+`result.json` and frequency patterns in
+`results/<simulation>__case-0001/`, etc. Normal simulations still use
+`results/<simulation>/`. Each result embeds simulation and case metadata
+under `input_config.simulation` (source config, case parameters, ids).
+The Pages manifest has `simulations[].cases[]` plus a legacy flat `runs`
+index. The viewer presents **Simulation** and, only for sweep results, **Case**.
+
+The scheduler applies its existing CPU/RAM limits to *each case*. It will not
+rebuild the openEMS image unless the image cache is missing. Only changed
+antenna definitions and sweeps affected by a changed generator are selected.
+Changing a sweep axis invalidates the previous cases: the deployment restores
+old cases for unchanged simulations but not for changed simulations.
+
+A sample with 4 aspect ratios × 4 conductor diameters creates **16 FDTD
+runs**. The racetrack example uses PEC (an idealized copper comparison), a
+centered gap on the right straight section, and a localized mesh refinement;
+results require mesh convergence and a physically validated feed model.
