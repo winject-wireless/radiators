@@ -1088,7 +1088,7 @@ function selectSimulation(){
  el("case").replaceChildren(...cases.map(item=>{
   const option=document.createElement("option");
   option.value=item.path;
-  option.textContent=item.name||item.id;
+  option.textContent=cases.length===1?"Default":(item.name||item.id);
   return option;
  }));
  el("case").disabled=!cases.length;
