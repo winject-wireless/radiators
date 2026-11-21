@@ -79,14 +79,31 @@ jobs:
           echo "Selected antenna configurations:"
           cat changed-antennas.txt
           echo "count=$(wc -l < changed-antennas.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+      - name: Restore prior published results before planning simulations
+        # Missing published cases must be identified *before* deciding whether
+        # Docker is needed. Changed antenna configs are excluded from reuse.
+        run: python3 site/restore_published.py --site-url https://winject-wireless.github.io/radiators/ --results results
+      - name: Select changed and missing antenna simulations
+        id: plan
+        env:
+          FILL_MISSING: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$FILL_MISSING" == "true" ]]; then args+=(--include-missing); fi
+          python3 scripts/select_missing_simulations.py --changed changed-antennas.txt \
+            --results results --output selected-antennas.txt "${args[@]}"
+          echo "count=$(wc -l < selected-antennas.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "Simulation plan:"
+          cat selected-antennas.txt
       - name: Restore or bootstrap openEMS Docker image
         id: image
-        if: steps.changed.outputs.count != '0'
+        if: steps.plan.outputs.count != '0'
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ensure-openems-image.sh
       - name: Save new solver image artifact (only on first build)
-        if: steps.changed.outputs.count != '0' && steps.image.outputs.cache_hit == 'false'
+        if: steps.plan.outputs.count != '0' && steps.image.outputs.cache_hit == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.image.outputs.artifact_name }}
@@ -94,15 +111,11 @@ jobs:
           compression-level: 0
           retention-days: 90
           if-no-files-found: error
-      - name: Simulate independent antennas concurrently within runner CPU/RAM
-        if: steps.changed.outputs.count != '0'
+      - name: Simulate missing or changed cases within runner CPU/RAM limits
+        if: steps.plan.outputs.count != '0'
         run: |
-          python3 scripts/run_simulations.py --list changed-antennas.txt --results results \
-            --cpus-per-job 2 --memory-gib-per-job 5 --reserve-memory-gib 2
-      - name: Restore prior published results for unchanged antennas
-        # PRs changing only the viewer still need the published simulation data
-        # so the same viewer and intersection checks can execute in CI.
-        run: python3 site/restore_published.py --site-url https://winject-wireless.github.io/radiators/ --results results
+          python3 scripts/run_simulations.py --list selected-antennas.txt --results results \
+            --skip-complete --cpus-per-job 2 --memory-gib-per-job 5 --reserve-memory-gib 2
       - name: Build and verify complete static result viewer
         env:
           REQUIRE_COMPLETE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -136,6 +149,7 @@ jobs:
           name: structured-openems-results
           path: |
             changed-antennas.txt
+            selected-antennas.txt
             results/*/case_config.json
             results/*/result.json
             results/*/pattern_*.json
