@@ -2,7 +2,7 @@
 
 The site consumes JSON produced by the structured openEMS runner.
 It uses Plotly from a public CDN for S11, VSWR, phase and rotatable
-3D far-field **directivity**. No server is necessary.
+3D far-field **directivity**. The 3D radius follows normalized far-field electric-field amplitude (20·log10(|E|/|E|max)) rather than power ratio, and is an arbitrary display radius: only geometry axes represent physical millimetres. No server is necessary.
 
 **To publish:** GitHub repository → Settings → Pages → Build and deployment
 → Source: **GitHub Actions**. Merge the feature PR; a push to main will run
