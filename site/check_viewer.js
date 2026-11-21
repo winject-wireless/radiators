@@ -71,6 +71,41 @@ assert(js.includes('el("peak").textContent="Far-field unavailable"') &&
 
 assert(html.includes("Pattern radius: normalized |E|"),
        "Pattern radius must be clearly labeled independently of mm geometry");
+assert(ids.has("patternScale") && ids.has("patternScaleValue"),
+       "Pattern display-size slider and multiplier must be present");
+assert(/id="patternScale"[^>]+type="range"|type="range"[^>]+id="patternScale"/.test(html),
+       "Pattern-size control must be a range input");
+assert(js.includes('el("patternScale").addEventListener("input"'),
+       "Pattern-size changes must update the scene");
+assert(js.includes("visual=radiatingScale()*patternScaleMultiplier()"),
+       "Pattern display multiplier must affect actual field surface radius");
+assert(js.includes("range:[-sceneHalfExtent(),sceneHalfExtent()]"),
+       "Axes must accommodate the selected pattern size without clipping");
+
+// Exercise the actual pattern-grid function with the same E-field values
+// at two display sizes: geometry and measured gain must not be rescaled.
+const gridSource=js.match(/function patternGrid\(p\)\{[\s\S]*?\n\}/)?.[0];
+assert(gridSource, "Actual pattern surface calculation missing");
+let visualMultiplier=1;
+const gridFn=vm.runInNewContext("("+gridSource+")",{
+ DEG:Math.PI/180,
+ radiatingScale:()=>50,
+ patternScaleMultiplier:()=>visualMultiplier,
+ patternRadialFraction
+});
+const sample={
+ theta_deg:[90],phi_deg:[0],
+ max_directivity_dbi:4,
+ directivity_dbi:[[4]]
+};
+const atOne=gridFn(sample);
+visualMultiplier=2;
+const atTwo=gridFn(sample);
+assert(Math.abs(atOne.vertices[0][0][0]-50)<1e-9);
+assert(Math.abs(atTwo.vertices[0][0][0]-100)<1e-9);
+assert.deepEqual(Array.from(atTwo.directivity[0]),[4],
+                 "Changing display radius must not alter simulated dBi");
+
 
 const manifest = JSON.parse(read("manifest.json"));
 assert(Array.isArray(manifest.runs) && manifest.runs.length, "Viewer has no simulations");
