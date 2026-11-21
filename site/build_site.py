@@ -26,6 +26,9 @@ p.add_argument("--results", type=Path, default=Path("results"))
 p.add_argument("--site", type=Path, default=Path("site/dist"))
 p.add_argument("--require-complete", action="store_true",
                help="Require one valid result and all patterns for every antenna config")
+p.add_argument("--require-result", action="append", default=[],
+               metavar="SIMULATION_ID",
+               help="Require a specific completed simulation while retaining all previously published results")
 args = p.parse_args()
 
 src_dir = Path(__file__).resolve().parent
@@ -112,6 +115,15 @@ for result in sorted(args.results.glob("*/result.json")):
                  "path": case["path"], "generated_at_utc": info.get("generated_at_utc"),
                  "simulation_id": simulation_id, "case_id": case_id})
 
+if args.require_result:
+    missing_required = {
+        name: sorted(expected.get(name, {"default"}) - published.get(name, set()))
+        for name in args.require_result
+        if name not in expected or expected[name] != published.get(name, set())
+    }
+    if missing_required:
+        raise RuntimeError("Refusing Pages deployment without specifically required simulation results: "
+                           + str(missing_required))
 if args.require_complete:
     missing = {name: sorted(cases - published.get(name, set()))
                for name, cases in expected.items() if cases != published.get(name, set())}
