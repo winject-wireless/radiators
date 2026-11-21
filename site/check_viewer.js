@@ -68,11 +68,15 @@ for (const run of manifest.runs) {
   assert.equal(casesByPath.get(run.path),run.simulation_id,"Simulation ID mismatch");
   listed.add(run.simulation_id||path.basename(dirname));
 }
-const configDir = path.join(__dirname, "..", "antennas");
-const expected = fs.readdirSync(configDir).filter(n => n.endsWith(".json"))
-                   .map(n => path.basename(n, ".json"));
-for (const antenna of expected) {
-  assert(listed.has(antenna), "Simulation missing from Pages manifest: " + antenna);
+// Preview/PR builds can restore only the previously published results.
+// Production completeness (including every expected sweep case) is enforced
+// by build_site.py --require-complete before the viewer smoke tests.
+if(process.env.REQUIRE_COMPLETE==="true"){
+ const configDir=path.join(__dirname,"..","antennas");
+ const expected=fs.readdirSync(configDir).filter(n=>n.endsWith(".json"))
+                  .map(n=>path.basename(n,".json"));
+ for(const antenna of expected)
+  assert(listed.has(antenna),"Simulation missing from Pages manifest: "+antenna);
 }
 console.log("Viewer smoke checks passed:", listed.size,
             "antennas,", frequencies, "frequency patterns, all UI bindings");
