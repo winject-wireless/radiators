@@ -157,12 +157,14 @@ if bundle is None:
                        + "\n".join(failures))
 (args.site / "plotly.min.js").write_bytes(bundle)
 
-for filename in ("app.js", "style.css"):
+for filename in ("app.js", "style.css", "simulation_selectors.js"):
     copy2(src_dir / filename, args.site / filename)
 html = (src_dir / "index.html").read_text()
+if 'src="./simulation_selectors.js"' not in html:
+    raise ValueError("Viewer must include simulation/case selector script")
 if 'src="./plotly.min.js"' not in html:
     raise ValueError("Viewer must load locally bundled Plotly")
-for filename in ("app.js", "style.css", "plotly.min.js"):
+for filename in ("app.js", "style.css", "simulation_selectors.js", "plotly.min.js"):
     digest = hashlib.sha256((args.site / filename).read_bytes()).hexdigest()[:12]
     html = html.replace(f"./{filename}\"", f"./{filename}?v={digest}\"")
 (args.site / "index.html").write_text(html)
