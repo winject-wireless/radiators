@@ -80,10 +80,23 @@ jobs:
     needs: select-runner
     runs-on: ${{ fromJSON(needs.select-runner.outputs.runner) }}
     timeout-minutes: 330
+    defaults:
+      run:
+        working-directory: source
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Isolate checkout from legacy root-owned Docker/python files on
+          # persistent self-hosted machines such as fi1.
+          path: source
+          clean: false
+      - name: Drop previous intermediate results in persistent source worktree
+        run: |
+          mkdir -p results
+          # Prevent stale results from masking a geometry change.
+          # New simulations and published restoration will repopulate results.
+          find results -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
       - name: Verify only the best Yagi simulation is retained
         run: |
           python3 - <<'PY'
@@ -146,7 +159,7 @@ jobs:
           run-id: 44854383879
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          path: _archived/fine
+          path: source/_archived/fine
       - name: Merge complete archived antenna results into viewer inputs
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
@@ -241,21 +254,21 @@ jobs:
         with:
           name: structured-openems-results
           path: |
-            changed-antennas.txt
-            selected-antennas.txt
-            results/*/case_config.json
-            results/*/result.json
-            results/*/pattern_*.json
-            results/*/geometry.xml
-            results/*/runner.log
-            results/scheduler.json
-            site/dist/
+            source/changed-antennas.txt
+            source/selected-antennas.txt
+            source/results/*/case_config.json
+            source/results/*/result.json
+            source/results/*/pattern_*.json
+            source/results/*/geometry.xml
+            source/results/*/runner.log
+            source/results/scheduler.json
+            source/site/dist/
           if-no-files-found: warn
           retention-days: 14
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
-          path: site/dist
+          path: source/site/dist
   deploy-pages:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: simulate
