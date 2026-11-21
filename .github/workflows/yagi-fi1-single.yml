@@ -1,0 +1,69 @@
+name: Single fine-mesh Yagi verification (fi1)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/yagi-fi1-single.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+# Only use the explicitly labeled trusted fi1 machine; never run PR code.
+jobs:
+  simulate-best-yagi:
+    runs-on: [self-hosted, fi1]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify selected self-hosted runner and Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Runner name: ${RUNNER_NAME}"
+          echo "Runner OS: ${RUNNER_OS}  arch: ${RUNNER_ARCH}"
+          if [[ "${RUNNER_NAME,,}" != "fi1" ]]; then
+            echo "::error::Expected self-hosted runner named fi1, got ${RUNNER_NAME}"
+            exit 1
+          fi
+          docker info --format 'Docker OS: {{.OSType}}; CPUs: {{.NCPU}}; memory bytes: {{.MemTotal}}' |
+            tee docker-info.txt
+          [[ "$(docker info --format '{{.OSType}}')" == linux ]] || {
+            echo "::error::fi1 requires Linux Docker containers"; exit 1;
+          }
+
+      - name: Restore prebuilt openEMS image (no compilation)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/restore_openems_image.py
+
+      - name: Simulate single best measured-loop Yagi (1.6 mm mesh)
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'antennas/yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450.json' > fi1-single-antenna.txt
+          python3 scripts/run_simulations.py \
+            --list fi1-single-antenna.txt \
+            --results results \
+            --cpus-per-job 2 \
+            --memory-gib-per-job 8 \
+            --reserve-memory-gib 2
+
+      - name: Upload simulation outputs, pattern, and solver log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yagi-best-p24-f24-b36-y14-fi1-fine
+          path: |
+            docker-info.txt
+            fi1-single-antenna.txt
+            results/yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450/result.json
+            results/yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450/pattern_*.json
+            results/yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450/runner.log
+            results/yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450/geometry.xml
+            results/scheduler.json
+          if-no-files-found: warn
+          retention-days: 21
