@@ -44,7 +44,7 @@ for root in a.source:
         for pattern in patterns:
             filename = pattern.get("file")
             if (not isinstance(filename, str)
-                    or not re.fullmatch(r"pattern_[0-9]+Hz\\.json", filename)):
+                    or not re.fullmatch(r"pattern_[0-9]+Hz\.json", filename)):
                 raise ValueError(f"Unsafe pattern filename in {archived}: {filename!r}")
             source = archived.parent / filename
             if not source.is_file():
