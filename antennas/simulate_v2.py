@@ -270,7 +270,11 @@ def output_data(config, resultdir):
 
     current=ports[driven_id]
     current.CalcPort(str(fdtd_path),freq)
-    gamma=np.asarray(current.uf_ref)/np.asarray(current.uf_inc)
+    incident=np.asarray(current.uf_inc)
+    require(bool(np.all(np.isfinite(incident)) and np.all(np.abs(incident)>0)),
+            "No usable incident signal at driven port; check feed location on mesh lines, "
+            "and confirm OpenEMS reports nonzero voltage excitations")
+    gamma=np.asarray(current.uf_ref)/incident
     mag=np.abs(gamma)
     vswr=np.where(mag<1,(1+mag)/np.maximum(1-mag,1e-15),np.inf)
     impedance=np.asarray(current.uf_tot)/np.asarray(current.if_tot)
@@ -345,7 +349,7 @@ def output_data(config, resultdir):
                 record[key+"_real"]=val.real.tolist()
                 record[key+"_imag"]=val.imag.tolist()
         pattern_file=f"pattern_{int(f)}Hz.json"
-        (resultdir/pattern_file).write_text(json.dumps(record))
+        (resultdir/pattern_file).write_text(json.dumps(record, allow_nan=False))
         result["patterns"].append({
             "frequency_hz":f,
             "file":pattern_file,
@@ -354,7 +358,7 @@ def output_data(config, resultdir):
             "max_realized_gain_dbi":finite(dmax+10*np.log10(max(gain_factor,1e-30)))
                 if gain_factor is not None and include_realized else None
         })
-    (resultdir/"result.json").write_text(json.dumps(result,indent=2))
+    (resultdir/"result.json").write_text(json.dumps(result,indent=2,allow_nan=False))
     print("Simulation result:",resultdir/"result.json")
 
 
