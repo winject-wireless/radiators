@@ -70,7 +70,9 @@ for (const sim of normalized) {
 // Test real menu behavior with two distinct simulations and a multi-case sweep.
 const fixtures = selectors.readSimulations({schema_version:2,simulations:[
  {id:"single",name:"Single antenna",sweep:false,
-  cases:[{id:"default",name:"Default",path:"data/single/result.json"}]},
+  cases:[{id:"default",name:"Custom label from metadata",path:"data/single/result.json"}]},
+ {id:"one-sweep",name:"One available sweep case",sweep:true,
+  cases:[{id:"case-0002",name:"diameter=3",path:"data/one-sweep__case-0002/result.json"}]},
  {id:"sweep",name:"Sweep antenna",sweep:true,
   cases:[{id:"case-0001",name:"width=1",path:"data/sweep__case-0001/result.json"},
          {id:"case-0002",name:"width=2",path:"data/sweep__case-0002/result.json"}]}
@@ -93,13 +95,21 @@ const ctx = {
 vm.runInNewContext(selectionFn+"\nselectSimulation();",ctx);
 assert.deepEqual(mockControls.case.options.map(x=>x.value),["data/single/result.json"]);
 assert.equal(mockControls.case.value,"data/single/result.json");
+assert.deepEqual(mockControls.case.options.map(x=>x.textContent),["Default"],
+                 "Single-case simulations must display Default regardless of metadata");
+mockControls.simulation.value="one-sweep";
+vm.runInNewContext("selectSimulation();",ctx);
+assert.deepEqual(mockControls.case.options.map(x=>x.textContent),["Default"],
+                 "A sweep with only one available case must display Default");
 mockControls.simulation.value="sweep";
 vm.runInNewContext("selectSimulation();",ctx);
 assert.deepEqual(mockControls.case.options.map(x=>x.value),[
  "data/sweep__case-0001/result.json","data/sweep__case-0002/result.json"
 ]);
 assert.equal(mockControls.case.value,"data/sweep__case-0001/result.json");
-assert.equal(calls,2, "Changing the simulation should load the default case each time");
+assert.deepEqual(mockControls.case.options.map(x=>x.textContent),["width=1","width=2"],
+                 "Multiple cases must retain their descriptive labels");
+assert.equal(calls,3, "Changing the simulation should load the first case each time");
 
 
 const casesByPath=new Map();
