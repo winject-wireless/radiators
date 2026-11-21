@@ -16,6 +16,7 @@ import sys
 import time
 
 from sweep import expand_cases
+from result_inventory import case_complete
 
 
 def cpu_capacity():
@@ -53,7 +54,7 @@ def ram_capacity_bytes():
     return available
 
 
-def load_requests(path, default_cpu, default_memory_gib):
+def load_requests(path, default_cpu, default_memory_gib, results=Path('results'), skip_complete=False):
     found = []
     names = set()
     for filename in path.read_text().splitlines():
@@ -70,6 +71,9 @@ def load_requests(path, default_cpu, default_memory_gib):
             raise FileNotFoundError(filename)
         raw = json.loads(cfg_path.read_text())
         for case in expand_cases(raw, cfg_path):
+            if skip_complete and case_complete(case, results):
+                print(f"REUSE {case['output_name']}: complete published result", flush=True)
+                continue
             settings = case["config"].get("solver", {}).get("resources", {})
             cpus = int(settings.get("cpus", default_cpu))
             memory_gib = float(settings.get("memory_gib", default_memory_gib))
@@ -87,8 +91,11 @@ def main():
     parser.add_argument("--cpus-per-job", type=int, default=2)
     parser.add_argument("--memory-gib-per-job", type=float, default=5)
     parser.add_argument("--reserve-memory-gib", type=float, default=2)
+    parser.add_argument("--skip-complete", action="store_true",
+                        help="Only run missing/incomplete cases; reuse validated results")
     args = parser.parse_args()
-    requests = load_requests(args.list, args.cpus_per_job, args.memory_gib_per_job)
+    requests = load_requests(args.list, args.cpus_per_job, args.memory_gib_per_job,
+                             results=args.results, skip_complete=args.skip_complete)
     if not requests:
         print("No changed antenna configurations: nothing to simulate")
         return 0
