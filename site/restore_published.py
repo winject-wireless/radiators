@@ -14,8 +14,11 @@ from urllib.request import urlopen
 p = argparse.ArgumentParser()
 p.add_argument("--site-url", required=True)
 p.add_argument("--results", type=Path, default=Path("results"))
+p.add_argument("--changed", type=Path, default=Path("changed-antennas.txt"))
 a = p.parse_args()
 a.results.mkdir(parents=True, exist_ok=True)
+known = {f.stem for f in Path("antennas").glob("*.json")}
+changed = {Path(line.strip()).stem for line in a.changed.read_text().splitlines() if line.strip()} if a.changed.is_file() else set()
 
 def download(url):
     with urlopen(url, timeout=20) as response:
@@ -38,6 +41,13 @@ for entry in manifest["runs"]:
     name = parts[1]
     if not name.replace("_", "").replace("-", "").isalnum():
         raise ValueError(f"Unsafe run name: {name}")
+    simulation_id = entry.get("simulation_id", name)
+    if simulation_id not in known:
+        print(f"Skipping removed simulation {simulation_id}")
+        continue
+    if simulation_id in changed:
+        print(f"Skipping old cases for changed simulation {simulation_id}")
+        continue
     target = a.results / name
     if (target / "result.json").exists():
         print(f"Keeping new simulation {name}")
