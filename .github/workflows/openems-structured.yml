@@ -84,11 +84,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Validate measured-Yagi sweep generator
-        if: hashFiles('scripts/yagi_sweep.py') != ''
+      - name: Verify only the best Yagi simulation is retained
         run: |
-          python3 -m py_compile scripts/yagi_sweep.py
-          python3 scripts/yagi_sweep.py --self-test
+          python3 - <<'PY'
+          from pathlib import Path
+          expected = 'yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450.json'
+          found = {path.name for path in Path('antennas').glob('yagi_*.json')}
+          assert found == {expected}, f'Only the best Yagi config should exist: {found}'
+          PY
       - name: Validate generic parameter sweeps without openEMS
         run: |
           python3 -m unittest discover -s scripts -p 'test_sweep.py' -v
@@ -132,19 +135,7 @@ jobs:
         # Missing published cases must be identified *before* deciding whether
         # Docker is needed. Changed antenna configs are excluded from reuse.
         run: python3 site/restore_published.py --site-url https://winject-wireless.github.io/radiators/ --results results
-      # Restore completed legacy and refined Yagi results without rerunning openEMS.
-      # These archives bootstrap the full published collection; subsequent builds
-      # also restore the previous published Pages manifest above.
-      - name: Download completed historical Yagi results
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: structured-openems-results
-          run-id: 44512439048
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          path: _archived/legacy
+      # Retain the best fine-mesh Yagi result if it is not already published.
       - name: Download completed best-parameter fine-mesh Yagi
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
@@ -159,7 +150,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           python3 site/merge_archived_results.py \
-            --source _archived/legacy --source _archived/fine \
+            --source _archived/fine \
             --results results --changed changed-antennas.txt
       - name: Select changed and missing antenna simulations
         id: plan
