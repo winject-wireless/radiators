@@ -134,6 +134,11 @@ def main():
             log = (out / "runner.log").open("w")
             command = docker_prefix + [
                 "run", "--rm",
+                # Match the runner user's UID/GID so Docker never leaves root-owned
+                # Python bytecode or FDTD output in the persisted checkout.
+                "--user", f"{os.getuid()}:{os.getgid()}",
+                "--env", "HOME=/tmp",
+                "--env", "PYTHONDONTWRITEBYTECODE=1",
                 f"--cpus={cpus}",
                 f"--memory={memory}",
                 f"--memory-swap={memory}",
