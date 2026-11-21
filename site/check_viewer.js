@@ -29,6 +29,21 @@ assert(ids.has("farfield") && ids.has("graphLegend") && ids.has("simulation") &&
 assert(html.includes('src="./plotly.min.js?v='), "Viewer must load bundled Plotly");
 assert(fs.statSync(path.join(root, "plotly.min.js")).size > 1_000_000,
        "Bundled Plotly is missing or invalid");
+// Test the actual radius helper from the deployed JavaScript, not a duplicate formula.
+// Normalized field amplitude: -6.02 dB corresponds to 0.5 radius, not 0.25.
+const vm = require("node:vm");
+const radiusHelper = js.match(/function patternRadialFraction\(db,peak\)\s*\{[^}]*\}/);
+assert(radiusHelper, "Viewer is missing normalized far-field radius conversion");
+const patternRadialFraction = vm.runInNewContext("(" + radiusHelper[0] + ")");
+for(const [dropDb, expected] of [[0, 1], [-6.020599913279624, .5], [-20, .1]]){
+ const actual = patternRadialFraction(dropDb, 0);
+ assert(Math.abs(actual - expected) < 1e-10,
+   "Unexpected far-field radius at " + dropDb + " dB: " + actual);
+}
+assert(js.includes("visual*patternRadialFraction(d,peak)"),
+       "3D pattern must use tested normalized field-amplitude radius");
+assert(html.includes("Pattern radius: normalized |E|"),
+       "Pattern radius must be clearly labeled independently of mm geometry");
 
 const manifest = JSON.parse(read("manifest.json"));
 assert(Array.isArray(manifest.runs) && manifest.runs.length, "Viewer has no simulations");
