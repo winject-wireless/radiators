@@ -78,6 +78,16 @@ function radiatingScale(){
  }
  return extent*1.65; // Display scale only, NOT physical pattern radius
 }
+// The field pattern has no physical radius in mm; only its SHAPE is
+// physically meaningful. Let users scale this illustrative overlay without
+// changing the antenna geometry, directional gain or sampled E-field values.
+function patternScaleMultiplier(){
+ // Pure pattern/intersection tests also run without the browser DOM.
+ // The default mathematical display multiplier is always 1×.
+ const input=typeof document==="undefined"?null:el("patternScale");
+ const value=Number(input?.value??1);
+ return Number.isFinite(value)?Math.max(.25,Math.min(4,value)):1;
+}
 function materialColor(material){
  const mat=(active?.input_config?.materials||[]).find(x=>x.name===material);
  return mat?.type==="pec" ? "#e6b77b" : "#ab90e2";
@@ -198,7 +208,7 @@ function patternRadialFraction(db,peak){
 // Use the same sampled surface for the 3D pattern and plane intersection.
 function patternGrid(p){
  const th=p.theta_deg.map(t=>t*DEG),ph=p.phi_deg.map(t=>t*DEG);
- const vertices=[],directivity=[],peak=Number(p.max_directivity_dbi),visual=radiatingScale();
+ const vertices=[],directivity=[],peak=Number(p.max_directivity_dbi),visual=radiatingScale()*patternScaleMultiplier();
  for(let i=0;i<th.length;i++){
   const row=[],db=[];
   for(let j=0;j<ph.length;j++){
@@ -425,7 +435,9 @@ function panPlaneName(axis){return {x:"YZ",y:"XZ",z:"XY"}[axis]||"—";}
 // Fade the 1px axis to the edges of the visible cube. Plotly's WebGL
 // scene fits geometry bounds: never place the guide 12x outside the scene.
 const PAN_FADE_STOPS=[0,.12,.27,.46,.67,.84,1];
-function sceneHalfExtent(){return radiatingScale()*1.35;}
+function sceneHalfExtent(){
+ return radiatingScale()*Math.max(1,patternScaleMultiplier())*1.35;
+}
 function panAxisTraces(){
  if(!activePanAxis)return [];
  const axis=activePanAxis,at="xyz".indexOf(axis),center=cameraTargetMm();
@@ -764,9 +776,9 @@ async function renderScene(){
       dragmode:"turntable",camera:sceneCamera||DEFAULT_CAMERA,
       // Pin the physical data range; long fading pan guides must never
       // alter auto-ranging, model scale or the user's camera zoom.
-      xaxis:{title:"X (mm)",range:[-radiatingScale()*1.35,radiatingScale()*1.35],gridcolor:"#253c56",zerolinecolor:"#395775"},
-      yaxis:{title:"Y (mm)",range:[-radiatingScale()*1.35,radiatingScale()*1.35],gridcolor:"#253c56",zerolinecolor:"#395775"},
-      zaxis:{title:"Z (mm)",range:[-radiatingScale()*1.35,radiatingScale()*1.35],gridcolor:"#253c56",zerolinecolor:"#395775"}}},
+      xaxis:{title:"X (mm)",range:[-sceneHalfExtent(),sceneHalfExtent()],gridcolor:"#253c56",zerolinecolor:"#395775"},
+      yaxis:{title:"Y (mm)",range:[-sceneHalfExtent(),sceneHalfExtent()],gridcolor:"#253c56",zerolinecolor:"#395775"},
+      zaxis:{title:"Z (mm)",range:[-sceneHalfExtent(),sceneHalfExtent()],gridcolor:"#253c56",zerolinecolor:"#395775"}}},
     {...PLOT_CFG,displayModeBar:false,scrollZoom:false,doubleClick:false});
    if(!cameraEventsBound&&typeof el("farfield").on==="function"){
     el("farfield").on("plotly_relayout",rememberCamera);
@@ -1150,6 +1162,13 @@ function setTimeoutResize(){
  el("simulation").addEventListener("change",selectSimulation);
  el("case").addEventListener("change",renderRun);
  el("freq").addEventListener("change",renderPattern);
+ // Visual-only scaling of the normalized far-field overlay.
+ el("patternScale").addEventListener("input",()=>{
+  const factor=patternScaleMultiplier();
+  el("patternScaleValue").textContent=factor.toFixed(2)+"×";
+  cachedField=null;cachedGrid=null;
+  scheduleSceneRender();
+ });
  setupAxisPan();
  // WebGL updates its live camera throughout pointer drags, but Plotly's
  // relayout event may be deferred until mouseup. Keep the axis triad live.

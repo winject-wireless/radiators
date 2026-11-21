@@ -40,6 +40,10 @@ button{cursor:pointer}
 #caseControl select{width:315px;max-width:100%}
 .controls>.compact-label:nth-child(3){flex:0 0 auto}
 .controls>.compact-label:nth-child(3) select{width:143px;max-width:100%}
+.pattern-size-control{display:inline-flex;align-items:center;gap:7px;min-width:0;color:#a6bad3;font-size:11px;white-space:nowrap}
+.pattern-size-control input{width:105px;max-width:20vw;accent-color:var(--accent);cursor:pointer}
+.pattern-size-control output{min-width:36px;color:#edf5fc;font-variant-numeric:tabular-nums;text-align:right}
+
 .view-tabs{display:flex;border:1px solid #35506b;border-radius:8px;overflow:hidden;flex:0 0 auto}
 .view-tabs button{
   padding:8px 12px;min-height:33px;white-space:nowrap;

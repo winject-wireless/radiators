@@ -15,7 +15,22 @@ def case_complete(case, results):
         info = json.loads((folder / "result.json").read_text())
         if not isinstance(info, dict) or not isinstance(info.get("name"), str) or not info["name"]:
             return False
-        metadata = info.get("input_config", {}).get("simulation")
+        saved_config = info.get("input_config")
+        if not isinstance(saved_config, dict):
+            return False
+        # A completed result is reusable ONLY for exactly the geometry, feed,
+        # mesh and solver settings currently checked into the repository.
+        # Checking just the simulation ID / case parameters previously allowed
+        # obsolete Yagi radiation data to survive a geometry rotation.
+        expected_config = dict(case["config"])
+        recorded_config = dict(saved_config)
+        # Old schema-v1 results did not store the generated simulation metadata.
+        # Strip this bookkeeping on BOTH sides while checking all RF settings.
+        expected_config.pop("simulation", None)
+        recorded_config.pop("simulation", None)
+        if recorded_config != expected_config:
+            return False
+        metadata = saved_config.get("simulation")
         if metadata is not None:
             if not isinstance(metadata, dict):
                 return False
