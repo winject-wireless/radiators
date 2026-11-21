@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "2.45 GHz standalone racetrack loop baseline (4 mm conductor)",
-  "description": "Isolated in-air racetrack-shaped approximately one-wavelength loop for 2.45 GHz baseline study. PEC round conductor 4 mm diameter; outer dimensions 50.7538 mm tall by 29.2776 mm wide (matching prior measured loop aspect ratio); centerline closed-track perimeter 122.3643 mm before removing feed gap. Right-hand straight section is split; wire centerline ends are 8 mm apart and the nominal metal-to-metal air gap is 4 mm (assuming 2 mm wire radius). 50-ohm differential lumped feed, no balun, reflector, directors, ground or boom. Initial 2 mm uniform mesh is exploratory: converge with finer mesh before treating resonance, S11 or efficiency as reliable.",
+  "description": "Isolated in-air racetrack-shaped approximately one-wavelength loop for 2.45 GHz baseline study. PEC round conductor 4 mm diameter; outer dimensions 50.7538 mm tall by 29.2776 mm wide (matching prior measured loop aspect ratio); centerline closed-track perimeter 122.3643 mm before removing feed gap. Right-hand straight section is split; wire centerline ends are 8 mm apart and the nominal metal-to-metal air gap is 4 mm (assuming 2 mm wire radius). 50-ohm differential lumped feed, no balun, reflector, directors, ground or boom. Initial 2 mm uniform mesh is exploratory: converge with finer mesh before treating resonance, S11 or efficiency as reliable. Dedicated branch re-run uses 2.5 MHz S11 sampling for finer resonance readout; geometry and FDTD mesh are unchanged.",
   "units": "mm",
   "domain": {
     "start": [
@@ -538,7 +538,7 @@
     "s11": [
       {
         "start": 2150000000,
-        "step": 5000000,
+        "step": 2500000,
         "end": 2750000000
       }
     ],
