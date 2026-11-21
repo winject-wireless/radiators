@@ -1,4 +1,4 @@
-name: Single fine-mesh Yagi verification (fi1)
+name: Single fine-mesh Yagi verification (automatic runner)
 
 on:
   push:
@@ -7,32 +7,87 @@ on:
       - '.github/workflows/yagi-fi1-single.yml'
   workflow_dispatch:
 
+# Trusted main only: do not run pull_request code on a persistent runner.
+# Choose any online/idle Linux x64 self-hosted runner, otherwise ubuntu-latest.
+# To query runner inventory reliably, set RUNNER_STATUS_TOKEN to a read-only
+# runner inventory token. Without it, a 403 is safely handled by hosted fallback.
 permissions:
   contents: read
   actions: read
 
-# Only use the explicitly labeled trusted fi1 machine; never run PR code.
+concurrency:
+  group: single-yagi-verification
+  cancel-in-progress: true
+
 jobs:
+  select-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+      selected-type: ${{ steps.pick.outputs.selected-type }}
+    steps:
+      - name: Prefer any available Linux self-hosted runner
+        id: pick
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.RUNNER_STATUS_TOKEN || github.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sources = [
+              {kind: 'repository', route: 'GET /repos/{owner}/{repo}/actions/runners',
+               args: {owner, repo, per_page: 100}},
+              {kind: 'organization', route: 'GET /orgs/{org}/actions/runners',
+               args: {org: owner, per_page: 100}},
+            ];
+            let runners = [];
+            let accessibleSources = 0;
+            for (const source of sources) {
+              try {
+                const found = await github.paginate(source.route, source.args);
+                accessibleSources += 1;
+                core.info(`${source.kind}: ${found.length} registered runners`);
+                runners.push(...found);
+              } catch (error) {
+                core.warning(`${source.kind} runner status unavailable: ${error.status || ''} ${error.message}`);
+              }
+            }
+            runners = [...new Map(runners.map(r => [r.id, r])).values()];
+            const eligible = runners.filter(r => {
+              const labels = new Set((r.labels || []).map(l => l.name.toLowerCase()));
+              return r.status === 'online' && !r.busy
+                && ['self-hosted', 'linux', 'x64'].every(x => labels.has(x));
+            });
+            const selected = eligible.length ? ['self-hosted', 'Linux', 'X64'] : 'ubuntu-latest';
+            const type = eligible.length ? 'self-hosted' : 'github-hosted';
+            core.setOutput('runner', JSON.stringify(selected));
+            core.setOutput('selected-type', type);
+            if (eligible.length) {
+              core.notice(`Selected available self-hosted Linux runner pool; ${eligible.length} idle matching runner(s).`);
+            } else {
+              core.notice(`Selected ubuntu-latest; no available self-hosted Linux runner was visible (${accessibleSources}/2 APIs readable).`);
+              if (!accessibleSources) {
+                core.warning('Runner inventory API access is restricted. Add RUNNER_STATUS_TOKEN with repository Administration: Read (and organization runner-read permission if required) to enable self-hosted preference.');
+              }
+            }
+
   simulate-best-yagi:
-    runs-on: [self-hosted, fi1]
+    needs: select-runner
+    runs-on: ${{ fromJSON(needs.select-runner.outputs.runner) }}
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify selected self-hosted runner and Docker
+      - name: Verify runner and Docker
         shell: bash
         run: |
           set -euo pipefail
-          echo "Runner name: ${RUNNER_NAME}"
-          echo "Runner OS: ${RUNNER_OS}  arch: ${RUNNER_ARCH}"
-          if [[ "${RUNNER_NAME,,}" != "fi1" ]]; then
-            echo "::error::Expected self-hosted runner named fi1, got ${RUNNER_NAME}"
-            exit 1
-          fi
+          echo "Runner: ${RUNNER_NAME} (selected ${{ needs.select-runner.outputs.selected-type }})"
+          echo "OS: ${RUNNER_OS} / ${RUNNER_ARCH}"
           docker info --format 'Docker OS: {{.OSType}}; CPUs: {{.NCPU}}; memory bytes: {{.MemTotal}}' |
             tee docker-info.txt
           [[ "$(docker info --format '{{.OSType}}')" == linux ]] || {
-            echo "::error::fi1 requires Linux Docker containers"; exit 1;
+            echo "::error::Linux Docker containers required"; exit 1;
           }
 
       - name: Restore prebuilt openEMS image (no compilation)
@@ -44,22 +99,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s\n' 'antennas/yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450.json' > fi1-single-antenna.txt
+          printf '%s\n' 'antennas/yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450.json' > selected-antenna.txt
           python3 scripts/run_simulations.py \
-            --list fi1-single-antenna.txt \
+            --list selected-antenna.txt \
             --results results \
             --cpus-per-job 2 \
             --memory-gib-per-job 8 \
             --reserve-memory-gib 2
 
-      - name: Upload simulation outputs, pattern, and solver log
+      - name: Upload simulation outputs, patterns, and solver log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: yagi-best-p24-f24-b36-y14-fi1-fine
+          name: yagi-best-p24-f24-b36-y14-fine
           path: |
             docker-info.txt
-            fi1-single-antenna.txt
+            selected-antenna.txt
             results/yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450/result.json
             results/yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450/pattern_*.json
             results/yagi_16rod_bonded_boom_measured_loop_best_p24_f24_b36_y14_fine_2450/runner.log
