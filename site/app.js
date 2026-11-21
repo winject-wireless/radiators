@@ -82,7 +82,10 @@ function radiatingScale(){
 // physically meaningful. Let users scale this illustrative overlay without
 // changing the antenna geometry, directional gain or sampled E-field values.
 function patternScaleMultiplier(){
- const value=Number(el("patternScale")?.value??1);
+ // Pure pattern/intersection tests also run without the browser DOM.
+ // The default mathematical display multiplier is always 1×.
+ const input=typeof document==="undefined"?null:el("patternScale");
+ const value=Number(input?.value??1);
  return Number.isFinite(value)?Math.max(.25,Math.min(4,value)):1;
 }
 function materialColor(material){
