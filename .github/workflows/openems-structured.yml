@@ -29,8 +29,56 @@ concurrency:
   group: radiators-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  simulate:
+  select-runner:
     runs-on: ubuntu-latest
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+      selected-type: ${{ steps.pick.outputs.selected-type }}
+    steps:
+      - name: Prefer an available Linux self-hosted runner on trusted main
+        id: pick
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.RUNNER_STATUS_TOKEN || github.token }}
+          script: |
+            const trusted = context.eventName !== 'pull_request' && context.ref === 'refs/heads/main';
+            if (!trusted) {
+              core.setOutput('runner', JSON.stringify('ubuntu-latest'));
+              core.setOutput('selected-type', 'github-hosted-untrusted');
+              return;
+            }
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sources = [
+              {kind: 'repository', route: 'GET /repos/{owner}/{repo}/actions/runners',
+               args: {owner, repo, per_page: 100}},
+              {kind: 'organization', route: 'GET /orgs/{org}/actions/runners',
+               args: {org: owner, per_page: 100}},
+            ];
+            let runners = [];
+            for (const source of sources) {
+              try {
+                runners.push(...await github.paginate(source.route, source.args));
+              } catch (error) {
+                core.warning(`${source.kind} runner inventory unavailable: ${error.status || ''} ${error.message}`);
+              }
+            }
+            runners = [...new Map(runners.map(r => [r.id, r])).values()];
+            const eligible = runners.filter(r => {
+              const labels = new Set((r.labels || []).map(l => l.name.toLowerCase()));
+              return r.status === 'online' && !r.busy
+                && ['self-hosted', 'linux', 'x64'].every(label => labels.has(label));
+            });
+            const selected = eligible.length ? ['self-hosted', 'Linux', 'X64'] : 'ubuntu-latest';
+            core.setOutput('runner', JSON.stringify(selected));
+            core.setOutput('selected-type', eligible.length ? 'self-hosted' : 'github-hosted');
+            core.notice(eligible.length
+              ? `Prefer self-hosted: ${eligible.length} online idle Linux runner(s)`
+              : 'No idle self-hosted runner visible; using ubuntu-latest');
+
+  simulate:
+    needs: select-runner
+    runs-on: ${{ fromJSON(needs.select-runner.outputs.runner) }}
     timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +92,7 @@ jobs:
       - name: Validate generic parameter sweeps without openEMS
         run: |
           python3 -m unittest discover -s scripts -p 'test_sweep.py' -v
+          python3 -m unittest discover -s scripts -p 'test_missing_simulations.py' -v
           python3 scripts/sweep.py examples/racetrack_loop_sweep.json
           python3 scripts/sweep.py examples/helix_sweep.json
       - name: Detect changed antenna configurations
@@ -79,29 +128,9 @@ jobs:
           echo "Selected antenna configurations:"
           cat changed-antennas.txt
           echo "count=$(wc -l < changed-antennas.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
-      - name: Restore or bootstrap openEMS Docker image
-        id: image
-        if: steps.changed.outputs.count != '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash scripts/ensure-openems-image.sh
-      - name: Save new solver image artifact (only on first build)
-        if: steps.changed.outputs.count != '0' && steps.image.outputs.cache_hit == 'false'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.image.outputs.artifact_name }}
-          path: openems-image.tar.zst
-          compression-level: 0
-          retention-days: 90
-          if-no-files-found: error
-      - name: Simulate independent antennas concurrently within runner CPU/RAM
-        if: steps.changed.outputs.count != '0'
-        run: |
-          python3 scripts/run_simulations.py --list changed-antennas.txt --results results \
-            --cpus-per-job 2 --memory-gib-per-job 5 --reserve-memory-gib 2
-      - name: Restore prior published results for unchanged antennas
-        # PRs changing only the viewer still need the published simulation data
-        # so the same viewer and intersection checks can execute in CI.
+      - name: Restore prior published results before planning simulations
+        # Missing published cases must be identified *before* deciding whether
+        # Docker is needed. Changed antenna configs are excluded from reuse.
         run: python3 site/restore_published.py --site-url https://winject-wireless.github.io/radiators/ --results results
       # Restore completed legacy and refined Yagi results without rerunning openEMS.
       # These archives bootstrap the full published collection; subsequent builds
@@ -132,6 +161,39 @@ jobs:
           python3 site/merge_archived_results.py \
             --source _archived/legacy --source _archived/fine \
             --results results --changed changed-antennas.txt
+      - name: Select changed and missing antenna simulations
+        id: plan
+        env:
+          FILL_MISSING: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$FILL_MISSING" == "true" ]]; then args+=(--include-missing); fi
+          python3 scripts/select_missing_simulations.py --changed changed-antennas.txt \
+            --results results --output selected-antennas.txt "${args[@]}"
+          echo "count=$(wc -l < selected-antennas.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          echo "Simulation plan:"
+          cat selected-antennas.txt
+      - name: Restore or bootstrap openEMS Docker image
+        id: image
+        if: steps.plan.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ensure-openems-image.sh
+      - name: Save new solver image artifact (only on first build)
+        if: steps.plan.outputs.count != '0' && steps.image.outputs.cache_hit == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.image.outputs.artifact_name }}
+          path: openems-image.tar.zst
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error
+      - name: Simulate missing or changed cases within runner CPU/RAM limits
+        if: steps.plan.outputs.count != '0'
+        run: |
+          python3 scripts/run_simulations.py --list selected-antennas.txt --results results \
+            --skip-complete --cpus-per-job 2 --memory-gib-per-job 5 --reserve-memory-gib 2
       - name: Build and verify complete static result viewer
         env:
           REQUIRE_TARGET: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -167,6 +229,7 @@ jobs:
           name: structured-openems-results
           path: |
             changed-antennas.txt
+            selected-antennas.txt
             results/*/case_config.json
             results/*/result.json
             results/*/pattern_*.json
