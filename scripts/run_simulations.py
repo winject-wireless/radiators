@@ -16,6 +16,7 @@ import sys
 import time
 
 from sweep import expand_cases
+from restore_openems_image import docker_command
 from result_inventory import case_complete
 
 
@@ -111,6 +112,7 @@ def main():
             raise RuntimeError(f"{filename} ({case['case_id']}): asks for {cpus} CPUs and {memory / 1024 ** 3:.2f} GiB, "
                                f"budget is {cpu_budget} CPUs and {memory_budget / 1024 ** 3:.2f} GiB")
 
+    docker_prefix = docker_command()  # Allows sudo -n on trusted self-hosted runners.
     args.results.mkdir(parents=True, exist_ok=True)
     pending = list(requests)
     running = []
@@ -130,8 +132,8 @@ def main():
             config_path = out / "case_config.json"
             config_path.write_text(json.dumps(case["config"], indent=2))
             log = (out / "runner.log").open("w")
-            command = [
-                "docker", "run", "--rm",
+            command = docker_prefix + [
+                "run", "--rm",
                 f"--cpus={cpus}",
                 f"--memory={memory}",
                 f"--memory-swap={memory}",
