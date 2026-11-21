@@ -48,6 +48,19 @@ def finite_or_none(x):
     return x if math.isfinite(x) else None
 
 
+def json_safe(value):
+    """No non-finite numeric literals in emitted JSON files."""
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, (float, np.floating)):
+        return finite_or_none(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    return value
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("config", type=Path)
@@ -190,9 +203,20 @@ def main():
         ff = nf2ff.CalcNF2FF(str(sim_dir), f, theta, phi, outfile=f"nf2ff_{int(f)}.h5", read_cached=False, verbose=True)
         norm = np.asarray(ff.E_norm[0], dtype=float)
         norm = np.reshape(norm, (len(theta), len(phi)))
-        max_e = max(float(np.max(norm)), 1e-300)
-        dmax = 10 * np.log10(float(ff.Dmax[0]))
-        dbi = dmax + 20 * np.log10(np.maximum(norm / max_e, 1e-16))
+        prad = finite_or_none(ff.Prad[0])
+        dmax_linear = finite_or_none(ff.Dmax[0])
+        valid_radiation = bool(
+            prad is not None and prad > 0 and
+            dmax_linear is not None and dmax_linear > 0 and
+            np.isfinite(norm).all() and np.max(norm) > 0
+        )
+        if valid_radiation:
+            dmax = float(10 * np.log10(dmax_linear))
+            dbi = dmax + 20 * np.log10(np.maximum(norm / float(np.max(norm)), 1e-16))
+        else:
+            dmax = None
+            dbi = np.full(norm.shape, np.nan)
+            print("WARNING: no valid radiation at", f, "Hz: zero Prad or undefined field/directivity")
         fname = f"pattern_{int(f)}Hz.json"
         radiation_efficiency = None
         try:
@@ -207,18 +231,21 @@ def main():
             "theta_deg": theta.tolist(),
             "phi_deg": phi.tolist(),
             "directivity_dbi": dbi.tolist(),
-            "max_directivity_dbi": finite_or_none(dmax),
-            "radiated_power_w": finite_or_none(ff.Prad[0]),
+            "max_directivity_dbi": dmax,
+            "radiated_power_w": prad,
+            "radiation_valid": valid_radiation,
+            "radiation_warning": None if valid_radiation else
+                "Far-field unavailable: zero radiated power or undefined directivity. Check feed, mesh, and NF2FF boundaries.",
             "radiation_efficiency": radiation_efficiency,
             "unit": "dBi"
         }
-        (out / fname).write_text(json.dumps(record))
+        (out / fname).write_text(json.dumps(json_safe(record), allow_nan=False))
         result["patterns"].append({
             "frequency_hz": f, "file": fname,
             "max_directivity_dbi": record["max_directivity_dbi"],
             "radiation_efficiency": radiation_efficiency
         })
-    (out / "result.json").write_text(json.dumps(result, indent=2))
+    (out / "result.json").write_text(json.dumps(json_safe(result), indent=2, allow_nan=False))
     print("Written", out / "result.json")
 
 

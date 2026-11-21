@@ -52,6 +52,23 @@ for(const [dropDb, expected] of [[0, 1], [-6.020599913279624, .5], [-20, .1]]){
 }
 assert(js.includes("visual*patternRadialFraction(d,peak)"),
        "3D pattern must use tested normalized field-amplitude radius");
+// RF quality: inspect the *actual* viewer helper, not a duplicate formula.
+const usableHelper=js.match(/function hasUsableRadiation\(pattern\)\{[\s\S]*?\n\}/);
+assert(usableHelper, "Viewer must explicitly detect unavailable radiation data");
+const hasUsableRadiation=vm.runInNewContext("("+usableHelper[0]+")");
+const validRF={radiation_valid:true,max_directivity_dbi:4.1,radiated_power_w:0.2,
+               directivity_dbi:[[4,2],[1,3]]};
+assert.equal(hasUsableRadiation(validRF),true,"Valid radiation must render");
+assert.equal(hasUsableRadiation({...validRF,radiated_power_w:0}),false,
+             "Zero radiated power must not display a pattern");
+assert.equal(hasUsableRadiation({...validRF,max_directivity_dbi:null}),false,
+             "Null directivity must not be treated as zero dBi");
+assert.equal(hasUsableRadiation({...validRF,directivity_dbi:[[null,null]]}),false,
+             "Undefined grid samples must not produce a surface");
+assert(js.includes('el("peak").textContent="Far-field unavailable"') &&
+       js.includes("if(!active)return;"),
+       "Viewer must preserve geometry with an explicit no-radiation message");
+
 assert(html.includes("Pattern radius: normalized |E|"),
        "Pattern radius must be clearly labeled independently of mm geometry");
 
@@ -135,6 +152,13 @@ for (const run of manifest.runs) {
     assert(name === path.basename(name) && name.startsWith("pattern_"),
            "Unsafe pattern file: " + name);
     const pattern = JSON.parse(read(path.join(dirname, name)));
+    if(pattern.radiation_valid===false){
+      assert(typeof pattern.radiation_warning==="string" &&
+             pattern.radiation_warning.length>0,
+             "Unavailable radiation must include an explanation: "+name);
+      assert(pattern.max_directivity_dbi===null,
+             "Unavailable directivity must be JSON null, never 0 dBi");
+    }
     assert(Number(pattern.frequency_hz) === Number(entry.frequency_hz),
            "Frequency mismatch: " + name);
     assert(Array.isArray(pattern.directivity_dbi) && pattern.directivity_dbi.length,

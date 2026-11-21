@@ -34,6 +34,7 @@ args = p.parse_args()
 src_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(src_dir.parent / "scripts"))
 from sweep import expand_cases
+from result_quality import json_safe, normalize_pattern
 
 args.site.mkdir(parents=True, exist_ok=True)
 data = args.site / "data"
@@ -51,7 +52,7 @@ runs = []
 simulations = {}
 for result in sorted(args.results.glob("*/result.json")):
     folder = result.parent
-    info = json.loads(result.read_text())
+    info = json_safe(json.loads(result.read_text()))
     if not isinstance(info.get("name"), str) or not info["name"]:
         raise ValueError(f"Invalid simulation name: {result}")
     patterns = info.get("patterns")
@@ -64,7 +65,7 @@ for result in sorted(args.results.glob("*/result.json")):
     # Validate every referenced file BEFORE publishing any manifest entry.
     target = data / folder.name
     target.mkdir()
-    copy2(result, target / "result.json")
+    (target / "result.json").write_text(json.dumps(info, allow_nan=False))
     for entry in patterns:
         name = entry.get("file")
         if (not isinstance(name, str) or Path(name).name != name
@@ -73,7 +74,7 @@ for result in sorted(args.results.glob("*/result.json")):
         source = folder / name
         if not source.is_file():
             raise FileNotFoundError(f"Missing simulation pattern: {source}")
-        pattern = json.loads(source.read_text())
+        pattern = normalize_pattern(json.loads(source.read_text()))
         theta = pattern.get("theta_deg")
         phi = pattern.get("phi_deg")
         grid = pattern.get("directivity_dbi")
@@ -84,7 +85,9 @@ for result in sorted(args.results.glob("*/result.json")):
             raise ValueError(f"Invalid directivity grid: {source}")
         if float(pattern.get("frequency_hz", 0)) != float(entry.get("frequency_hz", -1)):
             raise ValueError(f"Pattern frequency mismatch: {source}")
-        copy2(source, target / name)
+        (target / name).write_text(json.dumps(pattern, allow_nan=False))
+        if not pattern["radiation_valid"]:
+            print(f"WARNING: {source}: {pattern['radiation_warning']}", flush=True)
     metadata = info.get("input_config", {}).get("simulation", {})
     simulation_id = metadata.get("id", folder.name)
     case_id = metadata.get("case_id", "default")

@@ -24,6 +24,19 @@ def finite_values(values):
     return [finite(x) for x in np.asarray(values).ravel()]
 
 
+def json_safe(value):
+    """Convert undefined numeric results to JSON null, not JavaScript-invalid NaN."""
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, (float, np.floating)):
+        return finite(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    return value
+
+
 def frequencies(sweeps, f0, fc):
     points=set()
     require(bool(sweeps), "At least one S11 sweep is required")
@@ -317,8 +330,21 @@ def output_data(config, resultdir):
         ff=nf2ff.CalcNF2FF(str(fdtd_path),f,theta,phi,
                           outfile=filename,read_cached=False,verbose=True)
         field=np.asarray(ff.E_norm[0],dtype=float).reshape((len(theta),len(phi)))
-        dmax=10*np.log10(float(ff.Dmax[0]))
-        dbi=dmax+20*np.log10(np.maximum(field/max(float(field.max()),1e-100),1e-16))
+        radiated_power=finite(ff.Prad[0])
+        raw_dmax=finite(ff.Dmax[0])
+        valid_radiation=bool(
+            radiated_power is not None and radiated_power>0 and
+            raw_dmax is not None and raw_dmax>0 and
+            np.isfinite(field).all() and np.max(field)>0
+        )
+        if valid_radiation:
+            dmax=float(10*np.log10(raw_dmax))
+            dbi=dmax+20*np.log10(np.maximum(field/float(field.max()),1e-16))
+        else:
+            dmax=None
+            # An undefined physical radiation pattern is not a 0 dBi pattern.
+            dbi=np.full(field.shape,np.nan)
+            print("WARNING: no valid radiation at",f,"Hz: zero Prad or undefined field/directivity")
         current.CalcPort(str(fdtd_path),np.asarray([f]))
         accepted=float(np.asarray(current.P_acc).ravel()[0])
         eta=finite(float(ff.Prad[0])/accepted) if accepted>0 else None
@@ -331,30 +357,33 @@ def output_data(config, resultdir):
             "theta_deg":theta.tolist(),
             "phi_deg":phi.tolist(),
             "directivity_dbi":dbi.tolist(),
-            "max_directivity_dbi":finite(dmax),
-            "radiated_power_w":finite(ff.Prad[0]),
+            "max_directivity_dbi":dmax,
+            "radiated_power_w":radiated_power,
+            "radiation_valid":valid_radiation,
+            "radiation_warning":None if valid_radiation else
+                "Far-field unavailable: zero radiated power or undefined directivity. Check feed, mesh, and NF2FF boundaries.",
             "radiation_efficiency":eta,
             "mismatch_efficiency":finite(mismatch),
             "unit":"dBi"
         }
         if include_realized:
-            record["realized_gain_dbi"]=(dbi+10*np.log10(max(gain_factor,1e-30))).tolist() if gain_factor is not None else None
+            record["realized_gain_dbi"]=(dbi+10*np.log10(max(gain_factor,1e-30))).tolist() if valid_radiation and gain_factor is not None else None
         if include_pol:
             for key in ("E_theta","E_phi"):
                 val=np.asarray(getattr(ff,key)[0]).reshape((len(theta),len(phi)))
                 record[key+"_real"]=val.real.tolist()
                 record[key+"_imag"]=val.imag.tolist()
         pattern_file=f"pattern_{int(f)}Hz.json"
-        (resultdir/pattern_file).write_text(json.dumps(record))
+        (resultdir/pattern_file).write_text(json.dumps(json_safe(record),allow_nan=False))
         result["patterns"].append({
             "frequency_hz":f,
             "file":pattern_file,
             "max_directivity_dbi":record["max_directivity_dbi"],
             "radiation_efficiency":eta,
             "max_realized_gain_dbi":finite(dmax+10*np.log10(max(gain_factor,1e-30)))
-                if gain_factor is not None and include_realized else None
+                if valid_radiation and gain_factor is not None and include_realized else None
         })
-    (resultdir/"result.json").write_text(json.dumps(result,indent=2))
+    (resultdir/"result.json").write_text(json.dumps(json_safe(result),indent=2,allow_nan=False))
     print("Simulation result:",resultdir/"result.json")
 
 

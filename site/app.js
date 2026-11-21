@@ -745,7 +745,7 @@ function setupAxisPan(){
  }
 }
 async function renderScene(){
- if(!active||!field)return;
+ if(!active)return;
  sceneDirty=true;
  if(sceneRendering)return;
  sceneRendering=true;
@@ -1014,6 +1014,15 @@ async function renderS11(result=active){
   xaxis:{title:"Frequency (GHz)",gridcolor:"#263e57"},
   yaxis:{title:"VSWR",gridcolor:"#263e57",rangemode:"tozero",autorange:true}},PLOT_CFG);
 }
+// Undefined radiation must never become a fabricated 0 dBi surface.
+function hasUsableRadiation(pattern){
+ return pattern?.radiation_valid!==false &&
+  Number.isFinite(pattern?.max_directivity_dbi) &&
+  Number.isFinite(pattern?.radiated_power_w) && pattern.radiated_power_w>0 &&
+  Array.isArray(pattern?.directivity_dbi) && pattern.directivity_dbi.length>0 &&
+  pattern.directivity_dbi.every(row=>Array.isArray(row) &&
+   row.length>0 && row.every(value=>Number.isFinite(value)));
+}
 async function renderPattern(){
  const token=++selectedPatternVersion;
  const runPath=el("case").value,run=active;
@@ -1026,8 +1035,19 @@ async function renderPattern(){
   const base=runPath.replace(/result\.json$/,"");
   const result=await getJSON(base+pattern.file);
   if(token!==selectedPatternVersion||runPath!==el("case").value)return;
-  if(!Array.isArray(result.directivity_dbi)||!result.directivity_dbi.length)
-   throw Error("Pattern has no directivity grid: "+pattern.file);
+  if(!hasUsableRadiation(result)){
+   // Preserve geometry/S11 and report the RF failure instead of inventing gain.
+   field=null;cachedField=null;
+   el("peak").textContent="Far-field unavailable";
+   el("eff").textContent="Radiation η n/a";
+   el("centerGain").textContent="Center gain n/a";
+   const warning=result.radiation_warning||
+    "Far-field unavailable: zero radiated power or undefined directivity.";
+   status(warning);
+   await renderScene();
+   if(token===selectedPatternVersion&&runPath===el("case").value)status(warning);
+   return;
+  }
   field=result;
   cachedField=null;
   el("peak").textContent="Peak D "+format(result.max_directivity_dbi)+" dBi";
