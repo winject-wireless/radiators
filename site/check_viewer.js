@@ -32,7 +32,7 @@ assert(fs.statSync(path.join(root, "plotly.min.js")).size > 1_000_000,
 // Test the actual radius helper from the deployed JavaScript, not a duplicate formula.
 // Normalized field amplitude: -6.02 dB corresponds to 0.5 radius, not 0.25.
 const vm = require("node:vm");
-const radiusHelper = js.match(/function patternRadialFraction\\(db,peak\\)\\s*\\{[^}]*\\}/);
+const radiusHelper = js.match(/function patternRadialFraction\(db,peak\)\s*\{[^}]*\}/);
 assert(radiusHelper, "Viewer is missing normalized far-field radius conversion");
 const patternRadialFraction = vm.runInNewContext("(" + radiusHelper[0] + ")");
 for(const [dropDb, expected] of [[0, 1], [-6.020599913279624, .5], [-20, .1]]){
