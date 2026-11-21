@@ -47,7 +47,8 @@ class MissingSimulationTests(unittest.TestCase):
         folder.mkdir(parents=True, exist_ok=True)
         result = {
             "name": case["config"]["name"],
-            "input_config": {} if legacy else case["config"],
+            "input_config": {key: val for key, val in case["config"].items()
+                             if key != "simulation"} if legacy else case["config"],
             "s11": {
                 "frequency_hz": [2.45e9],
                 "logmag_db": [-10], "phase_deg": [5], "vswr": [1.9]
@@ -103,6 +104,33 @@ class MissingSimulationTests(unittest.TestCase):
         selected, _ = select_configs([self.single], self.results,
                                      changed=[self.single.as_posix()], include_missing=False)
         self.assertEqual(selected, [self.single.as_posix()])
+
+    def test_stale_yagi_geometry_is_not_reused(self):
+        case = self._cases(self.single)[0]
+        self._write_result(case)
+        f = self.results / case["output_name"] / "result.json"
+        data = json.loads(f.read_text())
+        data["input_config"]["geometry"][0]["points"][1] = [100, 0, 20]
+        f.write_text(json.dumps(data))
+        self.assertFalse(case_complete(case, self.results),
+                         "Radiation calculated for old conductor positions is stale")
+        selected, missing = select_configs([self.single], self.results, include_missing=True)
+        self.assertEqual(selected, [self.single.as_posix()])
+        self.assertEqual(missing, [(self.single.as_posix(), "default")])
+
+    def test_stale_port_and_mesh_are_not_reused(self):
+        case = self._cases(self.single)[0]
+        self._write_result(case)
+        f = self.results / case["output_name"] / "result.json"
+        data = json.loads(f.read_text())
+        data["input_config"]["mesh"] = {"resolution": 8}
+        f.write_text(json.dumps(data))
+        self.assertFalse(case_complete(case, self.results))
+
+    def test_legacy_config_with_missing_simulation_metadata_still_reusable(self):
+        case = self._cases(self.single)[0]
+        self._write_result(case, legacy=True)
+        self.assertTrue(case_complete(case, self.results))
 
     def test_stale_parameter_metadata_rejected(self):
         case = self._cases(self.sweep)[0]
