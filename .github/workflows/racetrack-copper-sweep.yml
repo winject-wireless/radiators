@@ -1,0 +1,53 @@
+name: Racetrack solid copper aspect and diameter sweep
+on:
+  push:
+    branches: ['sim/racetrack-copper-sweep-*']
+    paths:
+      - 'tools/racetrack_sweep.py'
+      - '.github/workflows/racetrack-copper-sweep.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: racetrack-copper-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate geometry and aligned center feed
+        run: |
+          python3 -m py_compile tools/racetrack_sweep.py
+          python3 tools/racetrack_sweep.py --self-test
+      - name: Generate all 24 racetrack cases
+        run: python3 tools/racetrack_sweep.py --generate
+      - name: Restore cached prebuilt openEMS image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ensure-openems-image.sh
+      - name: Run antenna simulations constrained by available CPU and RAM
+        run: |
+          python3 scripts/run_simulations.py --list racetrack-sweep-inputs.txt \
+            --results results --cpus-per-job 2 --memory-gib-per-job 5 \
+            --reserve-memory-gib 2
+      - name: Evaluate and rank impedance/match at 2.45GHz
+        if: always()
+        run: python3 tools/racetrack_sweep.py --summarize
+      - name: Archive cases, results, logs and rankings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: racetrack-copper-aspect-diameter-sweep
+          path: |
+            antennas/racetrack_ar*_d*_2450.json
+            racetrack-sweep-inputs.txt
+            results/racetrack_copper_sweep/
+            results/racetrack_ar*_d*_2450/result.json
+            results/racetrack_ar*_d*_2450/pattern_*.json
+            results/racetrack_ar*_d*_2450/runner.log
+            results/scheduler.json
+          if-no-files-found: warn
+          retention-days: 21
