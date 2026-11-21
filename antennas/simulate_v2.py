@@ -196,11 +196,11 @@ def setup_mesh(mesh, cfg, geometry_bounds, source_bounds, geometry_previews, por
     return counts,cells
 
 
-def output_data(config, resultdir):
+def build_csxcad_model(config):
     from CSXCAD import ContinuousStructure
     from openEMS import openEMS
 
-    require(config.get("schema_version")==2,"simulate_v2 requires schema_version=2")
+    require(config.get("schema_version")==2,"CSXCAD model requires schema_version=2")
     require(config.get("units")=="mm","v2 supports millimetres only")
     excitation=config["excitation"]
     f0=positive(excitation["center_hz"],"excitation.center_hz")
@@ -276,6 +276,26 @@ def output_data(config, resultdir):
     driven=active[0]
     driven_id=int(driven.get("id",driven.get("port_number",1)))
     nf2ff=fdtd.CreateNF2FFBox()
+    return {"csx":csx, "fdtd":fdtd, "nf2ff":nf2ff, "ports":ports,
+            "driven_id":driven_id, "driven":driven, "counts":counts,
+            "cells":cells, "previews":previews, "freq":freq, "patterns":patterns,
+            "outputcfg":outputcfg}
+
+
+def output_data(config, resultdir):
+    model=build_csxcad_model(config)
+    csx=model["csx"]
+    fdtd=model["fdtd"]
+    nf2ff=model["nf2ff"]
+    ports=model["ports"]
+    driven_id=model["driven_id"]
+    driven=model["driven"]
+    counts=model["counts"]
+    cells=model["cells"]
+    previews=model["previews"]
+    freq=model["freq"]
+    patterns=model["patterns"]
+    outputcfg=model["outputcfg"]
     resultdir.mkdir(parents=True,exist_ok=True)
     fdtd_path=resultdir/"fdtd"
     csx.Write2XML(str(resultdir/"geometry.xml"))
