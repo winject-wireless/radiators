@@ -1803,7 +1803,7 @@ function renderChecks() {
       h("strong", { text: errors ? `${errors} error${errors > 1 ? "s" : ""}` : "No blocking errors" }),
       warns ? h("span", { class: "muted", text: `${warns} warning${warns > 1 ? "s" : ""}` }) : null,
       h("span", { class: "muted", text: `· ${caseCount} case${caseCount > 1 ? "s" : ""} checked` })),
-    h("p", { class: "hint", text: "These mirror the input validation in antennas/simulate_v2.py. Passing them does not validate the feed model or mesh convergence." }));
+    h("p", { class: "hint", text: "Input validation and advisory feed-contact, mesh and boundary checks. Passing them does not prove electrical connectivity on the FDTD grid or mesh convergence." }));
   const ul = h("ul", { class: "checks-list" });
   for (const c of list) {
     const li = h("li", { "data-ref": c.ref ? "1" : undefined },

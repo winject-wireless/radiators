@@ -297,6 +297,36 @@ assert.deepEqual(checkCase(starter).filter(x => x.level === "error"), []);
 assert.ok(Math.abs(starter.geometry[1].stop[2] - (3 + 0.95 * 299.792458 / 2.45 / 4)) < 1e-9);
 for (const [shape, def] of Object.entries(SHAPES)) assert.ok(tessellate({ shape, ...def.template }).indices.length > 0, shape);
 
+// Feed connectivity checks: actual conductor, not just an enclosing AABB.
+{
+  const good=structuredClone(starter);
+  const feedWarnings=c=>checkCase(c).filter(x=>x.where==="port feed").map(x=>x.msg);
+  assert.equal(feedWarnings(good).length,0,"Flush planar monopole feed must pass");
+  const gap=structuredClone(good);
+  gap.geometry[0].start[2]=-1;gap.geometry[0].stop[2]=-.5;
+  assert.ok(feedWarnings(gap).some(x=>x.includes("start terminal")&&x.includes("0.5 mm")));
+  const shell=structuredClone(good);
+  shell.geometry[1]={shape:"cylindrical_shell",name:"tube",material:"pec-metal",start:[0,0,3],stop:[0,0,35],radius:1.75,thickness:.5};
+  assert.ok(feedWarnings(shell).some(x=>x.includes("stop terminal")&&x.includes("1.5 mm")));
+  const test=structuredClone(gap);
+  test.geometry[1]={shape:"sphere",name:"tip",material:"pec-metal",center:[0,0,4],radius:2};
+  test.ports[0].stop=[0,0,2];
+  assert.ok(feedWarnings(test).some(x=>x.includes("point/tip")));
+  assert.ok(feedWarnings(test).some(x=>x.includes("Feed-tip mesh")));
+  test.mesh.refinements=[{start:[-3,-3,-2],stop:[3,3,5],resolution_mm:.25}];
+  assert.ok(!feedWarnings(test).some(x=>x.includes("Feed-tip mesh")));
+  // Exact user's hemispherical shell with a missing lower terminal.
+  const dome=expandScripts({materials:[{name:"pec-metal",type:"pec"}],geometry:[{name:"d_cap",script:"hemisphere",args:{center:[0,0,4],axis:[0,0,-1],radius:2,thickness:.5,rings:10,segments:32,material:"pec-metal"}}]},editorRun).geometry[0];
+  test.geometry[1]=dome;
+  const w=checkCase(test);
+  assert.ok(w.some(x=>x.msg.includes("inconsistent face winding")));
+  assert.ok(w.some(x=>x.msg.includes("start terminal")&&x.msg.includes("0.5 mm")));
+  assert.ok(w.some(x=>x.msg.includes("point/tip")));
+  const rotated=structuredClone(good);
+  rotated.geometry[1].transform={rotate_deg:[0,0,90],translate:[4,0,0]};
+  assert.ok(feedWarnings(rotated).some(x=>x.includes("stop terminal")));
+}
+
 // Checks catch the classic mistakes
 const broken = structuredClone(starter);
 broken.ports.push({ ...broken.ports[0], excite: true });

@@ -220,3 +220,14 @@ The saved physical values remain in schema units (mm, Hz, degrees, Ω, S/m,
 GiB, or metres for conducting sheet thickness). Expressions compile to ordinary
 `$expr` values, so native CI and browser sweeps agree. Workspace display metadata
 is removed from resolved cases and has no effect on cached simulation inputs.
+
+### Feed preflight warnings
+
+Checks reports potential missing lumped-port terminal contacts, fragile curved
+point contacts, coarse requested local mesh spacing near such contacts,
+inconsistent conducting polyhedron winding/open edges, and insufficient
+conductor-to-domain clearance before PML. Analytic shape tests distinguish a
+hollow tube from a solid conductor; finite port faces are sampled, and mesh
+checks use triangulated surfaces. These are non-blocking geometric heuristics:
+intentional capacitive feeds, discretized contacts and material priorities can
+differ from the geometric estimate. Verify the actual FDTD mesh and convergence.

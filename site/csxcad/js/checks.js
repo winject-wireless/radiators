@@ -2,9 +2,125 @@
 // antennas/simulate_v2.py enforces before it starts openEMS. Passing these
 // does not mean the model is electrically sound (feed, mesh convergence).
 
-import { solverBounds, vec3 } from "./geometry.js";
+import { solverBounds, vec3, transformer, rotationMatrix, helixPoints, tessellate } from "./geometry.js";
 
 const fin = v => typeof v === "number" && Number.isFinite(v);
+
+// Geometric preflight, not a substitute for discrete Yee-grid connectivity.
+const EPS=1e-5;
+const sub=(a,b)=>a.map((x,i)=>x-b[i]);
+const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0);
+const norm=a=>Math.hypot(...a);
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const segDist=(p,a,b)=>{const d=sub(b,a),t=clamp(dot(sub(p,a),d)/(dot(d,d)||1),0,1);return norm(sub(p,a.map((x,i)=>x+t*d[i])));};
+function triangleDistance(p,a,b,c){
+  const ab=sub(b,a),ac=sub(c,a),n=cross(ab,ac),nn=dot(n,n);
+  if(nn>1e-24){
+    const ap=sub(p,a),h=dot(ap,n)/nn,q=ap.map((v,i)=>v-h*n[i]);
+    const aa=dot(ab,ab),bb=dot(ab,ac),cc=dot(ac,ac),den=aa*cc-bb*bb;
+    const u=(cc*dot(q,ab)-bb*dot(q,ac))/den,v=(aa*dot(q,ac)-bb*dot(q,ab))/den;
+    if(u>=0&&v>=0&&u+v<=1)return Math.abs(h)*Math.sqrt(nn);
+  }
+  return Math.min(segDist(p,a,b),segDist(p,b,c),segDist(p,c,a));
+}
+function meshContact(g){
+  const {positions,indices}=tessellate(g),verts=[];
+  for(let i=0;i<positions.length;i+=3)verts.push(Array.from(positions.slice(i,i+3)));
+  const edges=new Map();
+  for(let i=0;i<indices.length;i+=3)for(let j=0;j<3;j++){
+    const a=indices[i+j],b=indices[i+(j+1)%3],k=Math.min(a,b)+","+Math.max(a,b);
+    const e=edges.get(k)||[0,0];e[0]++;e[1]+=a<b?1:-1;edges.set(k,e);
+  }
+  const winding=[...edges.values()].some(([count,orientation])=>count===2&&orientation!==0);
+  const open=[...edges.values()].some(([count])=>count!==2);
+  return {winding,open,distance(p){
+    let nearest=Infinity,angle=0;
+    for(let i=0;i<indices.length;i+=3){
+      const [a,b,c]=[verts[indices[i]],verts[indices[i+1]],verts[indices[i+2]]];
+      nearest=Math.min(nearest,triangleDistance(p,a,b,c));
+      if(nearest<=EPS)return 0;
+      const [u,v,w]=[sub(a,p),sub(b,p),sub(c,p)],lu=norm(u),lv=norm(v),lw=norm(w);
+      angle+=2*Math.atan2(dot(u,cross(v,w)),lu*lv*lw+dot(u,v)*lw+dot(v,w)*lu+dot(w,u)*lv);
+    }
+    // For invalid/open meshes do not claim that a point is inside material.
+    return !open&&!winding&&Math.abs(angle)>2*Math.PI?-nearest:nearest;
+  }};
+}
+function contactShape(g,bounds){
+  const shape=g.shape??g.type,T=transformer(g);
+  let distance,curved=false,feature=null,mesh=null;
+  if(shape==="box"){
+    const R=rotationMatrix(g.transform?.rotate_deg||[0,0,0]),shift=g.transform?.translate||[0,0,0];
+    distance=p=>{
+      const v=sub(p,shift),q=g.start.map((a,i)=>Math.max(a-dot(R.map(row=>row[i]),v),dot(R.map(row=>row[i]),v)-g.stop[i]));
+      return norm(q.map(x=>Math.max(0,x)))+Math.min(0,Math.max(...q));
+    };
+  }else if(shape==="cylinder"||shape==="cylindrical_shell"){
+    const a=T(g.start),b=T(g.stop),d=sub(b,a),l=norm(d),u=d.map(x=>x/l);
+    const outer=g.radius+(shape==="cylindrical_shell"?g.thickness/2:0),inner=shape==="cylindrical_shell"?g.radius-g.thickness/2:0;
+    if(!(l>0&&outer>0&&inner>=0))return null;
+    feature=inner>0?g.thickness:outer*2;
+    distance=p=>{const v=sub(p,a),z=dot(v,u),r=norm(v.map((x,i)=>x-z*u[i]));
+      const q=Math.max(r-outer,inner>0?inner-r:-Infinity),h=Math.max(-z,z-l);
+      return Math.hypot(Math.max(q,0),Math.max(h,0))+Math.min(0,Math.max(q,h));};
+    // Exact oriented cylinder AABB, unlike the conservative solver bound.
+    const e=u.map(x=>outer*Math.sqrt(Math.max(0,1-x*x)));
+    bounds=[a.map((x,i)=>Math.min(x,b[i])-e[i]),a.map((x,i)=>Math.max(x,b[i])+e[i])];
+  }else if(shape==="sphere"||shape==="spherical_shell"){
+    const c=T(g.center),outer=g.radius+(shape==="spherical_shell"?g.thickness/2:0),inner=shape==="spherical_shell"?g.radius-g.thickness/2:0;
+    curved=true;feature=inner>0?g.thickness:outer*2;
+    distance=p=>{const r=norm(sub(p,c));return Math.max(r-outer,inner>0?inner-r:-Infinity);};
+    bounds=[c.map(x=>x-outer),c.map(x=>x+outer)];
+  }else if(shape==="wire"||shape==="helix"){
+    const pts=(shape==="wire"?g.points:helixPoints(g)).map(T),r=g.wire_diameter/2;
+    curved=true;feature=2*r;
+    distance=p=>{let d=Infinity;for(let i=1;i<pts.length;i++)d=Math.min(d,segDist(p,pts[i-1],pts[i]));return d-r;};
+  }else if(["polyhedron","hemisphere","hemispherical_shell"].includes(shape)){
+    mesh=meshContact(g);distance=mesh.distance;curved=true;
+    if(g.thickness>0)feature=g.thickness;
+  }else return null;
+  return {name:g.name||shape,bounds,distance,curved,feature,mesh};
+}
+const boundDistance=(p,[lo,hi])=>norm(p.map((v,i)=>Math.max(lo[i]-v,v-hi[i],0)));
+function endSamples(a,b,k,end){
+  const axes=[0,1,2].filter(i=>i!==k),values=i=>a[i]===b[i]?[a[i]]:[a[i],(a[i]+b[i])/2,b[i]];
+  return values(axes[0]).flatMap(x=>values(axes[1]).map(y=>{const q=[...end];q[axes[0]]=x;q[axes[1]]=y;return q;}));
+}
+function checkFeed(p,a,b,k,conductors,mesh,warn){
+  if(!conductors.length){warn("No supported conductive geometry found for lumped-port terminals; check the feed model.");return;}
+  const nominal=mesh?.uniform_step_mm&&mesh.grid_mode==="uniform"?mesh.uniform_step_mm:mesh?.resolution_mm??mesh?.max_cell_mm??5;
+  const length=Math.abs(a[k]-b[k]);
+  for(const [name,end] of [["start",a],["stop",b]]){
+    let best=Infinity,hit=null,sample=null;
+    const points=endSamples(a,b,k,end);
+    for(const q of points)for(const c of conductors){
+      if(boundDistance(q,c.bounds)>Math.max(EPS,best))continue;
+      const d=c.distance(q);
+      if(d<best){best=d;hit=c;sample=q;}
+    }
+    if(!hit||best>EPS){
+      warn("Lumped-port "+name+" terminal: no conductor contact detected"+(points.length===1&&Number.isFinite(best)?" (nearest "+hit.name+", "+Number(best.toPrecision(3))+" mm away)":" at sampled face points")+". Check for an unintended air gap; open or capacitively coupled feeds may be intentional.");
+      continue;
+    }
+    // An ordinary planar boundary contact is valid. Flag a tangential
+    // point contact on a curved/mesh surface, not every flush port endpoint.
+    if(points.length===1&&best>=-EPS&&hit.curved){
+      const other=[0,1,2].filter(i=>i!==k),delta=Math.max(1e-3,Math.min(.05,length/20));
+      const neighbors=other.flatMap(i=>[-1,1].map(sign=>sample.map((v,j)=>v+(j===i?sign*delta:0))));
+      if(neighbors.every(q=>hit.distance(q)>EPS)){
+        warn("Lumped-port "+name+" terminal touches "+hit.name+" only at a point/tip; contact may disappear on the FDTD grid. Consider a finite contact face.");
+        let spacing=nominal;
+        if(mesh?.grid_mode!=="uniform"){
+          if(mesh?.local_min_cell_mm>0&&Math.max(...hit.bounds[1].map((v,i)=>v-hit.bounds[0][i]))<=(mesh.auto_refine_max_span_mm??40))spacing=Math.min(spacing,mesh.local_min_cell_mm);
+          for(const r of mesh?.refinements||[])if(r.resolution_mm>0&&r.start?.every((v,i)=>sample[i]>=v&&sample[i]<=r.stop[i]))spacing=Math.min(spacing,r.resolution_mm);
+        }
+        if(spacing>Math.min(length/4,hit.feature?hit.feature/2:0.5))
+          warn("Feed-tip mesh near "+hit.name+": requested local spacing "+Number(spacing.toPrecision(3))+" mm may be too coarse for the contact. Refine around the terminal and check convergence.");
+      }
+    }
+  }
+}
 
 export function checkCase(cfg) {
   const out = [];
@@ -91,6 +207,7 @@ export function checkCase(cfg) {
   // Geometry
   const geometry = cfg.geometry;
   if (!Array.isArray(geometry) || !geometry.length) err("geometry", "At least one geometry object required");
+  const conductors=[];
   (geometry || []).forEach((g, i) => {
     const label = g.name || g.shape || `#${i + 1}`;
     const ref = { kind: "geometry", index: i };
@@ -109,7 +226,29 @@ export function checkCase(cfg) {
     else if (bounds && ds && de && !(bounds[0].every((v, k) => v >= ds[k]) && bounds[1].every((v, k) => v <= de[k]))) {
       err(label, "Geometry must fit inside domain including thickness", ref);
     }
+    if(bounds && bounds.flat().every(fin) && ["pec","conductive","conducting_sheet"].includes(m?.type)){
+      try{
+        const c=contactShape(g,bounds);
+        if(c){
+          conductors.push(c);
+          if(c.mesh?.winding)warn(label,"Mesh has inconsistent face winding on shared edges; conductor contact and polyhedron simulation may be unreliable.",ref);
+          if(c.mesh?.open)warn(label,"Mesh is not a closed two-manifold; verify the intended conducting volume.",ref);
+        }
+      }catch{/* existing geometry errors are reported above; contact is advisory */}
+    }
   });
+  // Clearance before PML thickness is an optimistic estimate; avoid claiming
+  // actual absorber distance without a solved grid.
+  if(ds&&de&&fin(f0)&&fin(fc)&&f0>fc&&conductors.length){
+    const quarter=299792458000/(4*(f0-fc));
+    let min=Infinity,side="";
+    for(const c of conductors)for(let i=0;i<3;i++)for(let s=0;s<2;s++){
+      if(!String(boundary?.[2*i+s]).startsWith("PML"))continue;
+      const gap=s?de[i]-c.bounds[1][i]:c.bounds[0][i]-ds[i];
+      if(gap<min){min=gap;side="XYZ"[i]+(s?"+":"−");}
+    }
+    if(min>=0&&min<quarter)warn("domain","Conductor-to-domain clearance at "+side+" is "+Number(min.toPrecision(3))+" mm before PML thickness, below λ/4 ("+Number(quarter.toPrecision(3))+" mm) at the excitation low edge. Check boundary convergence.");
+  }
 
   // Ports
   const ports = cfg.ports ?? cfg.sources ?? [];
@@ -135,6 +274,7 @@ export function checkCase(cfg) {
       if (a && b && ["x", "y", "z"].includes(d)) {
         const k = "xyz".indexOf(d);
         if (a[k] === b[k]) err(label, `Lumped port has zero length along its direction ${d}`, ref);
+        else checkFeed(p,a,b,k,conductors,mesh,msg=>warn(label,msg,ref));
       }
     } else if (p.type === "msl" || p.type === "coaxial") {
       const metal = mats.get(p.metal_material);
