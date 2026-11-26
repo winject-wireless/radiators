@@ -43,7 +43,8 @@
     "max_cell_mm": 5,
     "local_min_cell_mm": 0.5,
     "growth_ratio": 1.4,
-    "max_cells": 5000000
+    "max_cells": 5000000,
+    "auto_refine_max_span_mm": 10
   },
   "solver": {
     "max_timesteps": 20000,

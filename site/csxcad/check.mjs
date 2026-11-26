@@ -15,6 +15,7 @@ import { tessellate, solverBounds, helixPoints } from "./js/geometry.js";
 import { checkCase } from "./js/checks.js";
 import { STARTER, SHAPES } from "./js/schema.js";
 import { expandScripts, scriptBody, SCRIPT_TEMPLATE, normalizeSpec } from "./js/scriptcore.js";
+import { buildModel } from "./js/sim/model.js";
 
 // The editor's runner (same as js/script-worker.js, minus the worker).
 const editorRun = (source, argsJSON) => new Function("__args", scriptBody(source))(argsJSON);
@@ -187,6 +188,27 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
   }
   assert.throws(() => expandScripts({ materials: [{ name: "m", type: "pec" }], geometry: [{ name: "x", script: "tapered_cylinder",
     args: { radius_start: 5, radius_stop: 0, thickness: 1 } }] }, editorRun), /thickness must be below both radii/);
+}
+
+// In-browser simulation model == the Python simulator's XML (golden file from simulate_v2,
+// site/openems/examples/dipole.xml): mesh lines, port elements, NF2FF box
+{
+  const cfg = JSON.parse(fs.readFileSync(path.join(repo, "wasm/openems/test/dipole_v2.json"), "utf8"));
+  const gold = fs.readFileSync(path.join(repo, "site/openems/examples/dipole.xml"), "utf8");
+  const m = buildModel(cfg);
+  const lines = xml => ["X", "Y", "Z"].map(a => new RegExp(`<${a}Lines Qty="\\d+">([^<]+)<`).exec(xml)[1].split(",").map(Number));
+  const [gl, ml] = [lines(gold), lines(m.xml)];
+  gl.forEach((l, i) => {
+    assert.equal(ml[i].length, l.length, `dipole ${"XYZ"[i]} mesh line count`);
+    l.forEach((v, k) => assert.ok(Math.abs(ml[i][k] - v) < 1e-9, `dipole ${"XYZ"[i]} line ${k}: ${ml[i][k]} vs ${v}`));
+  });
+  for (const tag of ['Name="port_resist_1" Direction="2"', 'Name="port_excite_1"', 'Name="port_ut_1"', 'Name="port_it_1"', 'Name="nf2ff_E"', 'Name="nf2ff_H"']) {
+    assert.ok(m.xml.includes(tag), `dipole model has ${tag}`);
+  }
+  const box = /Name="nf2ff_E"[\s\S]*?<P1 X="([^"]+)" Y="([^"]+)" Z="([^"]+)"/.exec(gold).slice(1).map(Number);
+  box.forEach((v, i) => assert.ok(Math.abs(m.nf2ff.start[i] - v) < 1e-9, "dipole NF2FF box start"));
+  assert.equal(m.cells, 38 * 38 * 90);
+  assert.throws(() => buildModel({ ...cfg, ports: [{ ...cfg.ports[0], type: "msl" }] }), /not supported in the browser/);
 }
 
 // Starter and templates

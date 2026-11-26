@@ -25,7 +25,18 @@ const ops = {
     if (core) return core.abortHandle();
     const options = { print: onLine('stdout'), printErr: onLine('stderr') };
     if (pthreadPoolSize) options.pthreadPoolSize = pthreadPoolSize;
-    core = await OpenEMSCore.create(createOpenEMSModule, options);
+    // Start nested module workers from the already accessible same-origin script.
+    // Chromium can reject a nested HTTPS worker after a LAN certificate exception.
+    const response = await fetch(new URL('./openems.mjs', import.meta.url));
+    if (!response.ok) throw new Error(`Cannot load openEMS pthread script (HTTP ${response.status})`);
+    const scriptUrl = URL.createObjectURL(await response.blob());
+    try {
+      core = await OpenEMSCore.create(createOpenEMSModule, { ...options, mainScriptUrlOrBlob: scriptUrl });
+    } catch (error) {
+      URL.revokeObjectURL(scriptUrl);
+      throw error;
+    }
+    // The pool can grow during a run. Worker termination releases its blob URL.
     return core.abortHandle();
   },
   writeFile({ path, data }) { core.writeFile(path, data); },

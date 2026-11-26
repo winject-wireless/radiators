@@ -59,7 +59,15 @@ export async function saveFile(filename, content, mime = "application/json") {
   return "Downloaded " + filename;
 }
 
+// The worker also makes the page cross-origin isolated (needed by the in-browser openEMS).
+// Headers only apply to pages it serves, so reload once after it first takes control.
 export function registerServiceWorker() {
   if (isNative() || !("serviceWorker" in navigator) || location.protocol === "file:") return;
-  navigator.serviceWorker.register("./sw.js").catch(() => { /* offline cache is optional */ });
+  const key = "csxcad-coi-reload";
+  navigator.serviceWorker.register("./sw.js").then(() => navigator.serviceWorker.ready).then(() => {
+    if (globalThis.crossOriginIsolated) { try { sessionStorage.removeItem(key); } catch { /* storage blocked */ } return; }
+    let reloaded = true;
+    try { reloaded = !!sessionStorage.getItem(key); if (!reloaded) sessionStorage.setItem(key, "1"); } catch { /* no storage: never reload */ }
+    if (!reloaded) location.reload();
+  }).catch(() => { /* offline cache is optional */ });
 }

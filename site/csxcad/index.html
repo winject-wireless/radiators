@@ -69,7 +69,10 @@
         <button data-toggle="grid" aria-pressed="true" title="Ground grid">Grid</button>
         <button data-toggle="xray" aria-pressed="false" title="Transparent solids">X-ray</button>
       </div>
-      <label id="caseWrap" class="case-select" hidden>
+      <label id="patternWrap" class="case-select" hidden>
+        Pattern <select id="patternSelect" aria-label="Radiation pattern frequency"></select>
+      </label>
+      <label id="caseWrap" class="case-select">
         <span>Case</span>
         <select id="caseSelect" aria-label="Sweep case to preview"></select>
       </label>
@@ -97,7 +100,8 @@
       <button role="tab" data-dock="params" aria-selected="true">Params</button>
       <button role="tab" data-dock="scripts" aria-selected="false">Scripts</button>
       <button role="tab" data-dock="checks" aria-selected="false">Checks <span id="checkBadge" class="badge"></span></button>
-      <button role="tab" data-dock="sim" aria-selected="false">Simulation <span id="caseBadge" class="badge info"></span></button>
+      <button role="tab" data-dock="sim" aria-selected="false">Simulation <span id="caseBadge" class="badge info"></span><span id="simBadge" class="badge run"></span></button>
+      <button role="tab" data-dock="results" aria-controls="panelResults" aria-selected="false">Results</button>
       <button id="dockToggle" class="icon dock-toggle" aria-label="Collapse dock" title="Collapse / expand"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
     <div id="panelParams" class="panel dock-panel" data-sheet-name="params" data-dock-name="params">
@@ -115,6 +119,13 @@
     <div id="panelSim" class="panel dock-panel" data-sheet-name="sim" data-dock-name="sim" hidden>
       <div class="panel-head sheet-only"><h2>Simulation</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
       <div class="panel-body" id="sim"></div>
+    </div>
+    <div id="panelResults" class="panel dock-panel" data-sheet-name="results" data-dock-name="results" hidden>
+      <div class="panel-head sheet-only"><h2>Simulation results</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
+      <div class="panel-body">
+        <label class="case-select">Case <select id="resultCase" aria-label="Simulation results case"></select></label>
+        <div id="resultCharts" class="sim-results"></div>
+      </div>
     </div>
     <div id="panelJson" class="panel dock-panel" data-sheet-name="json" data-dock-name="json" hidden>
       <div class="panel-head sheet-only"><h2>JSON</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
@@ -137,7 +148,8 @@
   <button data-sheet="params"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Params</button>
   <button data-sheet="scripts"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Scripts</button>
   <button data-sheet="checks"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6zM8.5 12l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Checks<span id="checkBadgeMobile" class="badge"></span></button>
-  <button data-sheet="sim"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2.5-6 4 12 3-9 2 3H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Simulation</button>
+  <button data-sheet="sim"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2.5-6 4 12 3-9 2 3H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Simulation<span id="simBadgeMobile" class="badge run"></span></button>
+  <button data-sheet="results"><span aria-hidden="true">∿</span>Results</button>
 </nav>
 
 <footer class="statusbar"><span id="status" role="status">Loading…</span><span class="muted status-note">Geometry editor only — simulate with the radiators openEMS scripts.</span></footer>
