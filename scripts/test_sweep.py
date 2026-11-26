@@ -10,6 +10,14 @@ from sweep import expand_cases, resolve_template
 ROOT = Path(__file__).resolve().parents[1]
 
 
+try:
+    import numpy  # noqa: F401  (v2_geometry needs it; CI's validation step has no numpy)
+    HAVE_NUMPY = True
+except ImportError:
+    HAVE_NUMPY = False
+needs_numpy = unittest.skipUnless(HAVE_NUMPY, "numpy not installed (simulator geometry module)")
+
+
 class ScriptTests(unittest.TestCase):
     """JS geometry scripts expand to plain primitives before the simulator sees them."""
 
@@ -41,6 +49,7 @@ class ScriptTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "timed out"):
             expand_cases(bad, path)
 
+    @needs_numpy
     def test_builtin_helix_script_matches_legacy_helix_shape(self):
         import sys
         sys.path.insert(0, str(ROOT / "antennas"))
@@ -63,6 +72,7 @@ class ScriptTests(unittest.TestCase):
                 for a, b in zip(p, q):
                     self.assertAlmostEqual(a, b, places=9)
 
+    @needs_numpy
     def test_builtin_hemisphere_is_the_legacy_mesh_as_a_polyhedron(self):
         import sys
         sys.path.insert(0, str(ROOT / "antennas"))
@@ -103,6 +113,7 @@ class ScriptTests(unittest.TestCase):
             self.assertAlmostEqual(upper[2], 12)
             self.assertAlmostEqual(lower[2], 3)
 
+    @needs_numpy
     def test_builtin_tapered_cylinder_installs_as_polyhedron(self):
         import sys
         sys.path.insert(0, str(ROOT / "antennas"))
@@ -131,6 +142,7 @@ class ScriptTests(unittest.TestCase):
         self.assertAlmostEqual(upper[2], 40)
         self.assertAlmostEqual(upper[0], 15, places=6)
 
+    @needs_numpy
     def test_polyhedron_rejects_bad_faces(self):
         import sys
         sys.path.insert(0, str(ROOT / "antennas"))
