@@ -121,6 +121,12 @@ jobs:
           found = {path.name for path in Path('antennas').glob('yagi_*.json')}
           assert found == {expected}, f'Only the best Yagi config should exist: {found}'
           PY
+      # Self-hosted Linux runners do not necessarily have 'node' on PATH, and
+      # the validation step below already needs it.
+      - name: Install Node.js for viewer validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Validate generic parameter sweeps without openEMS
         run: |
           python3 -m unittest discover -s scripts -p 'test_yagi_orientation.py' -v
@@ -235,11 +241,6 @@ jobs:
         run: |
           python3 scripts/run_simulations.py --list selected-antennas.txt --results results \
             --skip-complete --cpus-per-job 2 --memory-gib-per-job 5 --reserve-memory-gib 2
-      # Self-hosted Linux runners do not necessarily have 'node' on PATH.
-      - name: Install Node.js for viewer validation
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
       - name: Build and verify complete static result viewer
         env:
           REQUIRE_TARGET: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
