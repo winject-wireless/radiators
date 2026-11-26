@@ -4,6 +4,7 @@ import { OpenEMS } from "../../vendor/openems/openems.js";
 import { buildModel } from "./model.js";
 import { runSimulation, summarize } from "./run.js";
 import { lineChart, polarChart } from "./plot.js";
+import { registerServiceWorker, isolationUnavailableReason } from "../platform.js";
 
 const sim = {
   engine: "basic", threads: 0, running: false, stage: "", progress: null, log: [], error: null,
@@ -58,7 +59,9 @@ export function renderRunPanel(box, ctx) {
   engine.addEventListener("change", () => { sim.engine = engine.value; });
   const threads = h("input", { type: "number", min: 1, max: 64, value: sim.threads, "aria-label": "Threads", disabled: sim.running });
   threads.addEventListener("change", () => { sim.threads = Math.max(1, Math.min(64, Math.trunc(Number(threads.value)) || hc())); });
-  const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config, onclick: () => start(ctx) }, sim.running ? "Running…" : "Run in browser");
+  const unavailable = OpenEMS.unsupportedReason();
+  const isolationBlocked = isolationUnavailableReason();
+  const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config || !!unavailable, onclick: () => start(ctx) }, sim.running ? "Running…" : "Run in browser");
   const abortBtn = h("button", { type: "button", hidden: !sim.running, disabled: sim.aborting, onclick: stop, title: "Stop this run. Partial results are kept if they finish within one second." }, sim.aborting ? "Stopping…" : "Stop");
   const bar = h("div", { class: "sim-bar" }, h("div", { class: "sim-bar-fill" }));
   const stats = h("div", { class: "sim-stats" });
@@ -73,6 +76,16 @@ export function renderRunPanel(box, ctx) {
     h("h3", { text: "Run in browser" }),
     h("p", { class: "hint", text: `${caseLine}. openEMS (WebAssembly) runs on this device; nothing is uploaded. Lumped ports only.` }),
     h("div", { class: "sim-controls" }, runBtn, abortBtn, engine, h("label", { class: "sim-threads" }, "Threads", threads)),
+    unavailable ? h("div", { class: "note warn" },
+      h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
+      !isolationBlocked ? h("button", { type: "button", onclick: async e => {
+        const button = e.currentTarget;
+        button.disabled = true;
+        button.textContent = "Checking isolation…";
+        const error = await registerServiceWorker({ manual: true });
+        if (error) { sim.error = error; ctx.refresh(); }
+      } }, "Retry isolation") : null,
+      h("a", { href: location.href, target: "_blank", rel: "noopener noreferrer" }, "Open editor directly (new tab)")) : null,
     sim.running || sim.progress ? bar : null, stats, sim.error ? h("div", { class: "note warn", text: sim.error }) : null,
     sim.running || sim.log.length ? logBox : null));
   updateProgress();
@@ -98,7 +111,7 @@ async function start(ctx) {
   try { model = buildModel(c.config); } catch (e) { sim.error = e.message; ctx.refresh(); return; }
   const why = OpenEMS.unsupportedReason();
   if (why) {
-    sim.error = `${why}. Open the editor over https (GitHub Pages) or http://localhost; on first visit it reloads once to enable this.`;
+    sim.error = isolationUnavailableReason() || why;
     ctx.refresh();
     return;
   }
