@@ -69,6 +69,7 @@ export function renderRunPanel(box, ctx) {
   const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config || !!unavailable, onclick: () => start(ctx, false) }, sim.running ? "Running…" : sweep ? "Run case" : "Run in browser");
   const allBtn = sweep ? h("button", { type: "button", class: "primary", disabled: sim.running || pending || !!unavailable || !cases.some(x=>x.config), onclick: () => start(ctx, true) }, `Run all (${cases.length})`) : null;
   if (sweep) runBtn.classList.remove("primary");
+  if (sim.running && allBtn) allBtn.hidden = true;
   const abortBtn = h("button", { type: "button", hidden: !sim.running, disabled: sim.aborting, onclick: stop, title: "Stop the current simulation and remaining sweep. Completed results are retained." }, sim.aborting ? "Stopping…" : "Stop");
   const bar = h("div", { class: "sim-bar" }, h("div", { class: "sim-bar-fill" }));
   const stats = h("div", { class: "sim-stats" });
