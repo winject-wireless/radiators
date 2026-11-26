@@ -924,7 +924,7 @@ function syncResults() {
     }));
   }
   $("patternSelect").value = String(run?.frequency ?? -1);
-  viewport?.setRadiation(stale ? null : run?.result.patterns[run.frequency]?.record);
+  viewport?.setRadiation(stale ? null : run?.result.patterns[run.frequency]?.record ?? null);
 }
 
 function setSimMax(on) {
@@ -1914,7 +1914,7 @@ async function menuAction(action) {
     case "about":
       openDialog("About the CSXCAD editor", h("div", {},
         h("p", { text: "A parametric geometry editor for radiators schema v2 antenna configs (CSXCAD primitives, materials, ports, domain, mesh and outputs)." }),
-        h("p", { text: "It does not simulate. Save the JSON into antennas/ and the radiators openEMS scripts (scripts/run_simulations.py, CI) resolve parameters, expand sweeps and run each case." }),
+        h("p", { text: "Run the current lumped-port case in your browser with openEMS WebAssembly, or save the JSON into antennas/ for the native simulator (CI)." }),
         h("p", { class: "hint", text: "Touch: one finger orbits, two fingers zoom and pan, tap selects. Desktop: left-drag orbit, right-drag pan, wheel zoom; Ctrl+Z / Ctrl+Shift+Z, Ctrl+S, Ctrl+D duplicate, Delete removes, F fits." })));
       break;
   }
