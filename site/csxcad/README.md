@@ -231,3 +231,7 @@ hollow tube from a solid conductor; finite port faces are sampled, and mesh
 checks use triangulated surfaces. These are non-blocking geometric heuristics:
 intentional capacitive feeds, discretized contacts and material priorities can
 differ from the geometric estimate. Verify the actual FDTD mesh and convergence.
+
+### Local mesh refinements
+
+In **Simulation → Refinements**, add a free **Box** or **Around feed** (current case, 5 mm padding, 0.25 mm resolution). Each region has editable Start/Stop XYZ and resolution in workspace units. **Edit in 3D** selects the purple box and its start corner; select either corner to move it with the XYZ gizmo. Selecting a box keeps it visible even with Domain hidden. Refinement boxes are saved in `mesh.refinements`; feature mode adds rectilinear grid lines along all three axes, while uniform mode ignores the regions. The feed preset is a starting point, not a mesh-convergence guarantee.

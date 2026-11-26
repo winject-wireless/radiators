@@ -286,13 +286,14 @@ export class Viewport {
       this.domainBox = new THREE.Box3(a.clone().min(b), a.clone().max(b));
     } else this.domainBox = null;
 
-    for (const r of model.mesh?.refinements || []) {
-      if (!nums(r?.start) || !nums(r?.stop)) continue;
-      const helper = new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(...r.start), new THREE.Vector3(...r.stop)), 0x9d7bff);
-      helper.visible = this.options.domain; // refinement boxes follow the Domain toggle
-      helper.userData.overlay = "domain";
+    (model.mesh?.refinements||[]).forEach((r,index)=>{
+      if (!nums(r?.start)||!nums(r?.stop))return;
+      const a=new THREE.Vector3(...r.start),b=new THREE.Vector3(...r.stop);
+      const helper=new THREE.Box3Helper(new THREE.Box3(a.clone().min(b),a.clone().max(b)),0x9d7bff);
+      helper.userData.overlay="domain";
+      helper.userData.ref={kind:"refinement",index};
       this.overlays.add(helper);
-    }
+    });
 
     (model.ports || []).forEach((p, index) => {
       if (!p || !Array.isArray(p.start) || !Array.isArray(p.stop) || [...p.start, ...p.stop].some(v => typeof v !== "number")) return;
@@ -443,7 +444,7 @@ export class Viewport {
     this._dirty = true;
     this.options[key] = value;
     if (key === "grid" && this.grid) this.grid.visible = value;
-    this.overlays.children.forEach(o => { if (o.userData.overlay === key) o.visible = value; });
+    this.overlays.children.forEach(o => { if (o.userData.overlay === key) o.visible = value || (o.userData.ref?.kind==="refinement"&&this.selection?.kind==="refinement"&&o.userData.ref.index===this.selection.index); });
   }
 
   setSelection(ref) {
@@ -466,6 +467,10 @@ export class Viewport {
       const r = group.userData.ref;
       if (!r) continue;
       const on = ref && r.kind === ref.kind && r.index === ref.index;
+      if(r.kind==="refinement"){
+        group.visible=!!on||this.options.domain;
+        group.material.color.set(on?0xcbb6ff:0x9d7bff);
+      }
       group.traverse(o => {
         if (o.isMesh && o.material?.emissive) {
           // Others are ghosted, so the selection only needs a faint tint to keep its real colour.

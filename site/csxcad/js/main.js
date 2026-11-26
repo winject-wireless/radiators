@@ -324,7 +324,7 @@ function redo() {
 function fixSelection() {
   const s = state.sel;
   if (!s || s.kind === "sim") return;
-  const list = { geometry: state.doc.geometry, port: state.doc.ports, material: state.doc.materials }[s.kind] || [];
+  const list = { geometry: state.doc.geometry, port: state.doc.ports, material: state.doc.materials, refinement:state.doc.mesh?.refinements }[s.kind] || [];
   if (s.index >= list.length) state.sel = list.length ? { kind: s.kind, index: list.length - 1 } : null;
 }
 
@@ -614,7 +614,7 @@ function select(ref, { fromView = false } = {}) {
   state.sel = ref;
   if (changed || state.handle === "result-probe") state.handle = null;
   refresh({ params: false, json: false, viewport: false });
-  const shown = ref && (ref.kind === "geometry" || ref.kind === "port") ? ref : null;
+  const shown = ref && ["geometry","port","refinement"].includes(ref.kind) ? ref : null;
   viewport?.setSelection(shown);
   // Focus after any phone sheet has opened, so the framing accounts for the space it covers.
   if (shown && changed) setTimeout(() => viewport?.focus(shown), 60);
@@ -627,9 +627,9 @@ function showChip() {
   const chip = $("selectionChip");
   const s = state.sel;
   if (!s || !mobile() || document.body.dataset.sheet) { chip.hidden = true; return; }
-  const item = s.kind === "geometry" ? state.doc.geometry[s.index] : s.kind === "port" ? state.doc.ports[s.index] : null;
+  const item = s.kind === "geometry" ? state.doc.geometry[s.index] : s.kind === "port" ? state.doc.ports[s.index] : s.kind==="refinement" ? state.doc.mesh?.refinements?.[s.index] : null;
   if (!item) { chip.hidden = true; return; }
-  $("chipText").textContent = `${item.name || item.shape || "port"} · ${item.shape || item.type}`;
+  $("chipText").textContent = s.kind==="refinement" ? "Refinement "+(s.index+1) : `${item.name || item.shape || "port"} · ${item.shape || item.type}`;
   chip.hidden = false;
 }
 
@@ -671,6 +671,11 @@ function computeHandles() {
     const key = `dim:${handleKey(field)}:${name}`;
     out.set(key, { key, kind: "scalar", field, base: xf.fwd(baseLocal), dir: xf.dir(V.unit(dirLocal)), dist, enabled, set, label });
   };
+  if(s.kind==="refinement"){
+    const raw=state.doc.mesh?.refinements?.[s.index],resolved=d.resolved.mesh?.refinements?.[s.index];
+    if(raw&&resolved)for(const k of ["start","stop"])point(["mesh","refinements",s.index,k],resolved[k],raw[k],identity);
+    return out;
+  }
   if (s.kind === "geometry" && isScriptInstance(state.doc.geometry[s.index])) {
     // Point arguments of a script instance get the same 3-axis handles as primitive positions.
     const g = state.doc.geometry[s.index], rg = d.geometry[s.index];
@@ -862,6 +867,18 @@ function onHandleMove(key, world) {
   if (!Array.isArray(getPath(state.doc, hd.path)) && hd.init) setPath(state.doc, hd.path, clone(hd.init));
   const target = getPath(state.doc, hd.path);
   if (!Array.isArray(target)) return;
+  // Refinement corners must remain strictly ordered while dragging.
+  if(state.sel?.kind==="refinement"&&hd.path?.[0]==="mesh"){
+    const r=state.derived.resolved.mesh?.refinements?.[state.sel.index],dom=state.derived.resolved.domain;
+    if(r){
+      const start=hd.path.at(-1)==="start",other=start?r.stop:r.start;
+      for(let k=0;k<3;k++)if(hd.axes[k]){
+        const lo=start?(dom?.start?.[k]??-Infinity):other[k]+.001;
+        const hi=start?other[k]-.001:(dom?.stop?.[k]??Infinity);
+        if(lo<=hi)local[k]=Math.max(lo,Math.min(hi,local[k]));
+      }
+    }
+  }
   hd.axes.forEach((ok, k) => { if (ok) target[k] = +local[k].toFixed(6); });
   cancelAnimationFrame(dragFrame);
   dragFrame = requestAnimationFrame(() => refresh({ inspector: false, params: false, json: false }));
@@ -892,6 +909,10 @@ function renderInspector() {
   if (s.kind === "geometry") return inspectGeometry(box, title, s.index);
   if (s.kind === "port") return inspectPort(box, title, s.index);
   if (s.kind === "material") return inspectMaterial(box, title, s.index);
+  if (s.kind === "refinement") {
+    title.textContent="Refinement "+(s.index+1);
+    add(box,refinementFields(s.index),h("p",{class:"hint",text:"Select either corner to drag it in XYZ. Close this sheet for a full 3D view."}));
+  }
 }
 
 // Simulation controls are followed by the sweep and grouped setup cards.
@@ -918,7 +939,7 @@ function renderSim() {
     if(el.matches("details")){
       const key=el.querySelector("summary").textContent;
       el.dataset.simSection=key;
-      el.open=simDisclosure.get(key)??key.startsWith("Excitation");
+      el.open=simDisclosure.get(key)??(key.startsWith("Excitation")||key.startsWith("Refinements"));
       el.classList.add("sim-setup-card");
       grid.append(el);
     }else if(el.matches(".form-section")){
@@ -1414,6 +1435,61 @@ function inspectMaterial(box, title, i) {
   h("p", { class: "hint", text: `Used by ${uses} item${uses === 1 ? "" : "s"}.` + (m.type === "conducting_sheet" ? " Conducting sheets apply only to zero-thickness boxes; thickness is in metres." : "") }));
 }
 
+// Refinements are regular saved mesh entries. Presets use the currently
+// resolved case, leaving the coordinates editable and expression-capable.
+function feedRegion(){
+  const ports=state.derived?.ports||[],p=ports.find(p=>p&&(p.excite??p.enabled))||ports.find(p=>p);
+  if(!p||!nums3(p.start)||!nums3(p.stop))return null;
+  return {start:p.start.map((v,i)=>Math.min(v,p.stop[i])-5),stop:p.start.map((v,i)=>Math.max(v,p.stop[i])+5),resolution_mm:.25};
+}
+function addRefinement(aroundFeed){
+  const r=aroundFeed?feedRegion():{start:[-10,-10,-10],stop:[10,10,10],resolution_mm:.5};
+  if(!r)return;
+  const dom=state.derived?.resolved?.domain;
+  if(nums3(dom?.start)&&nums3(dom?.stop)){
+    r.start=r.start.map((v,i)=>Math.max(v,dom.start[i]));
+    r.stop=r.stop.map((v,i)=>Math.min(v,dom.stop[i]));
+    if(!r.stop.every((v,i)=>v>r.start[i])){
+      if(aroundFeed)return setStatus("Feed refinement is outside the domain",true);
+      r.start=dom.start.map((v,i)=>v+(dom.stop[i]-v)*.25);
+      r.stop=dom.start.map((v,i)=>v+(dom.stop[i]-v)*.75);
+    }
+  }
+  edit(doc=>{
+    doc.mesh??={};doc.mesh.refinements??=[];
+    doc.mesh.refinements.push(r);
+    state.sel={kind:"refinement",index:doc.mesh.refinements.length-1};
+    state.handle=null;
+  });
+}
+function selectRefinement(k,corner,view=false){
+  if(!state.doc.mesh?.refinements?.[k])return;
+  state.sel={kind:"refinement",index:k};
+  state.handle=corner?handleKey(["mesh","refinements",k,corner]):null;
+  viewport?.setSelection(state.sel);
+  syncHandles();
+  for(const el of document.querySelectorAll("[data-refinement]"))el.classList.toggle("selected",Number(el.dataset.refinement)===k);
+  if(view){
+    if(state.simMax)setSimMax(false);
+    if(mobile())closeSheet();
+    viewport?.focus(state.sel);
+  }
+}
+function refinementFields(k){
+  const r=state.doc.mesh?.refinements?.[k];
+  if(!r)return null;
+  return h("div",{class:"refinement-box"+(state.sel?.kind==="refinement"&&state.sel.index===k?" selected":""),"data-refinement":k},
+    h("div",{class:"refinement-head"},
+      h("button",{type:"button",class:"refinement-name",onclick:()=>selectRefinement(k)},h("span",{class:"swatch",style:"background:#9d7bff"}),"Box "+(k+1)),
+      h("button",{type:"button",class:"small",onclick:()=>selectRefinement(k,"start",true)},"Edit in 3D"),
+      h("button",{type:"button",class:"small danger","aria-label":"Remove refinement "+(k+1),onclick:()=>remove("refinement",k)},"×")),
+    ...["start","stop"].map(key=>{
+      const field=vec3Field(["mesh","refinements",k,key],{label:"refinement "+(k+1)+" "+key});
+      field.addEventListener("focusin",()=>selectRefinement(k,key));
+      return row(key==="start"?"Start":"Stop",field);
+    }),
+    row("Resolution",numField(["mesh","refinements",k,"resolution_mm"],{unit:"mm",aria:"Refinement "+(k+1)+" resolution"})));
+}
 function inspectSim(box, title) {
   title.textContent = "Simulation settings";
   const doc = state.doc;
@@ -1448,19 +1524,13 @@ function inspectSim(box, title) {
       row("Local min cell", numField(["mesh", "local_min_cell_mm"], { optional: true, unit: "mm", aria: "Local min cell" })),
       row("Auto-refine span", numField(["mesh", "auto_refine_max_span_mm"], { optional: true, def: 40, unit: "mm", aria: "Auto refine span" })),
       row("Grid mode", selectField(["mesh", "grid_mode"], ["feature", "uniform"], { optional: true, aria: "Grid mode" })),
-      doc.mesh?.grid_mode === "uniform" ? row("Uniform step", numField(["mesh", "uniform_step_mm"], { optional: true, unit: "mm", aria: "Uniform step" })) : null,
-      h("h3", { class: "muted", style: "font-size:11px;margin:10px 0 4px", text: `REFINEMENT BOXES (${refinements.length})` }),
-      ...refinements.map((r, k) => h("div", { class: "note" },
-        row("Start", vec3Field(["mesh", "refinements", k, "start"], { label: `refinement ${k + 1} start` })),
-        row("Stop", vec3Field(["mesh", "refinements", k, "stop"], { label: `refinement ${k + 1} stop` })),
-        row("Resolution", numField(["mesh", "refinements", k, "resolution_mm"], { unit: "mm", aria: "Refinement resolution" })),
-        h("button", { type: "button", class: "small danger", onclick: () => edit(d => d.mesh.refinements.splice(k, 1)) }, "Remove"))),
-      h("div", { class: "actions" }, h("button", { type: "button", class: "small", onclick: () => edit(d => {
-        d.mesh ??= {}; d.mesh.refinements ??= [];
-        const sel = state.sel?.kind === "geometry" ? state.derived.geometry[state.sel.index] : null;
-        d.mesh.refinements.push({ start: [-10, -10, -10], stop: [10, 10, 10], resolution_mm: 0.5 });
-        void sel;
-      }) }, "+ Refinement box"))),
+      doc.mesh?.grid_mode === "uniform" ? row("Uniform step", numField(["mesh", "uniform_step_mm"], { optional: true, unit: "mm", aria: "Uniform step" })) : null),
+    h("details", {class:"form-section refinement-section",open:true},h("summary",{text:"Refinements ("+refinements.length+")"}),
+      doc.mesh?.grid_mode==="uniform" ? h("p",{class:"note warn",text:"Uniform grid ignores local refinements. Select Feature grid in Mesh."}):null,
+      h("div",{class:"refinement-actions"},h("button",{type:"button",onclick:()=>addRefinement(false)},"+ Box"),
+        h("button",{type:"button",disabled:!feedRegion(),onclick:()=>addRefinement(true)},"+ Around feed")),
+      h("p",{class:"hint",text:"Purple boxes add mesh lines along each axis. Select a box to drag its start and stop corners. Around feed uses 5 mm padding and 0.25 mm spacing in the current case."}),
+      ...refinements.map((r,k)=>refinementFields(k))),
     h("details", { class: "form-section", open: true }, h("summary", { text: "Outputs" }),
       ...s11.map((s, k) => h("div", { class: "note" },
         h("div", { class: "hint", text: `S11 sweep ${k + 1}` }),
@@ -1516,7 +1586,7 @@ function fitDomain() {
 }
 
 // ---------------------------------------------------------------- structure ops
-const listOf = (doc, kind) => ({ geometry: doc.geometry, port: doc.ports, material: doc.materials })[kind];
+const listOf = (doc, kind) => ({ geometry: doc.geometry, port: doc.ports, material: doc.materials, refinement:doc.mesh?.refinements })[kind] || [];
 function uniqueName(names, base) {
   let n = base, k = 2;
   while (names.includes(n)) n = `${base}-${k++}`;
@@ -1528,7 +1598,7 @@ function duplicate(kind, i) {
     const item = clone(list[i]);
     delete item.editor_id;
     if (kind === "port") { item.id = Math.max(0, ...doc.ports.map(p => +p.id || 0)) + 1; item.excite = false; }
-    item.name = uniqueName(list.map(x => x.name), (item.name || item.shape || "item") + "-copy");
+    if(kind!=="refinement")item.name = uniqueName(list.map(x => x.name), (item.name || item.shape || "item") + "-copy");
     list.splice(i + 1, 0, item);
     state.sel = { kind, index: i + 1 };
   });
@@ -1538,6 +1608,8 @@ function remove(kind, i) {
   edit(doc => {
     listOf(doc, kind).splice(i, 1);
     if (kind === "geometry") state.hidden = new Set([...state.hidden].filter(k => k !== i).map(k => k > i ? k - 1 : k));
+    if(state.sel?.kind===kind&&state.sel.index>i)state.sel.index--;
+    state.handle=null;
     fixSelection();
     if (!listOf(doc, kind).length) state.sel = null;
   });
@@ -1932,6 +2004,7 @@ function refresh(opts = {}) {
   if (o.json) renderJson();
   if (o.viewport && viewport) {
     const geometry = d.geometry.map((g, i) => d.expanded[i] ? (d.expanded[i].objects ? { __parts: d.expanded[i].objects } : null) : g);
+    viewport.setSelection(state.sel);
     const errs = viewport.update({ geometry, ports: d.ports, materials: d.resolved.materials || [],
       domain: d.resolved.domain, mesh: d.resolved.mesh, hidden: state.hidden });
     const ve = $("viewError");

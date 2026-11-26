@@ -81,6 +81,24 @@ try {
   await page.getByRole("menuitem",{name:"Workspace units…"}).click();
   await page.getByLabel("Workspace Frequency").selectOption("GHz");
   await page.getByRole("button",{name:"Apply",exact:true}).click();
+  // Local mesh refinement editor: generate a feed box, edit its resolution,
+  // select an XYZ corner and remove it without changing the solver fixture.
+  const originalRefinements=await page.evaluate(()=>structuredClone(window.__csxcad.state.doc.mesh.refinements||[]));
+  const section=page.locator("#sim .refinement-section");
+  await section.getByRole("button",{name:"+ Around feed",exact:true}).click();
+  const newIndex=originalRefinements.length;
+  const box=section.locator('[data-refinement="'+newIndex+'"]');
+  const added=await page.evaluate(i=>window.__csxcad.state.doc.mesh.refinements[i],newIndex);
+  assert.equal(added.resolution_mm,.25);
+  assert.ok(added.start.every((v,i)=>v<added.stop[i]));
+  await box.getByLabel("Refinement "+(newIndex+1)+" resolution",{exact:true}).fill("0.5 mm");
+  await box.getByLabel("Refinement "+(newIndex+1)+" resolution",{exact:true}).press("Tab");
+  assert.equal(await page.evaluate(i=>window.__csxcad.state.doc.mesh.refinements[i].resolution_mm,newIndex),.5);
+  await box.getByRole("button",{name:"Edit in 3D",exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.__csxcad.viewport.gizmo.object?.userData.handleKey),"mesh.refinements."+newIndex+".start");
+  assert.equal(await page.evaluate(i=>window.__csxcad.viewport.overlays.children.find(o=>o.userData.ref?.kind==="refinement"&&o.userData.ref.index===i)?.visible,newIndex),true);
+  await box.getByRole("button",{name:"Remove refinement "+(newIndex+1),exact:true}).click();
+  assert.deepEqual(await page.evaluate(()=>window.__csxcad.state.doc.mesh.refinements||[]),originalRefinements);
   const doc=await page.evaluate(()=>structuredClone(window.__csxcad.state.doc));
   doc.parameters={...(doc.parameters||{}), smoke_case:1};
   doc.sweep={enabled:true,mode:"product",parameters:{smoke_case:{values:[1,2]}}};
