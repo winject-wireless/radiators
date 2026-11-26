@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="theme-color" content="#0b1422">
+<meta name="description" content="Parametric CSXCAD geometry editor for Radiators openEMS antenna configurations.">
+<title>CSXCAD Editor</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./app.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/addons/" } }
+</script>
+<script type="module" src="./js/main.js"></script>
+</head>
+<body data-sheet="">
+<header class="topbar">
+  <a class="brand" href="../" title="Radiators simulation results">◈<span class="brand-text"> RADIATORS</span></a>
+  <div class="docname">
+    <input id="docName" aria-label="Simulation name" spellcheck="false" autocomplete="off">
+    <span id="docMeta" class="muted">schema v2 · mm</span>
+  </div>
+  <div class="top-actions">
+    <button id="undo" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
+    <button id="redo" class="icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>↷</button>
+    <label class="button" title="Open a radiators schema v2 JSON file">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span class="label"> Open</span>
+      <input type="file" id="openFile" accept=".json,application/json" hidden>
+    </label>
+    <button id="save" class="primary" title="Download the antenna JSON for antennas/ (Ctrl+S)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="label"> Save JSON</span></button>
+    <div class="menu-wrap">
+      <button id="menuButton" class="icon" aria-haspopup="menu" aria-expanded="false" aria-label="More">⋮</button>
+      <div id="menu" class="menu" role="menu" hidden>
+        <button role="menuitem" data-action="new">New from starter</button>
+        <button role="menuitem" data-action="examples">Open example…</button>
+        <button role="menuitem" data-action="export-case">Export resolved case JSON</button>
+        <button role="menuitem" data-action="copy">Copy JSON to clipboard</button>
+        <button role="menuitem" data-action="paste">Paste JSON from clipboard</button>
+        <button role="menuitem" data-action="screenshot">Save screenshot (PNG)</button>
+        <hr>
+        <button role="menuitem" data-action="theme">Toggle light / dark</button>
+        <a role="menuitem" href="../">Simulation results viewer</a>
+        <button role="menuitem" data-action="about">About this editor</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="workspace">
+  <aside id="panelModel" class="panel" aria-label="Model tree" data-sheet-name="model">
+    <div class="panel-head"><h2>Model</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
+    <div class="panel-body" id="tree"></div>
+  </aside>
+
+  <section class="viewport-wrap" aria-label="3D view">
+    <div id="viewport" class="viewport"></div>
+    <div class="view-toolbar top-left">
+      <div class="seg" role="group" aria-label="View presets">
+        <button data-view="iso" title="Isometric">Iso</button>
+        <button data-view="top" title="Top (−Z)">Top</button>
+        <button data-view="front" title="Front (+Y)">Front</button>
+        <button data-view="right" title="Right side (+X)">Side</button>
+      </div>
+      <div class="seg toggles" role="group" aria-label="Show">
+        <button data-toggle="domain" aria-pressed="true" title="Simulation domain">Domain</button>
+        <button data-toggle="ports" aria-pressed="true" title="Ports">Ports</button>
+        <button data-toggle="grid" aria-pressed="true" title="Ground grid">Grid</button>
+        <button data-toggle="xray" aria-pressed="false" title="Transparent solids">X-ray</button>
+      </div>
+    </div>
+    <div class="view-toolbar top-right">
+      <label id="caseWrap" class="case-select" hidden>
+        <span>Case</span>
+        <select id="caseSelect" aria-label="Sweep case to preview"></select>
+      </label>
+    </div>
+    <div class="view-toolbar bottom-right">
+      <div class="add-wrap">
+        <button id="addButton" class="fab" aria-haspopup="menu" aria-expanded="false" aria-label="Add">＋</button>
+        <div id="addMenu" class="menu add-menu" role="menu" hidden></div>
+      </div>
+    </div>
+    <div id="selectionChip" class="selection-chip" hidden>
+      <span id="chipText"></span>
+      <button id="chipEdit" class="primary">Edit</button>
+    </div>
+    <div id="viewError" class="view-error" hidden></div>
+  </section>
+
+  <aside id="panelInspect" class="panel" aria-label="Inspector" data-sheet-name="inspect">
+    <div class="panel-head"><h2 id="inspectTitle">Inspector</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
+    <div class="panel-body" id="inspector"></div>
+  </aside>
+
+  <section class="dock" aria-label="Parameters, checks and JSON">
+    <div class="dock-tabs" role="tablist">
+      <button role="tab" data-dock="params" aria-selected="true">Parameters</button>
+      <button role="tab" data-dock="checks" aria-selected="false">Checks <span id="checkBadge" class="badge"></span></button>
+      <button role="tab" data-dock="json" aria-selected="false">JSON</button>
+      <button id="dockToggle" class="icon dock-toggle" aria-label="Collapse dock" title="Collapse / expand">▾</button>
+    </div>
+    <div id="panelParams" class="panel dock-panel" data-sheet-name="params" data-dock-name="params">
+      <div class="panel-head sheet-only"><h2>Parameters</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
+      <div class="panel-body" id="params"></div>
+    </div>
+    <div id="panelChecks" class="panel dock-panel" data-sheet-name="checks" data-dock-name="checks" hidden>
+      <div class="panel-head sheet-only"><h2>Checks</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
+      <div class="panel-body" id="checks"></div>
+    </div>
+    <div id="panelJson" class="panel dock-panel" data-sheet-name="json" data-dock-name="json" hidden>
+      <div class="panel-head sheet-only"><h2>JSON</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
+      <div class="panel-body json-body">
+        <div class="json-actions">
+          <div class="seg" role="group" aria-label="JSON view">
+            <button id="jsonSource" aria-pressed="true">Source (template)</button>
+            <button id="jsonResolved" aria-pressed="false">Resolved case</button>
+          </div>
+          <button id="jsonApply" class="primary">Apply</button>
+        </div>
+        <textarea id="jsonText" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Configuration JSON"></textarea>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="mobile-nav" aria-label="Panels">
+  <button data-sheet="model"><span aria-hidden="true">☰</span>Model</button>
+  <button data-sheet="inspect"><span aria-hidden="true">✎</span>Edit</button>
+  <button data-sheet="params"><span aria-hidden="true">ƒ</span>Params</button>
+  <button data-sheet="checks"><span aria-hidden="true">✓</span>Checks<span id="checkBadgeMobile" class="badge"></span></button>
+  <button data-sheet="json"><span aria-hidden="true">{}</span>JSON</button>
+</nav>
+
+<footer class="statusbar"><span id="status" role="status">Loading…</span><span class="muted status-note">Geometry editor only — simulate with the radiators openEMS scripts.</span></footer>
+
+<dialog id="dialog">
+  <form method="dialog">
+    <h2 id="dialogTitle"></h2>
+    <div id="dialogBody"></div>
+    <div class="dialog-actions" id="dialogActions"><button value="close">Close</button></div>
+  </form>
+</dialog>
+</body>
+</html>

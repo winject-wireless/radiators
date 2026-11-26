@@ -130,6 +130,7 @@ jobs:
           python3 -m py_compile antennas/simulate.py antennas/simulate_v2.py site/build_site.py
           node --check site/editor.js
           node site/check_editor.js
+          node site/csxcad/check.mjs
           python3 scripts/sweep.py examples/racetrack_loop_sweep.json
           python3 scripts/sweep.py examples/helix_sweep.json
       - name: Detect changed antenna configurations
@@ -254,6 +255,10 @@ jobs:
           node --check site/dist/editor.js
           node --check site/dist/jscad-modeling.min.js
           node site/check_editor.js site/dist
+          for f in index.html sw.js js/main.js vendor/three.module.min.js vendor/addons/controls/OrbitControls.js examples/index.json; do
+            test -s "site/dist/csxcad/$f"
+          done
+          node --check site/dist/csxcad/sw.js
           node --check site/dist/plotly.min.js
           node site/check_viewer.js site/dist
           node site/check_camera.js site/dist

@@ -16,6 +16,14 @@ Pull requests validate the simulator and upload artifacts without deploying.
 The plot viewer does not execute openEMS in the browser.
 
 
+## Parametric CSXCAD editor
+
+`csxcad/` is a mobile- and desktop-friendly geometry editor for schema v2
+configs with parametric modelling (`$param` / `$expr` fields, parameter
+sliders, sweep cases). It is installable as a PWA and is ready to wrap as an
+Android app with Capacitor. The build publishes it at `csxcad/`. See
+[csxcad/README.md](csxcad/README.md). Like the JSCAD editor, it does not run openEMS.
+
 ## JSCAD antenna editor
 
 The published site includes `editor.html` (linked from the result viewer).

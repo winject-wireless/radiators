@@ -1,0 +1,6 @@
+{
+  "appId": "io.github.winject_wireless.radiators.csxcad",
+  "appName": "CSXCAD Editor",
+  "webDir": "www",
+  "android": { "allowMixedContent": false }
+}
