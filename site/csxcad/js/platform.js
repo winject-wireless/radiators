@@ -59,15 +59,64 @@ export async function saveFile(filename, content, mime = "application/json") {
   return "Downloaded " + filename;
 }
 
-// The worker also makes the page cross-origin isolated (needed by the in-browser openEMS).
-// Headers only apply to pages it serves, so reload once after it first takes control.
-export function registerServiceWorker() {
-  if (isNative() || !("serviceWorker" in navigator) || location.protocol === "file:") return;
-  const key = "csxcad-coi-reload";
-  navigator.serviceWorker.register("./sw.js").then(() => navigator.serviceWorker.ready).then(() => {
-    if (globalThis.crossOriginIsolated) { try { sessionStorage.removeItem(key); } catch { /* storage blocked */ } return; }
-    let reloaded = true;
-    try { reloaded = !!sessionStorage.getItem(key); if (!reloaded) sessionStorage.setItem(key, "1"); } catch { /* no storage: never reload */ }
-    if (!reloaded) location.reload();
-  }).catch(() => { /* offline cache is optional */ });
+// GitHub Pages cannot supply COOP/COEP itself. Reload only after the current
+// isolation worker controls this document, not merely after ready resolves
+// (ready may resolve for an old active worker before clients.claim).
+const COI_RELOAD_KEY = "csxcad-coi-reload-v2";
+let isolationSetup = null;
+
+export function isolationUnavailableReason() {
+  if (globalThis.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined") return null;
+  if (window.top !== window.self) return "This editor is embedded in another page. Open it directly in Chrome or another supported browser.";
+  if (isNative()) return "This Android WebView does not provide cross-origin isolation. Open the hosted editor in Chrome.";
+  if (!globalThis.isSecureContext) return "Use HTTPS or http://localhost to enable the simulation worker.";
+  if (!("serviceWorker" in navigator)) return "Service workers are unavailable in this browser. Open the editor directly in Chrome.";
+  if (globalThis.crossOriginIsolated) return "This browser does not expose SharedArrayBuffer. Try a supported current browser.";
+  return null;
+}
+
+async function waitForController(registration) {
+  const sw = navigator.serviceWorker;
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    const active = registration.active;
+    if (!registration.installing && !registration.waiting && active?.state === "activated" &&
+        sw.controller === active && active.scriptURL === new URL("./sw.js", location.href).href) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw Error("The isolation service worker did not take control. Check browser site permissions and reload.");
+}
+
+export function registerServiceWorker({ manual = false } = {}) {
+  if (isNative() || !("serviceWorker" in navigator) || !globalThis.isSecureContext ||
+      location.protocol === "file:" || window.top !== window.self) return Promise.resolve(isolationUnavailableReason());
+  if (isolationSetup) return isolationSetup;
+  isolationSetup = (async () => {
+    try {
+      const registration = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+      if (globalThis.crossOriginIsolated) {
+        try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch { /* storage blocked */ }
+        return null;
+      }
+      // Explicitly check for an updated worker if an older one is already active.
+      if (!registration.installing && !registration.waiting && registration.active) {
+        try { await registration.update(); } catch { /* offline: use the active worker */ }
+      }
+      await waitForController(registration);
+      let alreadyReloaded = false, canStore = true;
+      try {
+        alreadyReloaded = !!sessionStorage.getItem(COI_RELOAD_KEY);
+        sessionStorage.setItem(COI_RELOAD_KEY, "1");
+      } catch { canStore = false; }
+      // No automatic reload loop even when isolation is denied by browser policy.
+      if (manual || (canStore && !alreadyReloaded)) {
+        location.reload();
+        return null;
+      }
+      return "The browser has not enabled cross-origin isolation. Use Retry isolation, or open the editor directly in Chrome.";
+    } catch (error) {
+      return "Cannot enable the simulation service worker: " + error.message;
+    }
+  })().finally(() => { isolationSetup = null; });
+  return isolationSetup;
 }
