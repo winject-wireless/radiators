@@ -203,7 +203,13 @@ try {
   assert.ok(await page.locator("#resultCase").isVisible());
   await body.evaluate(el=>{el.scrollTop=el.scrollHeight;});
   assert.ok(await page.locator("#resultCase").isVisible());
+  const strayOptionalText=await page.locator("#resultCharts").evaluate(el=>[...el.childNodes].filter(n=>n.nodeType===Node.TEXT_NODE&&/^(null|undefined|false)$/.test(n.textContent.trim())).map(n=>n.textContent));
+  assert.deepEqual(strayOptionalText,[],"Optional result content rendered as text");
   await page.locator('.mobile-nav [data-sheet="params"]').click();
+  await page.locator(".param-help summary").click();
+  assert.equal(await page.locator(".param-help code").filter({hasText:"2*gap + 1"}).first().isVisible(),true);
+  assert.equal(await page.locator(".param-actions").getByRole("button",{name:"Open sweep"}).isVisible(),true);
+  assert.ok(!(await page.locator("#params").textContent()).includes("Swept in Simulation:"));
   const sizing=await page.locator("#params .ptable input[type=text]").first().evaluate(el=>({font:parseFloat(getComputedStyle(el).fontSize),height:el.getBoundingClientRect().height}));
   assert.ok(sizing.font>=12 && sizing.font<=14 && sizing.height<=36);
   await page.locator('.mobile-nav [data-sheet="sim"]').click();

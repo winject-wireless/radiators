@@ -24,6 +24,7 @@ const h = (tag, attrs = {}, ...kids) => {
   for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) e.append(k);
   return e;
 };
+const appendChildren = (parent, ...children) => parent.append(...children.flat().filter(c => c !== null && c !== undefined && c !== false));
 const ghz = f => `${+(f / 1e9).toFixed(4)} GHz`;
 const fmt = (v, d = 2) => v === null || v === undefined || !Number.isFinite(v) ? "—" : v.toFixed(d);
 const hc = () => Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 16));
@@ -278,7 +279,7 @@ export function renderResults(box, ctx, run, caseId, stale) {
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
-  box.append(
+  appendChildren(box,
     h("div",{class:"result-summary-head"},
       h("h3",{text:run.cached?"Results · cached on this device":"Overview"}),
       h("button",{type:"button",class:"small result-download",onclick:download},"Download result.json")),

@@ -1411,7 +1411,7 @@ function inspectSim(box, title) {
     h("details", { class: "form-section", open: true }, h("summary", { text: "Excitation · Gaussian pulse" }),
       row("Center", numField(["excitation", "center_hz"], { unit: "Hz", aria: "Center frequency" })),
       row("Bandwidth (fc)", numField(["excitation", "bandwidth_hz"], { unit: "Hz", aria: "Bandwidth" })),
-      h("p", { class: "hint", text: "Band = center ± fc. Expressions work here too, e.g. f_ghz * 1e9." })),
+      h("p", { class: "hint" }, "Band = center ± fc. Example: ", h("code", {text:"f_ghz * 1e9"}), ".")),
     h("details", { class: "form-section", open: true }, h("summary", { text: "Domain · mm" }),
       row("Start", vec3Field(["domain", "start"], { label: "domain start" })),
       row("Stop", vec3Field(["domain", "stop"], { label: "domain stop" })),
@@ -1620,11 +1620,18 @@ function renderParams() {
       Object.keys(params).length ? table : h("p", { class: "hint", text: "No parameters yet. Add one, then type its name (or an expression like 2*gap + 1) into any numeric field." }),
       unknown.length ? h("div", { class: "note warn" }, "Referenced but undefined: ", unknown.join(", "), " ",
         h("button", { type: "button", class: "small", onclick: () => edit(dd => { dd.parameters ??= {}; unknown.forEach(n => { dd.parameters[n] = 1; }); }) }, "Define all = 1")) : null,
-      h("div", { class: "actions" },
-        h("button", { type: "button", onclick: () => edit(dd => { dd.parameters ??= {}; dd.parameters[uniqueParam(dd, "p")] = 1; }) }, "+ Parameter")),
-      h("details", { class: "param-help" }, h("summary", { text: "Expression syntax" }), h("p", { class: "hint", text: "Fields accept numbers, a parameter name ({\"$param\"}) or an expression ({\"$expr\"}) with + − * / % **, abs min max sqrt sin cos tan floor ceil, pi, e — the same grammar the radiators sweep runner evaluates." }))));
-  if (swept.size) add(left, h("p", { class: "hint" }, `Swept in Simulation: ${[...swept].join(", ")}. `,
-    h("button", { type: "button", class: "small", onclick: () => openSheet("sim") }, "Open sweep")));
+      h("div", { class: "actions param-actions" },
+        h("button", { type: "button", onclick: () => edit(dd => { dd.parameters ??= {}; dd.parameters[uniqueParam(dd, "p")] = 1; }) }, "+ Parameter"),
+        swept.size ? h("button", { type: "button", title: "Edit swept parameters in Simulation", onclick: () => {
+          openSheet("sim");
+          requestAnimationFrame(() => document.querySelector("#sim .sim-sweep-card")?.scrollIntoView({block:"nearest"}));
+        } }, "Open sweep") : null),
+      h("details", { class: "param-help" }, h("summary", { text: "Expression syntax" }),
+        h("p", { class: "hint" }, "Enter a number ", h("code",{text:"2.45"}), ", parameter ", h("code",{text:"gap"}), ", or expression ", h("code",{text:"2*gap + 1"}), "."),
+        h("p", { class: "hint" }, "Operators: ", h("code",{text:"+ - * / % **"})),
+        h("p", { class: "hint" }, "Functions: ", ...["abs","min","max","sqrt","sin","cos","tan","floor","ceil"].flatMap((name,i)=>[i?" ":"",h("code",{text:name})])),
+        h("p", { class: "hint" }, "Constants: ", h("code",{text:"pi"}), ", ", h("code",{text:"e"})),
+        h("p", { class: "hint" }, "JSON: ", h("code",{text:'{"$param":"gap"}'}), " or ", h("code",{text:'{"$expr":"2*gap + 1"}'}), "."))));
   add(box, left);
 }
 function uniqueParam(doc, base) {

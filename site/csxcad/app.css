@@ -853,3 +853,8 @@ button[hidden],.button[hidden],input[hidden],.sim-run-actions [hidden] { display
   @media (max-width:760px) { input:focus,select:focus,textarea:focus { font-size:16px; } }
 }
 .editor-build { font-size:var(--ui-small);color:var(--muted);padding:4px 7px; }
+
+/* Inline syntax examples use semantic code, not prose or oversized labels. */
+.param-help .hint {margin:3px 0;line-height:1.5;}
+.hint code {font-family:var(--mono);font-size:inherit;color:var(--text);background:var(--field);border-radius:3px;padding:1px 3px;overflow-wrap:anywhere;}
+.param-actions {align-items:center;}
