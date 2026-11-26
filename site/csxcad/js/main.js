@@ -1464,9 +1464,12 @@ function addRefinement(aroundFeed){
 }
 function selectRefinement(k,corner,view=false){
   if(!state.doc.mesh?.refinements?.[k])return;
+  const changed=state.sel?.kind!=="refinement"||state.sel.index!==k;
   state.sel={kind:"refinement",index:k};
   state.handle=corner?handleKey(["mesh","refinements",k,corner]):null;
+  if(changed)renderInspector();
   viewport?.setSelection(state.sel);
+  showChip();
   syncHandles();
   for(const el of document.querySelectorAll("[data-refinement]"))el.classList.toggle("selected",Number(el.dataset.refinement)===k);
   if(view){
