@@ -885,21 +885,41 @@ function renderInspector() {
   if (s.kind === "material") return inspectMaterial(box, title, s.index);
 }
 
-// Simulation panel: the sweep first (it decides how many runs), then the run settings.
+// Simulation controls are followed by the sweep and grouped setup cards.
+const simDisclosure = new Map();
 function renderSim() {
   const box = $("sim");
   const scroll = box.scrollTop;
+  for(const el of box.querySelectorAll("details[data-sim-section]"))simDisclosure.set(el.dataset.simSection,el.open);
   fieldRefreshers = simRefreshers = [];
   box.replaceChildren();
   const d = state.derived;
-  add(box, h("div", { class: "sim-head" }, h("span", { class: "hint", text: "Simulation settings" }),
-    h("button", { type: "button", class: "icon head-btn sim-max-btn", title: "Maximize (Esc to restore)", "aria-label": "Maximize simulation panel",
-      onclick: () => setSimMax(!state.simMax) }, icon(state.simMax ? "minimize" : "maximize"))));
-  renderRunPanel(box, simContext);
-  const settings = h("div", { class: "sim-settings" });
-  inspectSim(settings, h("span"));
-  add(box, h("div", { class: "sim-layout" }, renderSweep(d, new Set(Object.keys(state.doc.sweep?.parameters || {}))), ...settings.children));
-  box.scrollTop = scroll;
+  const runArea=h("div",{class:"sim-run-area"});
+  renderRunPanel(runArea,simContext);
+  const max=h("button", {type:"button",class:"icon head-btn sim-max-btn",title:"Maximize (Esc to restore)","aria-label":"Maximize simulation panel",
+    onclick:()=>setSimMax(!state.simMax)},icon(state.simMax?"minimize":"maximize"));
+  runArea.querySelector(".sim-run-head")?.append(max);
+  const settings=h("div",{class:"sim-settings"});
+  inspectSim(settings,h("span"));
+  const grid=h("div",{class:"sim-layout"});
+  const sweep=renderSweep(d,new Set(Object.keys(state.doc.sweep?.parameters||{})));
+  sweep.classList.add("sim-setup-card","sim-sweep-card");
+  grid.append(sweep);
+  for(const el of [...settings.children]){
+    if(el.matches("details")){
+      const key=el.querySelector("summary").textContent;
+      el.dataset.simSection=key;
+      el.open=simDisclosure.get(key)??key.startsWith("Excitation");
+      el.classList.add("sim-setup-card");
+      grid.append(el);
+    }else if(el.matches(".form-section")){
+      const description=h("details",{class:"form-section sim-setup-card", "data-sim-section":"Description"},h("summary",{text:"Description"}),...el.children);
+      description.open=simDisclosure.get("Description")??false;
+      grid.append(description);
+    }else {el.classList.add("sim-setup-notice");grid.prepend(el);}
+  }
+  add(box,runArea,grid);
+  box.scrollTop=scroll;
 }
 // What the run panel needs from the editor.
 const simContext = {
@@ -2083,6 +2103,47 @@ function setDock(name) {
   if (name === "scripts") requestAnimationFrame(() => scriptEditor?.refresh()); // CodeMirror measures 0 while hidden
   if (name === "json") renderJson(true);
 }
+// Desktop-only splitter. Store requested height separately from the current
+// viewport clamp, so changing window size does not destroy the user's preference.
+function installDockResize(prefs) {
+  const el=$("dockResize"),dock=el.closest(".dock"),workspace=dock.closest(".workspace");
+  let preferred=Number.isFinite(prefs.dockHeight)?prefs.dockHeight:270, drag=null;
+  const bounds=()=>{const max=Math.max(150,workspace.clientHeight-140);return [Math.min(150,max),max];};
+  const apply=(value,save=false)=>{
+    if(!Number.isFinite(value))return;
+    const [min,max]=bounds();
+    preferred=Math.max(min,Math.min(1600,value));
+    const height=Math.round(Math.min(max,preferred));
+    document.documentElement.style.setProperty("--dock-h",height+"px");
+    el.setAttribute("aria-valuemin",String(min));
+    el.setAttribute("aria-valuemax",String(max));
+    el.setAttribute("aria-valuenow",String(height));
+    if(save)storage.set(PREFS_KEY,{...(storage.get(PREFS_KEY)||{}),dockHeight:preferred});
+  };
+  const expanded=()=>!document.body.classList.contains("dock-collapsed");
+  const expand=()=>{document.body.classList.remove("dock-collapsed");storage.set(PREFS_KEY,{...(storage.get(PREFS_KEY)||{}),dockCollapsed:false});};
+  const finish=()=>{if(!drag)return;drag=null;document.body.classList.remove("dock-resizing");apply(preferred,true);scriptEditor?.refresh();};
+  el.addEventListener("pointerdown",e=>{
+    if(mobile()||e.button!==0)return;
+    e.preventDefault();el.setPointerCapture(e.pointerId);
+    drag={y:e.clientY,height:dock.getBoundingClientRect().height,pointer:e.pointerId};
+    if(!expanded())expand();
+    document.body.classList.add("dock-resizing");
+  });
+  el.addEventListener("pointermove",e=>{if(drag?.pointer===e.pointerId){const [,max]=bounds();apply(Math.min(max,drag.height+drag.y-e.clientY));}});
+  el.addEventListener("pointerup",finish);el.addEventListener("pointercancel",finish);el.addEventListener("lostpointercapture",finish);
+  el.addEventListener("dblclick",()=>{expand();apply(270,true);scriptEditor?.refresh();});
+  el.addEventListener("keydown",e=>{
+    if(mobile()||!["ArrowUp","ArrowDown","Home","End"].includes(e.key))return;
+    e.preventDefault();expand();
+    const [min,max]=bounds(),current=Number(el.getAttribute("aria-valuenow"));
+    apply(e.key==="Home"?min:e.key==="End"?max:Math.min(max,current+(e.key==="ArrowUp"?24:-24)),true);
+    scriptEditor?.refresh();
+  });
+  const observer=new ResizeObserver(()=>{if(!mobile()&&!drag)apply(preferred);});
+  observer.observe(workspace);
+  if(!mobile())apply(preferred);
+}
 function installSheetDrag() {
   for (const head of document.querySelectorAll(".panel .panel-head")) {
     let y0 = null;
@@ -2188,6 +2249,7 @@ async function boot() {
   for (const b of document.querySelectorAll(".sheet-close")) b.addEventListener("click", () => closeSheet());
   $("chipEdit").addEventListener("click", () => openSheet("inspect"));
   window.addEventListener("popstate", () => closeSheet(true));
+  installDockResize(prefs);
   installSheetDrag();
   installResultSwipe();
   $("jsonSource").addEventListener("click", () => { state.jsonMode = "source"; renderJson(true); });

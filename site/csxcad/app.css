@@ -740,3 +740,77 @@ textarea,.field.expr input,.vec3 .field input { font-size:var(--ui-text); }
 @media (max-width:350px) {
   .sweep-axis { grid-template-columns:minmax(0,1fr) 76px 34px;grid-template-areas:"name kind rm" "vals vals vals"; }
 }
+
+/* Desktop dock splitter and responsive Simulation/Results flow. */
+.dock-resize {
+  height:8px;flex:0 0 8px;cursor:ns-resize;touch-action:none;position:relative;
+  display:flex;align-items:center;justify-content:center;
+}
+.dock-resize::after {content:"";width:44px;height:3px;border-radius:3px;background:var(--line-2);}
+.dock-resize:hover,.dock-resize:focus-visible,body.dock-resizing .dock-resize {background:color-mix(in srgb,var(--accent) 14%,transparent);}
+.dock-resize:hover::after,.dock-resize:focus-visible::after,body.dock-resizing .dock-resize::after {background:var(--accent);}
+body.dock-resizing,body.dock-resizing * {cursor:ns-resize!important;user-select:none!important;}
+body.dock-collapsed .workspace {grid-template-rows:minmax(0,1fr) 48px;}
+.dock-tabs {padding:2px 5px 4px;gap:2px;}
+.dock-tabs [role=tab] {min-height:28px;padding:3px 9px;font-size:var(--ui-text);}
+#sim {container-type:inline-size;}
+.sim-run-area {margin-bottom:7px;}
+.sim-run {margin:0!important;padding:6px 8px!important;}
+.sim-run-head {display:flex;align-items:center;gap:6px;margin-bottom:4px;min-width:0;}
+.sim-run-head h3 {margin:0;flex-shrink:0;color:var(--text);font-size:var(--ui-title);font-weight:600;}
+.sim-run-head .sim-case-hint {flex:1;min-width:0;margin:0;overflow-wrap:anywhere;font-size:var(--ui-small);}
+.sim-run-head .sim-max-btn {margin-left:auto;flex-shrink:0;}
+.sim-controls {display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:5px 10px;}
+.sim-run-actions,.sim-run-options {display:flex;align-items:center;flex-wrap:wrap;gap:5px;}
+.sim-run-actions button[hidden] {display:none;}
+.sim-run-options select {max-width:148px;}
+.sim-stats {margin-top:4px;overflow-wrap:anywhere;}
+.sim-log-box summary {margin-top:4px;}
+.sim-layout {grid-template-columns:repeat(auto-fit,minmax(min(265px,100%),1fr));gap:6px;align-items:start;}
+.sim-layout > .sim-setup-card {padding:7px!important;margin:0;border:1px solid var(--line)!important;border-radius:var(--r-sm);background:var(--panel);}
+.sim-setup-card > h3,.sim-setup-card > summary {margin:0 0 5px;font-weight:600;color:var(--text);font-size:var(--ui-text);}
+.sim-setup-card > summary {cursor:pointer;min-height:25px;padding:3px 0;overflow-wrap:anywhere;}
+.sim-setup-card:not([open]):is(details) > summary {margin-bottom:0;}
+.sim-setup-notice {grid-column:1/-1;}
+.sim-setup-card .row:last-child {margin-bottom:0;}
+.sim-setup-card .hint {font-size:var(--ui-small);}
+.sim-sweep-card .case-list {max-height:106px;margin-top:3px;}
+.sim-sweep-card .case-list div {min-height:30px;}
+#resultBody {container-type:inline-size;}
+.result-summary-head,.result-section-head {display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;}
+.result-summary-head {margin:2px 0 5px;}
+.sim-results .result-summary-head h3,.sim-results .result-section-head h3 {margin:0;font-size:var(--ui-text);font-weight:600;}
+.result-download {flex-shrink:0;}
+.result-section-head {border-top:1px solid var(--line);padding-top:6px;margin:9px 0 5px;}
+.sim-kpis {grid-template-columns:repeat(auto-fit,minmax(min(120px,100%),1fr));gap:5px;}
+.kpi {min-width:0;padding:5px 7px;background:var(--panel-2);}
+.kpi-value {font-size:15px;overflow-wrap:anywhere;}
+.kpi-label,.kpi-sub {font-size:11px;line-height:1.3;}
+.sim-charts {grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr));gap:6px;margin:0;}
+.sim-polars {grid-template-columns:repeat(auto-fit,minmax(min(175px,100%),1fr));gap:6px;margin:0;}
+.chart-card {min-width:0;padding:4px 5px;}
+.chart-card figcaption {font-size:var(--ui-small);margin-bottom:1px;}
+.sim-pattern {margin-top:7px;}
+.sim-results .sim-pattern h4 {margin:0 0 4px;font-size:var(--ui-small);}
+@container (min-width:540px) {
+  .sim-layout {grid-template-columns:repeat(2,minmax(0,1fr));}
+  .sim-sweep-card {grid-column:1/-1;}
+}
+@container (min-width:850px) {
+  .sim-layout {grid-template-columns:repeat(3,minmax(0,1fr));}
+  .sim-sweep-card {grid-column:auto;}
+}
+@media (max-width:760px),(max-height:520px) and (max-width:1000px) {
+  .dock-resize {display:none;}
+  .sim-run-head h3 {font-size:var(--ui-text);}
+  .sim-run-head .sim-case-hint {font-size:11px;}
+  .sim-controls {gap:5px;}
+  .sim-run-options {gap:4px;}
+  .sim-run-options select {max-width:126px;}
+  .sim-setup-card > summary {min-height:32px;padding:7px 0;}
+  .sim-layout {grid-template-columns:minmax(0,1fr);}
+  .sim-kpis {grid-template-columns:repeat(2,minmax(0,1fr));}
+  .sim-charts {grid-template-columns:minmax(0,1fr);}
+  .sim-polars {grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));}
+  .result-download {min-height:34px;font-size:12px;}
+}

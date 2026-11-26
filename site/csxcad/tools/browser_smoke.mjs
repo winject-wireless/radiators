@@ -44,6 +44,20 @@ try {
 
   await page.goto(new URL("?example=examples__dipole_2450.json&debug=1", base).href);
   await page.waitForFunction(() => crossOriginIsolated && window.__csxcad?.viewport && document.querySelector("#sim .sim-controls"), { }, { timeout: 90000 });
+  // Desktop splitter can resize the dock via pointer and keyboard.
+  const dock=page.locator(".dock"),splitter=page.locator("#dockResize");
+  const initialDock=(await dock.boundingBox()).height;
+  const split=await splitter.boundingBox();
+  await page.mouse.move(split.x+split.width/2,split.y+split.height/2);
+  await page.mouse.down();
+  await page.mouse.move(split.x+split.width/2,split.y+split.height/2-120,{steps:8});
+  await page.mouse.up();
+  const resized=(await dock.boundingBox()).height;
+  assert.ok(resized>initialDock+90,"Desktop dock did not resize");
+  await splitter.focus();
+  await page.keyboard.press("ArrowDown");
+  assert.ok((await dock.boundingBox()).height<resized);
+  const savedDock=(await dock.boundingBox()).height;
   const doc=await page.evaluate(()=>structuredClone(window.__csxcad.state.doc));
   doc.parameters={...(doc.parameters||{}), smoke_case:1};
   doc.sweep={enabled:true,mode:"product",parameters:{smoke_case:{values:[1,2]}}};
@@ -136,6 +150,7 @@ try {
   // Completed sweep cases must restore after a real reload, without running FDTD.
   await page.reload();
   await page.waitForFunction(()=>window.__csxcad?.viewport && [...document.querySelector("#resultCase").options].length===2 && [...document.querySelector("#resultCase").options].every(o=>o.textContent.includes("done")),{}, {timeout:90000});
+  assert.ok(Math.abs((await dock.boundingBox()).height-savedDock)<3,"Dock height not restored");
   await page.locator('[data-dock="results"]').click();
   assert.ok(await page.locator("#resultCharts").getByText("Results · cached on this device",{exact:true}).isVisible());
   assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
@@ -147,7 +162,16 @@ try {
   assert.ok(toolbar.height<150,"Mobile toolbar too tall: "+toolbar.height);
   const probe=await page.locator("#probeReadout").boundingBox();
   assert.ok(probe && probe.height<140,"Mobile probe too tall");
-  assert.ok(Math.abs(await projectedRadius()-r0)<2);
+  // ResizeObserver and the on-demand renderer may settle on different frames.
+  // Wait for the actual projection to converge rather than sampling immediately.
+  await page.waitForFunction(expected=>{
+    const v=window.__csxcad.viewport,o=v.handles.children.find(h=>h.userData.handleKey==="result-probe");
+    if(!o)return false;
+    v.camera.updateMatrixWorld();
+    const depth=-o.position.clone().applyMatrix4(v.camera.matrixWorldInverse).z;
+    const radius=o.scale.x*v.renderer.domElement.clientHeight*Math.abs(v.camera.projectionMatrix.elements[5])/(2*depth);
+    return Math.abs(radius-expected)<2;
+  },r0,{timeout:10000});
   await page.locator('.mobile-nav [data-sheet="results"]').click();
   await page.waitForFunction(()=>document.body.dataset.sheet==="results");
   const body=page.locator("#resultBody");
@@ -182,6 +206,7 @@ try {
   const sizing=await page.locator("#params .ptable input[type=text]").first().evaluate(el=>({font:parseFloat(getComputedStyle(el).fontSize),height:el.getBoundingClientRect().height}));
   assert.ok(sizing.font>=12 && sizing.font<=14 && sizing.height<=36);
   await page.locator('.mobile-nav [data-sheet="sim"]').click();
+  assert.equal(await splitter.isVisible(),false);
   assert.ok(!(await page.locator(".sim-case-hint").textContent()).includes("Local WASM"));
   assert.match(await page.locator(".sim-case-hint").textContent(),/#1.*smoke_case=1.*2 cases/);
   const axis=await page.locator(".sweep-axis").first().boundingBox();

@@ -147,9 +147,9 @@ export function renderRunPanel(box, ctx) {
     ? sweep ? `${c.label} · ${cases.length} cases` : "Single case"
     : c.pending ? "Geometry scripts are still running…" : `Cannot simulate: ${c.error}`;
   box.append(h("div", { class: "form-section sim-run" },
-    h("h3", { text: "Run in browser" }),
-    h("div", { class: "sim-controls" }, allBtn, runBtn, abortBtn, h("label", { class: "sim-engine" }, "Engine", engine), h("label", { class: "sim-threads" }, "Threads", threads)),
-    h("p", { class: "hint sim-case-hint", title: c.name || "", text: `${caseLine}${pending && !c.pending ? " · preparing cases" : ""}` }),
+    h("div",{class:"sim-run-head"},h("h3",{text:"Run in browser"}),h("span",{class:"hint sim-case-hint",title:c.name||"",text:`${caseLine}${pending&&!c.pending?" · preparing cases":""}`})),
+    h("div", { class: "sim-controls" }, h("div",{class:"sim-run-actions"},allBtn,runBtn,abortBtn),
+      h("div",{class:"sim-run-options"},h("label", { class: "sim-engine" }, "Engine", engine), h("label", { class: "sim-threads" }, "Threads", threads))),
     unavailable ? h("div", { class: "note warn" },
       h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
       !isolationBlocked ? h("button", { type: "button", onclick: async e => {
@@ -279,7 +279,9 @@ export function renderResults(box, ctx, run, caseId, stale) {
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
   box.append(
-    h("h3", { text: run.cached ? "Results · cached on this device" : "Results" }),
+    h("div",{class:"result-summary-head"},
+      h("h3",{text:run.cached?"Results · cached on this device":"Overview"}),
+      h("button",{type:"button",class:"small result-download",onclick:download},"Download result.json")),
     r.aborted ? h("div", { class: "note warn", text: "Stopped early: the results use the time steps computed so far." }) : null,
     h("div", { class: "sim-kpis" },
       kpi("Best S11", `${fmt(s.bestDb, 1)} dB`, ghz(s.bestHz)),
@@ -287,14 +289,15 @@ export function renderResults(box, ctx, run, caseId, stale) {
       s.zin ? kpi("Zin", `${fmt(s.zin[0], 1)} ${s.zin[1] < 0 ? "−" : "+"} j${fmt(Math.abs(s.zin[1]), 1)} Ω`, `at ${ghz(s.zin[2])}`) : null,
       ...s.patterns.map(p => kpi(`Dmax ${ghz(p.f)}`, `${fmt(p.dmax)} dBi`, `efficiency ${p.eta === null ? "—" : fmt(p.eta * 100, 1) + "%"}${p.gain !== null ? ` · gain ${fmt(p.gain)} dBi` : ""}`)),
       kpi("Mesh / time", `${(r.mesh_total_cells / 1e6).toFixed(2)} M cells`, `${fmt(r.seconds, 0)} s on this device`)),
+    h("div",{class:"result-section-head"},h("h3",{text:"Frequency response"})),
     h("div", { class: "sim-charts" },
       chartCard("S11 (dB)", lineChart({ series: [{ x: f, y: r.s11.logmag_db }], xLabel: "GHz", yLabel: "dB", hlines: [{ y: -10, label: "−10 dB" }], yMax: 0, xFmt: v => String(+v.toFixed(3)) })),
       chartCard("S11 phase", lineChart({ series: [{ x: f, y: r.s11.phase_deg }], xLabel: "GHz", yLabel: "Degrees", yMin: -180, yMax: 180 })),
       r.impedance ? chartCard("Input impedance (Ω)", lineChart({ series: [{ x: f, y: r.impedance.real_ohm, label: "R" }, { x: f, y: r.impedance.imag_ohm, label: "X" }],
         xLabel: "GHz", yLabel: "Ω  (R, X)", hlines: [{ y: 0 }], xFmt: v => String(+v.toFixed(3)) })) : null,
       chartCard("VSWR", lineChart({ series: [{ x: f, y: r.s11.vswr.map(v => v === null ? null : Math.min(v, 10)) }], xLabel: "GHz", yLabel: "VSWR", yMin: 1, hlines: [{ y: 2, label: "2:1" }], xFmt: v => String(+v.toFixed(3)) }))),
-    ...r.patterns.map(p => patternCards(p)),
-    h("div", { class: "actions" }, h("button", { type: "button", onclick: download }, "Download result.json")));
+    r.patterns.length?h("div",{class:"result-section-head"},h("h3",{text:"Radiation patterns"})):null,
+    ...r.patterns.map(p => patternCards(p)));
 }
 
 const kpi = (label, value, sub) => h("div", { class: "kpi" }, h("div", { class: "kpi-label", text: label }), h("div", { class: "kpi-value", text: value }), sub ? h("div", { class: "kpi-sub", text: sub }) : null);
@@ -315,7 +318,7 @@ function patternCards(p) {
   const it90 = th.findIndex(v => Math.abs(v - 90) < 1e-6);
   const azimuth = it90 >= 0 ? { angleDeg: [...ph], value: D[it90] } : null;
   const rMax = Math.ceil((p.max_directivity_dbi ?? 0) / 5) * 5;
-  return h("div", { class: "sim-pattern" }, h("h4", { text: `Directivity at ${ghz(p.frequency_hz)} · Dmax ${fmt(p.max_directivity_dbi)} dBi` }),
+  return h("div", { class: "sim-pattern" }, h("h4", { text: `${ghz(p.frequency_hz)} · Dmax ${fmt(p.max_directivity_dbi)} dBi` }),
     h("div", { class: "sim-polars" },
       chartCard("φ = 0° cut (xz), angle = θ", polarChart({ series: [elevation(0, 180)], rMax, rMin: rMax - 30 })),
       chartCard("φ = 90° cut (yz), angle = θ", polarChart({ series: [elevation(90, 270)], rMax, rMin: rMax - 30 })),

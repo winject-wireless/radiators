@@ -150,7 +150,7 @@ efficiencies are global metrics.
 ## Layout
 
 Desktop: model tree | 3D view | inspector, with a Parameters / Checks / JSON
-dock. Phones (≤760 px): full-screen 3D view, bottom navigation, and each panel
+dock. Drag the horizontal grip above its tabs to resize it (double-click to reset, arrow keys to adjust); the height is remembered. Simulation has a compact run toolbar and grouped, collapsible setup cards. Results place the summary and download above responsive frequency-response and radiation chart grids. Phones (≤760 px): full-screen 3D view, bottom navigation, and each panel
 as a bottom sheet (drag the handle up for full height, down to close; Android
 back closes it). One finger orbits, two fingers zoom and pan, tap selects.
 
