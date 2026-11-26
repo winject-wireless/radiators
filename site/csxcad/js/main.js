@@ -2006,31 +2006,6 @@ function setDock(name) {
   if (name !== "sim" && state.simMax) setSimMax(false);
   state.dock = name;
   document.body.classList.remove("dock-collapsed");
-  for (const b of document.querySelectorAll("[data-section]")) b.addEventListener("click", () => {
-    if (!activeProbe) return;
-    const run = activeProbe.run, name = b.dataset.section;
-    run.sections = run.sections.includes(name) ? run.sections.filter(x => x !== name) : [...run.sections, name];
-    updateProbe();
-  });
-  $("probeToggle").addEventListener("click", () => {
-    if (!activeProbe) return;
-    const run = activeProbe.run; run.probeVisible = !run.probeVisible;
-    if (!run.probeVisible && state.handle === "result-probe") state.handle = null;
-    updateProbe(); syncHandles();
-  });
-  $("sectionFollow").addEventListener("click", () => {
-    if (!activeProbe) return; activeProbe.run.followProbe = !activeProbe.run.followProbe; updateProbe();
-  });
-  $("probeSelect").addEventListener("click", () => {
-    if (!activeProbe) return;
-    activeProbe.run.probeVisible = true; state.handle = "result-probe";
-    updateProbe(); syncHandles();
-  });
-  $("probeReset").addEventListener("click", () => {
-    if (!activeProbe) return;
-    activeProbe.run.probePosition = defaultProbe(activeProbe.record, viewport?.radiationRadius || 50);
-    updateProbe(); syncHandles();
-  });
   for (const t of document.querySelectorAll(".dock-tabs [role=tab]")) t.setAttribute("aria-selected", String(t.dataset.dock === name));
   for (const p of document.querySelectorAll(".dock-panel")) p.hidden = p.dataset.dockName !== name;
   if (name === "scripts") requestAnimationFrame(() => scriptEditor?.refresh()); // CodeMirror measures 0 while hidden
@@ -2106,6 +2081,31 @@ async function boot() {
   $("patternSelect").addEventListener("change", e => {
     const run = resultFor(state.derived.case.id);
     if (run) { run.frequency = Number(e.target.value); syncResults(); }
+  });
+  for (const b of document.querySelectorAll("[data-section]")) b.addEventListener("click", () => {
+    if (!activeProbe) return;
+    const run = activeProbe.run, name = b.dataset.section;
+    run.sections = run.sections.includes(name) ? run.sections.filter(x => x !== name) : [...run.sections, name];
+    updateProbe();
+  });
+  $("probeToggle").addEventListener("click", () => {
+    if (!activeProbe) return;
+    const run = activeProbe.run; run.probeVisible = !run.probeVisible;
+    if (!run.probeVisible && state.handle === "result-probe") state.handle = null;
+    updateProbe(); syncHandles();
+  });
+  $("sectionFollow").addEventListener("click", () => {
+    if (!activeProbe) return; activeProbe.run.followProbe = !activeProbe.run.followProbe; updateProbe();
+  });
+  $("probeSelect").addEventListener("click", () => {
+    if (!activeProbe) return;
+    activeProbe.run.probeVisible = true; state.handle = "result-probe";
+    updateProbe(); syncHandles();
+  });
+  $("probeReset").addEventListener("click", () => {
+    if (!activeProbe) return;
+    activeProbe.run.probePosition = defaultProbe(activeProbe.record, viewport?.radiationRadius || 50);
+    updateProbe(); syncHandles();
   });
   for (const t of document.querySelectorAll(".dock-tabs [role=tab]")) t.addEventListener("click", () => setDock(t.dataset.dock));
   $("dockToggle").addEventListener("click", () => {
