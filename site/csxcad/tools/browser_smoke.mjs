@@ -64,6 +64,41 @@ try {
   assert.equal(await page.evaluate(() => window.__csxcad.viewport.radiation.children.length), 0);
   await pattern.selectOption(selected);
   assert.equal(await page.evaluate(() => window.__csxcad.viewport.radiation.children.length), 1);
+  // Principal sections are exact mesh cuts, with independent visibility.
+  assert.deepEqual(await page.evaluate(() => window.__csxcad.viewport.sections.children.map(o=>o.name)),["XY","YZ","XZ"]);
+  for (const plane of ["XY","YZ","XZ"]) {
+    const button=page.locator('[data-section="'+plane+'"]');
+    await button.click();
+    assert.equal(await page.evaluate(p=>window.__csxcad.viewport.sections.getObjectByName(p).visible,plane),false);
+    await button.click();
+    assert.equal(await page.evaluate(p=>window.__csxcad.viewport.sections.getObjectByName(p).visible,plane),true);
+  }
+  assert.ok(await page.locator("#resultProbe").getByText("Realized gain",{exact:true}).isVisible());
+  assert.ok(await page.locator("#probeStats").isVisible());
+  // Click the visible probe in the actual 3D view and attach the same transform controls as editing.
+  const project=await page.evaluate(() => {
+    const v=window.__csxcad.viewport;
+    v.view("iso");
+    v.camera.updateMatrixWorld();
+    const p=v.probePoint.position.clone().project(v.camera),r=v.renderer.domElement.getBoundingClientRect();
+    return {x:r.left+(p.x+1)*r.width/2,y:r.top+(1-p.y)*r.height/2};
+  });
+  await page.mouse.click(project.x,project.y);
+  assert.equal(await page.evaluate(()=>window.__csxcad.viewport.gizmo.object===window.__csxcad.viewport.probePoint),true);
+  assert.equal(await page.locator("#probeSelect").getAttribute("aria-pressed"),"true");
+  const old=await page.evaluate(()=>window.__csxcad.viewport.probePoint.position.toArray());
+  // Drive the gizmo object-change callback as TransformControls does during a drag.
+  await page.evaluate(()=>{
+    const v=window.__csxcad.viewport;
+    v.gizmo.dragging=true;
+    v.probePoint.position.set(0,0,v._radiationRadius);
+    v.gizmo.dispatchEvent({type:"objectChange"});
+    v.gizmo.dragging=false;
+  });
+  assert.notDeepEqual(await page.evaluate(()=>window.__csxcad.viewport.probePoint.position.toArray()),old);
+  assert.ok(await page.locator("#resultProbe").getByText("0.0° / 0.0°",{exact:true}).isVisible());
+  await page.locator("#probeReset").click();
+  assert.deepEqual(await page.evaluate(()=>window.__csxcad.viewport.probePoint.position.toArray()),old);
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("button", { name: "Download result.json" }).click(),
