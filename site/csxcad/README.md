@@ -125,6 +125,19 @@ was computed.
 - Large models are slow on phones; the dipole example (`examples/dipole_2450.json`,
   ~130k cells) is a quick test.
 
+### Interactive radiation analysis
+
+After a simulation, choose the far-field frequency in the 3D view. XY (Z=0),
+YZ (X=0) and XZ (Y=0) toggle exact mesh sections through the origin. Tap the
+white sampling point (or **Probe**) to attach the same XYZ translation gizmo
+used by geometry editing. Drag any axis to sample a new direction; **Peak**
+resets it to the maximum directivity direction. The viewport and Results tab
+show XYZ, theta/phi, directivity, gain, realized gain, relative E-field and
+global radiation/mismatch efficiency and radiated power. Gain includes radiation
+efficiency; realized gain additionally includes mismatch. The display radius is
+arbitrary, so these are far-field angular samples, not local field strength.
+Sampling the origin reports undefined direction.
+
 ## Layout
 
 Desktop: model tree | 3D view | inspector, with a Parameters / Checks / JSON
