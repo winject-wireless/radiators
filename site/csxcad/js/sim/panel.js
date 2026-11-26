@@ -50,6 +50,7 @@ export const simStatus = () => sim.running ? `${Math.round((sim.progress?.fracti
 // ctx: { getCase() -> {config?, error?, pending?, id, name}, slug, onBadge(text), notify(msg, isError) }
 export function renderRunPanel(box, ctx) {
   const c = ctx.getCase();
+  ctx.onBadge(simStatus());
   if (!sim.threads) sim.threads = hc();
   const engine = h("select", { "aria-label": "openEMS engine", disabled: sim.running },
     h("option", { value: "basic", text: "basic engine" }), h("option", { value: "cpu", text: "cpu engine (faster, experimental)" }));
@@ -63,7 +64,7 @@ export function renderRunPanel(box, ctx) {
   const stats = h("div", { class: "sim-stats" });
   const logPre = h("pre", { class: "sim-log" });
   const logBox = h("details", { class: "sim-log-box" }, h("summary", { text: "openEMS log" }), logPre);
-  ui = { bar, stats, logPre, results, runBtn, abortBtn };
+  ui = { bar, stats, logPre, runBtn, abortBtn };
 
   const caseLine = c.config
     ? `Case ${c.id}${c.name && c.name !== "Default" ? ` (${c.name})` : ""}`
@@ -73,7 +74,7 @@ export function renderRunPanel(box, ctx) {
     h("p", { class: "hint", text: `${caseLine}. openEMS (WebAssembly) runs on this device; nothing is uploaded. Lumped ports only.` }),
     h("div", { class: "sim-controls" }, runBtn, abortBtn, engine, h("label", { class: "sim-threads" }, "Threads", threads)),
     sim.running || sim.progress ? bar : null, stats, sim.error ? h("div", { class: "note warn", text: sim.error }) : null,
-    sim.log.length ? logBox : null));
+    sim.running || sim.log.length ? logBox : null));
   updateProgress();
 }
 
@@ -116,7 +117,7 @@ async function start(ctx) {
       onProgress: p => { sim.progress = p; ctx.onBadge(simStatus()); updateProgress(); },
       onStage: s => { sim.stage = s; updateProgress(); },
     });
-    result.aborted = sim.aborting;
+    result.aborted = result.aborted || sim.aborting;
     const firstValid = result.patterns.findIndex(p => p.record.radiation_valid);
     runCases.set(c.id, { result, key, frequency: firstValid });
     const s = summarize(result, c.config.excitation.center_hz);
