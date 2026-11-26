@@ -2,80 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Radiators · JSCAD antenna editor</title>
-<link rel="stylesheet" href="./editor.css">
-<script defer src="./plotly.min.js"></script>
-<script defer src="./jscad-modeling.min.js"></script>
-<script defer src="./editor.js"></script>
+<title>Radiators · CSXCAD editor</title>
+<meta http-equiv="refresh" content="0; url=./csxcad/">
+<link rel="canonical" href="./csxcad/">
 </head>
 <body>
-<header class="topbar">
-  <a class="brand" href="./">◈ RADIATORS <span class="muted">/ JSCAD editor</span></a>
-  <a href="./csxcad/" class="return-link">Parametric CSXCAD editor</a>
-  <a href="./" class="return-link">View simulations</a>
-</header>
-<div class="editor-toolbar">
-  <div class="toolbar-title">
-    <strong id="documentName">antenna-draft</strong>
-    <span>Schema v2 · mm · browser-based geometry preview</span>
-  </div>
-  <div class="toolbar-actions">
-    <label class="button file-button">Import JSON<input type="file" id="importJson" accept=".json,application/json" hidden></label>
-    <button id="exportJson" type="button">Export openEMS JSON</button>
-    <button id="exportJscad" type="button">Export JSCAD</button>
-    <button id="resetEditor" type="button" title="Reset to starter model">New antenna</button>
-  </div>
-</div>
-<main class="editor-layout">
-  <aside class="panel sidebar" aria-label="Antenna components">
-    <div class="panel-heading"><h2>Components</h2><span>Named objects</span></div>
-    <div class="create-row">
-      <label class="sr-only" for="newShape">Component shape</label>
-      <select id="newShape" aria-label="New component shape">
-        <option value="cylinder">Cylinder</option>
-        <option value="box">Box / sheet</option>
-        <option value="wire">Wire</option>
-        <option value="helix">Helix</option>
-        <option value="sphere">Sphere</option>
-      </select>
-      <button id="newPart" type="button">+ Add</button>
-    </div>
-    <ul id="partTree" class="part-tree"></ul>
-    <div class="panel-foot">◉ Toggle visibility · select a row to edit. Hidden geometry is still exported.</div>
-  </aside>
-  <section class="panel viewport" aria-label="JSCAD model preview">
-    <div class="panel-heading"><h2>3D geometry</h2><span>JSCAD preview · Z up</span></div>
-    <div id="modelView" role="img" aria-label="3D antenna geometry preview"></div>
-    <div class="view-foot">Preview tubes approximate native CSXCAD wires. Port markers are shown in red. No electromagnetic simulation runs here.</div>
-  </section>
-  <aside class="panel inspector-panel">
-    <div class="panel-heading"><h2>Inspector</h2><span id="partId">—</span></div>
-    <div id="emptyInspector" hidden>Select a component to edit.</div>
-    <div id="inspector">
-      <label for="partName">Component name</label>
-      <input id="partName" autocomplete="off" spellcheck="false">
-      <label for="material">Material</label>
-      <select id="material"></select>
-      <label for="partSpec">Shape and transform · JSON</label>
-      <textarea id="partSpec" spellcheck="false" rows="17"></textarea>
-      <div class="inspector-actions">
-        <button id="applyPart" type="button" class="primary">Apply changes</button>
-        <button id="duplicatePart" type="button">Duplicate</button>
-        <button id="removePart" type="button" class="destructive">Delete</button>
-      </div>
-      <p class="hint">Supported: box, cylinder, sphere, wire, helix. Optional transform: <code>{"rotate_deg":[0,0,0],"translate":[0,0,0]}</code>. Rotations are X → Y → Z.</p>
-    </div>
-  </aside>
-  <section class="panel config-panel">
-    <details>
-      <summary>Full antenna configuration — materials, ports, mesh, outputs, domain</summary>
-      <p class="hint">Edit the schema v2 JSON to configure feeds, simulation settings and other supported geometry types. Apply validates this editor's supported preview geometry. Export requires a review of the openEMS port and meshing setup.</p>
-      <textarea id="configText" spellcheck="false" rows="15" aria-label="Full antenna configuration JSON"></textarea>
-      <div class="config-actions"><button id="applyConfig" type="button">Apply full JSON</button></div>
-    </details>
-  </section>
-</main>
-<footer class="statusbar"><span id="editorStatus" role="status">Loading editor…</span><span>Names and IDs are editor metadata; JSCAD returns geometry objects.</span></footer>
+<p>The antenna editor moved to <a href="./csxcad/">the CSXCAD editor</a>.</p>
 </body>
 </html>

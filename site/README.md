@@ -22,37 +22,5 @@ The plot viewer does not execute openEMS in the browser.
 configs with parametric modelling (`$param` / `$expr` fields, parameter
 sliders, sweep cases). It is installable as a PWA and is ready to wrap as an
 Android app with Capacitor. The build publishes it at `csxcad/`. See
-[csxcad/README.md](csxcad/README.md). Like the JSCAD editor, it does not run openEMS.
-
-## JSCAD antenna editor
-
-The published site includes `editor.html` (linked from the result viewer).
-This is a local-browser antenna geometry editor, distinct from openEMS results:
-
-- Imports/exports existing `schema_version: 2` antenna configuration JSON.
-  Existing materials, ports, mesh, domain, solver and output settings survive
-  a round trip. The full-JSON editor exposes these settings.
-- Each `geometry[]` component retains a human-readable `name` plus an
-  `editor_id` stable across rename and geometry edits. JSCAD `geom3` objects
-  themselves have no durable name property; identity remains in the document.
-- Supports inspector edits for `box`, `cylinder`, `sphere`, `wire`,
-  and `helix` components, plus adding, duplicating, hiding and deleting.
-  The 3D preview is computed with JSCAD v2 and displayed with Plotly.
-- Exports a standalone `.jscad` script with `main()` and the named
-  components stored in `config.geometry`. Hidden parts are still exported.
-- Length units are millimetres. Rotations apply X then Y then Z. A
-  zero-thickness CSXCAD box gets a display-only 0.05 mm thickness in JSCAD.
-  Native CSXCAD wires are approximated by tubes in the editor and JSCAD export;
-  the simulation JSON always preserves the original wire vertices.
-- This is a geometry editor, **not** an openEMS simulator. It does not calculate
-  S11, radiation efficiency or patterns. Validate port placements and
-  mesh-convergence before using exported JSON for any new simulation.
-- The current inspector supports the five common solid/curve types above;
-  other v2 geometry shapes are still valid for the solver but will need
-  preview support before importing into this editor.
-
-JSCAD's modeling kernel is pinned and bundled at Pages build time, alongside
-Plotly, so the published editor does not depend on a runtime CDN.
-Run `node site/check_editor.js` to check model naming and JSCAD-source export.
-The Pages CI also checks `node site/check_editor.js site/dist`, which exercises
-actual geometry generation using the shipped JSCAD bundle.
+[csxcad/README.md](csxcad/README.md). It does not run openEMS.
+`editor.html` redirects to it (the older JSCAD editor was removed).

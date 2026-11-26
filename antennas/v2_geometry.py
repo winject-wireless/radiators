@@ -223,6 +223,27 @@ def install_geometry(material, g):
         lower=world.min(axis=0)
         upper=world.max(axis=0)
         preview.update({"vertices":world.tolist(),"faces":faces})
+    elif shape=="polyhedron":
+        # Native CSXCAD Polyhedron: closed triangle/polygon mesh (vertices + faces).
+        verts=np.asarray(g["vertices"],float)
+        if verts.ndim!=2 or verts.shape[1]!=3 or not 4<=len(verts)<=20000:
+            raise ValueError("polyhedron.vertices must be a list of 4..20000 XYZ vertices")
+        faces=g["faces"]
+        if not isinstance(faces,list) or not 4<=len(faces)<=40000:
+            raise ValueError("polyhedron.faces must be a list of 4..40000 faces")
+        for face in faces:
+            if (not isinstance(face,list) or len(face)<3 or
+                    not all(isinstance(i,int) and not isinstance(i,bool) and 0<=i<len(verts) for i in face)):
+                raise ValueError("polyhedron.faces must list >=3 valid vertex indices each")
+        if not np.all(np.isfinite(verts)):
+            raise ValueError("Non-finite polyhedron vertices")
+        world=transformed(verts,g)
+        add_polyhedron(material,world,faces,priority)
+        lower=world.min(axis=0)
+        upper=world.max(axis=0)
+        # The results viewer draws triangles: fan-split polygon faces for the preview only.
+        triangles=[[f[0],f[k],f[k+1]] for f in faces for k in range(1,len(f)-1)]
+        preview.update({"vertices":world.tolist(),"faces":triangles})
     else:
         raise ValueError(f"Unsupported schema v2 shape: {shape!r}")
     if not (np.all(np.isfinite(lower)) and np.all(np.isfinite(upper))):

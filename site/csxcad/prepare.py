@@ -20,7 +20,26 @@ THREE_VERSION = "0.160.0"
 VENDOR = {
     "three.module.min.js": (f"build/three.module.min.js", b"REVISION", 500_000),
     "addons/controls/OrbitControls.js": (f"examples/jsm/controls/OrbitControls.js", b"class OrbitControls", 10_000),
+    "addons/environments/RoomEnvironment.js": (f"examples/jsm/environments/RoomEnvironment.js", b"class RoomEnvironment", 1_000),
+    "addons/controls/TransformControls.js": (f"examples/jsm/controls/TransformControls.js", b"class TransformControls", 10_000),
 }
+# CodeMirror 5: classic scripts (no bundler), loaded on demand by js/code-editor.js.
+CM_VERSION = "5.65.16"
+CM_FILES = {
+    "lib/codemirror.js": (b"CodeMirror", 300_000),
+    "lib/codemirror.css": (b".CodeMirror", 5_000),
+    "mode/javascript/javascript.js": (b"defineMode", 20_000),
+    "addon/hint/show-hint.js": (b"showHint", 10_000),
+    "addon/hint/show-hint.css": (b"CodeMirror-hints", 300),
+    "addon/edit/closebrackets.js": (b"autoCloseBrackets", 3_000),
+    "addon/edit/matchbrackets.js": (b"matchBrackets", 3_000),
+    "addon/comment/comment.js": (b"toggleComment", 3_000),
+    "addon/selection/active-line.js": (b"styleActiveLine", 1_000),
+}
+CM_CDNS = (
+    "https://cdn.jsdelivr.net/npm/codemirror@{v}/{path}",
+    "https://unpkg.com/codemirror@{v}/{path}",
+)
 CDNS = (
     "https://cdn.jsdelivr.net/npm/three@{v}/{path}",
     "https://unpkg.com/three@{v}/{path}",
@@ -56,6 +75,33 @@ def fetch_vendor():
         else:
             raise RuntimeError("Failed to vendor three.js:\n" + "\n".join(errors))
     stamp.write_text(THREE_VERSION + "\n")
+
+
+def fetch_codemirror():
+    vendor = here / "vendor" / "codemirror"
+    stamp = vendor / "VERSION"
+    if stamp.is_file() and stamp.read_text().strip() == CM_VERSION and all(
+            (vendor / name).is_file() for name in CM_FILES):
+        return
+    for name, (marker, min_size) in CM_FILES.items():
+        errors = []
+        for pattern in CM_CDNS:
+            url = pattern.format(v=CM_VERSION, path=name)
+            try:
+                with urlopen(Request(url, headers={"User-Agent": "radiators-csxcad-prepare/1.0"}), timeout=35) as r:
+                    body = r.read()
+                if len(body) < min_size or marker not in body:
+                    raise ValueError(f"unexpected content ({len(body)} bytes)")
+                target = vendor / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(body)
+                print(f"vendored codemirror@{CM_VERSION} {name} ({len(body)} bytes)")
+                break
+            except Exception as error:
+                errors.append(f"{url}: {error}")
+        else:
+            raise RuntimeError("Failed to vendor CodeMirror:\n" + "\n".join(errors))
+    stamp.write_text(CM_VERSION + "\n")
 
 
 def collect_examples():
@@ -107,6 +153,7 @@ def main():
                         help="output directory (default: site/csxcad/www for Capacitor)")
     args = parser.parse_args()
     fetch_vendor()
+    fetch_codemirror()
     collect_examples()
     build(args.out.resolve())
 
