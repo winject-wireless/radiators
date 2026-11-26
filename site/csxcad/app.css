@@ -858,3 +858,8 @@ button[hidden],.button[hidden],input[hidden],.sim-run-actions [hidden] { display
 .param-help .hint {margin:3px 0;line-height:1.5;}
 .hint code {font-family:var(--mono);font-size:inherit;color:var(--text);background:var(--field);border-radius:3px;padding:1px 3px;overflow-wrap:anywhere;}
 .param-actions {align-items:center;}
+
+.workspace-unit-settings .row select {width:100%;min-width:0;}
+.workspace-unit-settings .row {grid-template-columns:minmax(90px,40%) minmax(0,1fr);}
+.unit-field input {font-variant-numeric:tabular-nums;}
+.vec3 .unit-field .value {font-size:var(--ui-small);text-align:right;padding:0 3px;}

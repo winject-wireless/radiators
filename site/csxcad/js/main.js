@@ -4,6 +4,7 @@
 import {
   parameterSets, resolveTemplate, resolveCase, fieldToValue, valueToField, isTemplate,
   validParameterName, renameParameter, parameterUsage, MAX_CASES,
+  UNIT_GROUPS, normalizeWorkspaceUnits, unitGroup, displayUnit, parseUnitField, formatUnitField, displayedNumber,
 } from "./params.js";
 import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { checkCase } from "./checks.js";
@@ -393,26 +394,31 @@ function setPath(obj, path, value) {
 // ---------------------------------------------------------------- fields
 // A numeric/expression field bound to a document path.
 function numField(path, { optional = false, def, int = false, unit, placeholder, onLive, aria, prepare, step } = {}) {
-  const wrap = h("div", { class: "field" });
+  const typed=unitGroup(unit);
+  const preferred=typed?displayUnit(unit,state.doc.workspace_units):unit;
+  const display=v=>typed?formatUnitField(v,unit,preferred):valueToField(v);
+  const displayNumber=v=>typed?displayedNumber(v,unit,preferred):v;
+  const parse=text=>typed?parseUnitField(text,unit,preferred):fieldToValue(text);
+  const wrap = h("div", { class: "field"+(typed?" unit-field":"") });
   const input = h("input", { type: "text", inputmode: "text", autocapitalize: "off", autocomplete: "off",
     autocorrect: "off", spellcheck: "false", enterkeyhint: "done", "aria-label": aria || path.join("."),
-    placeholder: placeholder ?? (optional && def !== undefined ? String(def) : "") });
+    placeholder: placeholder ?? (optional && def !== undefined ? display(def) : "") });
   const hint = h("div", { class: "value" });
   wrap.append(input, hint);
   const show = () => {
     const v = getPath(state.doc, path);
-    if (document.activeElement !== input) input.value = valueToField(v);
+    if (document.activeElement !== input) input.value = display(v);
     evaluateHint(v);
   };
   const evaluateHint = v => {
     wrap.classList.toggle("expr", isTemplate(v));
     wrap.classList.remove("invalid");
     hint.replaceChildren();
-    if (v === undefined) { if (unit) hint.textContent = unit; return; }
+    if (v === undefined) { if (preferred) hint.textContent = preferred; return; }
     if (isTemplate(v)) {
       try {
         const r = resolveTemplate(v, state.derived.params);
-        hint.textContent = "= " + fmt(r) + (unit ? " " + unit : "");
+        hint.textContent = "= " + fmt(displayNumber(r)) + (preferred ? " " + preferred : "");
       } catch (e) {
         wrap.classList.add("invalid");
         const missing = /Unknown (?:numeric )?parameter: ([A-Za-z_]\w*)/.exec(e.message);
@@ -424,32 +430,33 @@ function numField(path, { optional = false, def, int = false, unit, placeholder,
           } }));
         }
       }
-    } else if (unit) hint.textContent = unit;
+    } else if (preferred) hint.textContent = preferred;
   };
   const commit = () => {
     const text = input.value.trim();
     let value;
     if (text === "" && optional) value = undefined;
     else {
-      try { value = fieldToValue(text); }
+      try { value = parse(text); }
       catch (e) { wrap.classList.add("invalid"); hint.textContent = e.message; return; }
       if (int && typeof value === "number" && !Number.isInteger(value)) {
         wrap.classList.add("invalid"); hint.textContent = "Must be an integer"; return;
       }
     }
-    edit(doc => { prepare?.(doc); setPath(doc, path, value); }, { inspector: false });
+    if(edit(doc => { prepare?.(doc); setPath(doc, path, value); }, { inspector: false }))input.value=display(value);
   };
   input.addEventListener("change", commit);
   input.addEventListener("keydown", e => {
     if (e.key === "Enter") { e.preventDefault(); input.blur(); return; }
     // ↑ / ↓ nudge a plain number by `step` (Shift: ×10); parameters and expressions are left alone.
     if (step && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-      const cur = input.value.trim() === "" && def !== undefined ? def : Number(input.value);
+      const cur = input.value.trim() === "" && def !== undefined ? displayNumber(def) : Number(input.value);
       if (input.value.trim() !== "" && !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(input.value.trim())) return;
       if (!Number.isFinite(cur)) return;
       e.preventDefault();
-      const delta = (e.key === "ArrowUp" ? 1 : -1) * step * (e.shiftKey ? 10 : 1);
-      input.value = String(+(Math.round((cur + delta) / step) * step).toPrecision(12));
+      const displayStep=displayNumber(step);
+      const delta = (e.key === "ArrowUp" ? 1 : -1) * displayStep * (e.shiftKey ? 10 : 1);
+      input.value = String(+(Math.round((cur + delta) / displayStep) * displayStep).toPrecision(12));
       commit();
     }
   });
@@ -462,9 +469,11 @@ const fmt = v => typeof v === "number" ? String(+v.toPrecision(8)) : JSON.string
 
 function vec3Field(path, opts = {}) {
   const key = handleKey(path);
+  const unit=opts.unit??(path.at(-1)==="axis"?"":path.at(-1)==="rotate_deg"?"°":"mm");
+  const preferred=unitGroup(unit)?displayUnit(unit,state.doc.workspace_units):unit;
   const el = h("div", { class: "vec3", "data-handle": key }, ["x", "y", "z"].map((axis, i) =>
-    numField([...path, i], { ...opts, aria: `${opts.label || path.join(".")} ${axis}`,
-      placeholder: opts.defaults ? String(opts.defaults[i]) : axis })));
+    numField([...path, i], { ...opts, unit, aria: `${opts.label || path.join(".")} ${axis}`,
+      placeholder: opts.defaults ? (unitGroup(unit)?formatUnitField(opts.defaults[i],unit,preferred):String(opts.defaults[i])) : axis })));
   el.addEventListener("focusin", () => { if (state.handle !== key && currentHandles.has(key)) { state.handle = key; syncHandles(); } });
   return el;
 }
@@ -509,8 +518,8 @@ const row = (label, control, cls = "") => h("div", { class: "row " + cls }, h("l
 
 function fieldFor(def, path) {
   switch (def.type) {
-    case "vec3": return vec3Field(path, { label: def.label });
-    case "num": return numField(path, { optional: def.optional, def: def.default, aria: def.label });
+    case "vec3": return vec3Field(path, { label: def.label, unit: def.unit });
+    case "num": return numField(path, { optional: def.optional, def: def.default, unit: def.unit, aria: def.label });
     case "int": return numField(path, { optional: def.optional, def: def.default, int: true, aria: def.label });
     case "select": return selectField(path, def.options, { optional: def.optional, aria: def.label });
     case "material": {
@@ -1209,7 +1218,7 @@ function inspectGeometry(box, title, i) {
   }
   for (const f of def.fields.filter(f => isMainField(f, g))) add(box, row(f.label, fieldFor(f, [...base, f.key]), f.type === "points" ? "wide" : ""));
   if (g.transform) {
-    if (g.transform.rotate_deg) add(box, row("Rotate (°)", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })));
+    if (g.transform.rotate_deg) add(box, row("Rotate", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })));
     if (g.transform.translate) add(box, row("Translate", vec3Field([...base, "transform", "translate"], { optional: true, label: "translate" })));
   }
   const rg = state.derived.geometry[i];
@@ -1222,7 +1231,7 @@ function inspectGeometry(box, title, i) {
   }
   add(box, moreSection(
     ...def.fields.filter(f => !isMainField(f, g)).map(f => row(f.label, fieldFor(f, [...base, f.key]))),
-    !g.transform?.rotate_deg ? row("Rotate (°)", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })) : null,
+    !g.transform?.rotate_deg ? row("Rotate", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })) : null,
     !g.transform?.translate ? row("Translate", vec3Field([...base, "transform", "translate"], { optional: true, label: "translate" })) : null,
     row("Priority", numField([...base, "priority"], { optional: true, def: 10, int: true, aria: "Priority" })),
     bounds,
@@ -1315,7 +1324,7 @@ function argControl(i, key, d) {
   const path = ["geometry", i, "args", key];
   const t = ARG_TYPES[d.type];
   switch (t.control) {
-    case "vec3": return vec3Field(path, { label: d.label, optional: true, defaults: d.default, step: d.step,
+    case "vec3": return vec3Field(path, { label: d.label, unit:d.type==="point"?"mm":"", optional: true, defaults: d.default, step: d.step,
       prepare: doc => { if (!Array.isArray(getPath(doc, path))) setPath(doc, path, clone(d.default)); } });
     case "num": return numField(path, { optional: true, def: d.default, unit: t.unit, aria: d.label, step: d.step });
     case "int": return numField(path, { optional: true, def: d.default, int: true, aria: d.label, step: d.step ?? 1 });
@@ -1390,7 +1399,7 @@ function inspectMaterial(box, title, i) {
       for (const f of MATERIALS[v].fields) if (!f.optional) next[f.key] = m[f.key] ?? f.default;
       doc.materials[i] = next;
     }) })),
-    ...(def?.fields || []).map(f => row(f.label, numField([...base, f.key], { optional: f.optional, def: f.default, aria: f.label })))),
+    ...(def?.fields || []).map(f => row(f.label, numField([...base, f.key], { optional: f.optional, def: f.default, unit:f.unit, aria: f.label })))),
   h("p", { class: "hint", text: `Used by ${uses} item${uses === 1 ? "" : "s"}.` + (m.type === "conducting_sheet" ? " Conducting sheets apply only to zero-thickness boxes; thickness is in metres." : "") }));
 }
 
@@ -1411,8 +1420,8 @@ function inspectSim(box, title) {
     h("details", { class: "form-section", open: true }, h("summary", { text: "Excitation · Gaussian pulse" }),
       row("Center", numField(["excitation", "center_hz"], { unit: "Hz", aria: "Center frequency" })),
       row("Bandwidth (fc)", numField(["excitation", "bandwidth_hz"], { unit: "Hz", aria: "Bandwidth" })),
-      h("p", { class: "hint" }, "Band = center ± fc. Example: ", h("code", {text:"f_ghz * 1e9"}), ".")),
-    h("details", { class: "form-section", open: true }, h("summary", { text: "Domain · mm" }),
+      h("p", { class: "hint" }, "Band = center ± fc. Example: ", h("code", {text:"{f_ghz} GHz"}), ".")),
+    h("details", { class: "form-section", open: true }, h("summary", { text: "Domain · "+displayUnit("mm",doc.workspace_units) }),
       row("Start", vec3Field(["domain", "start"], { label: "domain start" })),
       row("Stop", vec3Field(["domain", "stop"], { label: "domain stop" })),
       h("div", { class: "row" }, h("span", { class: "lbl", text: "Boundaries" }),
@@ -1566,15 +1575,16 @@ function addItem(kind, type) {
 function arrayDialog(i) {
   const g = state.doc.geometry[i];
   const count = h("input", { type: "text", value: "3", inputmode: "numeric", "aria-label": "Copies" });
-  const step = ["x", "y", "z"].map((a, k) => h("input", { type: "text", value: k === 0 ? "10" : "0", "aria-label": "Step " + a, spellcheck: "false", autocapitalize: "off" }));
+  const lengthUnit=displayUnit("mm",state.doc.workspace_units);
+  const step = ["x", "y", "z"].map((a, k) => h("input", { type: "text", value: formatUnitField(k===0?10:0,"mm",lengthUnit), "aria-label": "Step " + a, spellcheck: "false", autocapitalize: "off" }));
   openDialog("Linear array of " + (g.name || g.shape), h("div", {},
     h("p", { class: "hint", text: "Adds copies translated by k × step. Step components may be parameters or expressions (e.g. pitch, lambda/2)." }),
-    row("Copies", count), row("Step (mm)", h("div", { class: "vec3" }, step))), [
+    row("Copies", count), row("Step ("+lengthUnit+")", h("div", { class: "vec3" }, step))), [
     ["Create", () => {
       const n = Math.trunc(Number(count.value));
       if (!(n >= 1 && n <= 200)) return setStatus("Copies must be 1–200", true);
       let steps;
-      try { steps = step.map(s => fieldToValue(s.value)); } catch (e) { return setStatus(e.message, true); }
+      try { steps = step.map(s => parseUnitField(s.value,"mm",lengthUnit)); } catch (e) { return setStatus(e.message, true); }
       edit(doc => {
         const src = doc.geometry[i];
         const baseT = src.transform?.translate || [0, 0, 0];
@@ -2016,6 +2026,20 @@ function openFromText(text, label) {
   catch (e) { setStatus("Open failed: " + e.message, true); }
 }
 
+function showWorkspaceUnits() {
+  const current=normalizeWorkspaceUnits(state.doc.workspace_units),fields={};
+  const labels={length:"Length",frequency:"Frequency",angle:"Angle",resistance:"Resistance",conductivity:"Conductivity",memory:"Memory"};
+  const content=h("div",{class:"workspace-unit-settings"},
+    h("p",{class:"hint",text:"Defaults for bare values and expressions in dimensional fields. Explicit units override them. Saved with this antenna; existing physical values do not change."}),
+    ...Object.entries(UNIT_GROUPS).map(([group,units])=>{
+      const select=h("select",{"aria-label":"Workspace "+labels[group]},...Object.keys(units).map(u=>h("option",{value:u,text:u})));
+      select.value=current[group];fields[group]=select;
+      return row(labels[group],select);
+    }),
+    h("p",{class:"hint"},"Examples: ",h("code",{text:"1 GHz"}),", ",h("code",{text:"1000 MHz"}),", ",h("code",{text:"{f_ghz * 1000} MHz"}),". Parameters remain scalar; units are applied in dimensional fields."));
+  openDialog("Workspace units",content,[["Apply",()=>edit(doc=>{doc.workspace_units=Object.fromEntries(Object.entries(fields).map(([k,el])=>[k,el.value]));})]]);
+}
+
 async function menuAction(action) {
   closeMenus();
   const d = state.derived;
@@ -2043,6 +2067,7 @@ async function menuAction(action) {
       try { setStatus(await saveFile(slug() + ".png", viewport.screenshot(), "image/png")); }
       catch (e) { setStatus(e.message, true); }
       break;
+    case "workspace-units": showWorkspaceUnits(); break;
     case "theme": {
       const root = document.documentElement;
       const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;

@@ -204,3 +204,17 @@ through `@capacitor/filesystem` (Documents, falling back to the cache) and
 opens the share sheet through `@capacitor/share`. The results-viewer links
 point to the published site. `www/`, `android/` and `node_modules/` are not
 committed.
+
+### Workspace units
+
+Open **More → Workspace units** to select default length, frequency, angle,
+resistance, conductivity and memory units for the current document. These
+preferences are stored as `workspace_units` in the saved antenna JSON. Numeric
+fields accept e.g. `1 GHz`, `1000 MHz`, `{f_ghz * 1000} MHz` or a bare value in
+the selected default. One trailing unit applies to the entire expression;
+mixed-unit arithmetic within an expression is not supported. Parameters and
+sweep values remain scalar, with units applied at the dimensional field.
+The saved physical values remain in schema units (mm, Hz, degrees, Ω, S/m,
+GiB, or metres for conducting sheet thickness). Expressions compile to ordinary
+`$expr` values, so native CI and browser sweeps agree. Workspace display metadata
+is removed from resolved cases and has no effect on cached simulation inputs.

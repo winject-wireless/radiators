@@ -59,6 +59,28 @@ try {
   assert.ok((await dock.boundingBox()).height<resized);
   const savedDock=(await dock.boundingBox()).height;
   assert.equal(await page.getByLabel("openEMS engine").inputValue(),"cpu");
+  // Verify per-document units and non-destructive display changes.
+  const initialHz=await page.evaluate(()=>window.__csxcad.state.doc.excitation.center_hz);
+  const center=page.getByLabel("Center frequency",{exact:true});
+  await page.locator("#menuButton").click();
+  await page.getByRole("menuitem",{name:"Workspace units…"}).click();
+  await page.getByLabel("Workspace Frequency").selectOption("MHz");
+  await page.getByRole("button",{name:"Apply",exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.workspace_units.frequency),"MHz");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.excitation.center_hz),initialHz);
+  await page.locator('[data-dock="sim"]').click();
+  assert.equal(Number(await center.inputValue()),initialHz/1e6);
+  await center.fill("1 GHz");
+  await center.press("Tab");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.excitation.center_hz),1e9);
+  await center.fill(String(initialHz)+" Hz");
+  await center.press("Tab");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.excitation.center_hz),initialHz);
+  // Restore GHz display for the remaining simulation smoke test.
+  await page.locator("#menuButton").click();
+  await page.getByRole("menuitem",{name:"Workspace units…"}).click();
+  await page.getByLabel("Workspace Frequency").selectOption("GHz");
+  await page.getByRole("button",{name:"Apply",exact:true}).click();
   const doc=await page.evaluate(()=>structuredClone(window.__csxcad.state.doc));
   doc.parameters={...(doc.parameters||{}), smoke_case:1};
   doc.sweep={enabled:true,mode:"product",parameters:{smoke_case:{values:[1,2]}}};

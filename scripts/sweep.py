@@ -248,6 +248,7 @@ def expand_cases(config, source):
         generator = base.pop("generator", None)
         base.pop("sweep", None)
         base.pop("parameters", None)
+        base.pop("workspace_units", None)  # editor-only display metadata
         if generator is not None:
             base = _run_generator(generator, base, parameters)
         resolved = resolve_template(base, parameters)

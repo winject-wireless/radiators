@@ -324,6 +324,7 @@ export function resolveCase(config, parameters) {
   delete base.sweep;
   delete base.parameters;
   delete base.generator;
+  delete base.workspace_units; // editor metadata, not a solver input
   return resolveTemplate(base, parameters);
 }
 
@@ -343,6 +344,81 @@ export function valueToField(v) {
   if (isTemplate(v)) return "$param" in v ? String(v.$param) : String(v.$expr);
   if (v === undefined || v === null) return "";
   return typeof v === "number" ? String(+v.toPrecision(12)) : String(v);
+}
+
+// Workspace preferences are presentation-only. Canonical units match the
+// schema fields (geometry mm, frequencies Hz, angles degrees, etc.).
+export const UNIT_GROUPS = {
+  length: { mm:1, cm:10, m:1000, "µm":0.001, nm:1e-6, in:25.4, mil:0.0254, ft:304.8 },
+  frequency: { Hz:1, kHz:1e3, MHz:1e6, GHz:1e9 },
+  angle: { "°":1, rad:180/Math.PI },
+  resistance: { "Ω":1, "kΩ":1e3, "MΩ":1e6, "mΩ":1e-3 },
+  conductivity: { "S/m":1, "mS/m":1e-3, "kS/m":1e3, "MS/m":1e6 },
+  memory: { GiB:1, MiB:1/1024, KiB:1/(1024**2) }
+};
+export const DEFAULT_WORKSPACE_UNITS = {length:"mm",frequency:"GHz",angle:"°",resistance:"Ω",conductivity:"S/m",memory:"GiB"};
+const ALIASES = {um:"µm","μm":"µm",inch:"in",inches:"in",deg:"°",degree:"°",degrees:"°",ohm:"Ω",Ohm:"Ω",ohms:"Ω",kohm:"kΩ",kOhm:"kΩ",Mohm:"MΩ",mohm:"mΩ"};
+export function normalizeWorkspaceUnits(settings) {
+  return Object.fromEntries(Object.entries(DEFAULT_WORKSPACE_UNITS).map(([group,def])=>[
+    group,Object.hasOwn(UNIT_GROUPS[group],settings?.[group])?settings[group]:def
+  ]));
+}
+export function unitGroup(unit) {
+  return Object.keys(UNIT_GROUPS).find(g=>Object.hasOwn(UNIT_GROUPS[g],unit));
+}
+export function displayUnit(canonical, settings) {
+  const g=unitGroup(canonical);
+  return g ? normalizeWorkspaceUnits(settings)[g] : canonical;
+}
+const unitRatio=(from,to)=>{
+  const g=unitGroup(to);
+  if(!g || !Object.hasOwn(UNIT_GROUPS[g],from))throw Error("Expected "+(g||"compatible")+" units, got "+from);
+  return UNIT_GROUPS[g][from]/UNIT_GROUPS[g][to];
+};
+const unitNames=[...new Set([...Object.values(UNIT_GROUPS).flatMap(g=>Object.keys(g)),...Object.keys(ALIASES)])].sort((a,b)=>b.length-a.length);
+const suffix=new RegExp("^(.*?)(?:\\s+)("+unitNames.map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\// Walk a config and apply fn to every template object (for renames / usage).")).join("|")+")$");
+export function parseUnitField(text, canonical, preferred=canonical) {
+  let s=String(text).trim(),from=preferred;
+  const match=s.match(suffix);
+  if(match){s=match[1].trim();from=Object.hasOwn(ALIASES,match[2])?ALIASES[match[2]]:match[2];}
+  else {
+    // Also allow the common compact literal "2.45GHz", without treating
+    // variable names such as f_ghz as unit suffixes.
+    const compact=s.match(/^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)([^\d\s].*)$/);
+    if(compact&&unitNames.includes(compact[2])){s=compact[1];from=Object.hasOwn(ALIASES,compact[2])?ALIASES[compact[2]]:compact[2];}
+  }
+  if(s.startsWith("{")&&s.endsWith("}"))s=s.slice(1,-1).trim();
+  const factor=unitRatio(from,canonical);
+  const value=fieldToValue(s);
+  if(typeof value==="number"){
+    const converted=value*factor;
+    if(!Number.isFinite(converted))throw Error("Unit conversion is not finite");
+    return +converted.toPrecision(15);
+  }
+  if(factor===1)return value;
+  const expr="("+valueToField(value)+") * "+factor;
+  parseExpression(expr); // enforce the shared grammar/length before saving
+  return {$expr:expr};
+}
+// Numeric values are displayed in the default unit; existing parametric
+// expressions are rendered with their explicit canonical unit, preserving
+// their meaning when a workspace default changes.
+export function formatUnitField(value,canonical,preferred=canonical) {
+  if(typeof value==="number")return valueToField(value/unitRatio(preferred,canonical));
+  if(isTemplate(value)){
+    const src=valueToField(value);
+    const scaled=src.match(/^\((.*)\) \* ([\d.eE+-]+)$/);
+    if(scaled){
+      const g=unitGroup(canonical);
+      const u=Object.keys(UNIT_GROUPS[g]).find(u=>unitRatio(u,canonical)===Number(scaled[2]));
+      if(u&&u!==canonical)return "{"+scaled[1]+"} "+u;
+    }
+    return preferred===canonical?src:"{"+src+"} "+canonical;
+  }
+  return valueToField(value);
+}
+export function displayedNumber(value,canonical,preferred=canonical) {
+  return typeof value==="number"?value/unitRatio(preferred,canonical):value;
 }
 
 // Walk a config and apply fn to every template object (for renames / usage).
