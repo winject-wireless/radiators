@@ -8,7 +8,7 @@ import {
 import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
-import { renderRunPanel, resultFor, clearResults, renderResults } from "./sim/panel.js";
+import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, transformer, rotationMatrix } from "./geometry.js";
@@ -886,7 +886,7 @@ function renderSim() {
   fieldRefreshers = simRefreshers = [];
   box.replaceChildren();
   const d = state.derived;
-  add(box, h("div", { class: "sim-head" }, h("span", { class: "hint", text: "Run the current case here, or save the JSON for the radiators simulator (CI)." }),
+  add(box, h("div", { class: "sim-head" }, h("span", { class: "hint", text: "Local simulation · export JSON for native CI." }),
     h("button", { type: "button", class: "icon head-btn sim-max-btn", title: "Maximize (Esc to restore)", "aria-label": "Maximize simulation panel",
       onclick: () => setSimMax(!state.simMax) }, icon(state.simMax ? "minimize" : "maximize"))));
   renderRunPanel(box, simContext);
@@ -897,23 +897,25 @@ function renderSim() {
 }
 // What the run panel needs from the editor.
 const simContext = {
-  getCase() {
+  getCase(c = state.derived.case) {
     const d = state.derived;
-    const base = { id: d.case.id, name: d.case.name };
+    const base = { id: c.id, name: c.name };
+    if (d.caseError) return { ...base, error: d.caseError };
     if (state.doc.generator) return { ...base, error: "configs with a Python generator can only run in the radiators scripts" };
     try {
-      const ex = expandResolved(resolveCase(state.doc, d.case.parameters));
+      const ex = expandResolved(resolveCase(state.doc, c.parameters));
       if (ex.pending) return { ...base, pending: true };
       if (ex.error) return { ...base, error: ex.error };
       return { ...base, config: ex.cfg };
     } catch (e) { return { ...base, error: e.message }; }
   },
+  getCases() { return state.derived.cases.map(c=>this.getCase(c)); },
   slug: () => slug(),
   onBadge(text) { for (const id of ["simBadge", "simBadgeMobile"]) { const b = $(id); if (b) b.textContent = text; } },
   notify: (msg, error = false) => setStatus(msg, error),
   refresh: () => { renderSim(); syncResults(); },
 };
-let displayedRun, displayedStale, activeProbe = null;
+let displayedRun, displayedStale, displayedCase, displayedCaseStatus, activeProbe = null;
 const sectionNames = ["XY", "YZ", "XZ"];
 const probeFmt = (v, n = 2) => Number.isFinite(v) ? v.toFixed(n) : "—";
 function updateProbe() {
@@ -942,7 +944,11 @@ function syncResults() {
   const caseId = state.derived.case.id;
   const run = resultFor(caseId);
   const stale = !!run && JSON.stringify(simContext.getCase().config) !== run.key;
-  if (run !== displayedRun || stale !== displayedStale) {
+  const caseStatus = caseRunState(caseId);
+  syncCaseSelectors();
+  if (run !== displayedRun || stale !== displayedStale || displayedCase !== caseId || displayedCaseStatus !== caseStatus) {
+    displayedCase = caseId;
+    displayedCaseStatus = caseStatus;
     displayedRun = run;
     displayedStale = stale;
     renderResults($("resultCharts"), simContext, run, caseId, stale);
@@ -1432,9 +1438,11 @@ function inspectSim(box, title) {
       checkField(["outputs", "include_realized_gain"], "Realized gain"),
       checkField(["outputs", "include_polarization"], "E_θ / E_φ polarization"),
       checkField(["outputs", "include_impedance"], "Input impedance")),
-    h("details", { class: "form-section" }, h("summary", { text: "Solver & CI resources" }),
+    h("details", { class: "form-section" }, h("summary", { text: "Solver settings" }),
       row("Max timesteps", numField(["solver", "max_timesteps"], { optional: true, def: 20000, int: true, aria: "Max timesteps" })),
-      row("End criteria", numField(["solver", "end_criteria"], { optional: true, def: 0.0001, aria: "End criteria" })),
+      row("End criteria", numField(["solver", "end_criteria"], { optional: true, def: 0.0001, aria: "End criteria" }))),
+    h("details", { class: "form-section" }, h("summary", { text: "Advanced · native CI resources" }),
+      h("p", { class: "hint", text: "Exported JSON only. Browser execution uses the thread control above." }),
       row("CPUs", numField(["solver", "resources", "cpus"], { optional: true, aria: "CPUs" })),
       row("Memory", numField(["solver", "resources", "memory_gib"], { optional: true, unit: "GiB", aria: "Memory" }))));
 }
@@ -1785,6 +1793,49 @@ function renderJson(force = false) {
   ta.dataset.dirty = "0";
 }
 
+// Keep the frozen Results selector and viewport selector in sync, without
+// rebuilding an unchanged select while the user is choosing a case.
+function syncCaseSelectors() {
+  const d=state.derived;
+  if(!d)return;
+  for(const id of ["caseSelect","resultCase"]){
+    const select=$(id);
+    const labels=d.cases.map(c=>{
+      const label=c.name==="Default"?c.name:`${c.id} · ${c.name}`;
+      const s=caseRunState(c.id)?.status;
+      return id==="resultCase" && s ? `${s==="done"?"✓":s==="running"?"▶":s==="failed"?"!":s==="queued"?"…":s==="stopped"?"■":"–"} ${label} · ${s}` : label;
+    });
+    const key=JSON.stringify(labels);
+    if(select.dataset.optionsKey!==key){
+      select.replaceChildren(...labels.map((text,k)=>h("option",{value:k,text})));
+      select.dataset.optionsKey=key;
+    }
+    select.value=state.caseIndex;
+  }
+  $("resultCaseCount").textContent=`${state.caseIndex+1}/${d.cases.length}`;
+}
+function stepResultCase(delta) {
+  const next=Math.max(0,Math.min(state.derived.cases.length-1,state.caseIndex+delta));
+  if(next===state.caseIndex)return;
+  state.caseIndex=next;
+  refresh();
+  $("resultBody").scrollTop=0;
+}
+function installResultSwipe(){
+  const area=$("resultBody");
+  let start=null;
+  area.addEventListener("touchstart",e=>{
+    if(!mobile()||e.touches.length!==1||e.target.closest("button,select,input,a")){start=null;return;}
+    start={x:e.touches[0].clientX,y:e.touches[0].clientY};
+  },{passive:true});
+  area.addEventListener("touchcancel",()=>{start=null;},{passive:true});
+  area.addEventListener("touchend",e=>{
+    if(!start)return;
+    const t=e.changedTouches[0], dx=t.clientX-start.x,dy=t.clientY-start.y;start=null;
+    if(Math.abs(dx)>45 && Math.abs(dx)>1.5*Math.abs(dy))stepResultCase(dx<0?1:-1);
+  },{passive:true});
+}
+
 // ---------------------------------------------------------------- refresh
 function refresh(opts = {}) {
   const o = { tree: true, inspector: true, params: true, json: true, viewport: true, ...opts };
@@ -1795,11 +1846,7 @@ function refresh(opts = {}) {
   $("caseBadge").textContent = d.cases.length > 1 ? String(d.cases.length) : "";
   $("undo").disabled = !history.undo.length;
   $("redo").disabled = !history.redo.length;
-  for (const id of ["caseSelect", "resultCase"]) {
-    const select = $(id);
-    select.replaceChildren(...d.cases.map((c, k) => h("option", { value: k, text: c.name === "Default" ? c.name : `${c.id} · ${c.name}` })));
-    select.value = state.caseIndex;
-  }
+  syncCaseSelectors();
   if (o.tree) renderTree();
   if (o.inspector) renderInspector();
   else inspectorRefreshers.forEach(f => f());
@@ -2014,7 +2061,7 @@ function setDock(name) {
 function installSheetDrag() {
   for (const head of document.querySelectorAll(".panel .panel-head")) {
     let y0 = null;
-    head.addEventListener("pointerdown", e => { if (!mobile() || e.target.closest("button")) return; y0 = e.clientY; head.setPointerCapture(e.pointerId); });
+    head.addEventListener("pointerdown", e => { if (!mobile() || e.target.closest("button,select,input,label")) return; y0 = e.clientY; head.setPointerCapture(e.pointerId); });
     head.addEventListener("pointerup", e => {
       if (y0 === null) return;
       const dy = e.clientY - y0;
@@ -2117,6 +2164,7 @@ async function boot() {
   $("chipEdit").addEventListener("click", () => openSheet("inspect"));
   window.addEventListener("popstate", () => closeSheet(true));
   installSheetDrag();
+  installResultSwipe();
   $("jsonSource").addEventListener("click", () => { state.jsonMode = "source"; renderJson(true); });
   $("jsonResolved").addEventListener("click", () => { state.jsonMode = "resolved"; renderJson(true); });
   $("jsonText").addEventListener("input", () => { $("jsonText").dataset.dirty = "1"; });
