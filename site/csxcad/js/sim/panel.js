@@ -144,12 +144,12 @@ export function renderRunPanel(box, ctx) {
   ui = { bar, stats, logPre, runBtn, abortBtn };
 
   const caseLine = c.config
-    ? `Case ${c.id}${c.name && c.name !== "Default" ? ` (${c.name})` : ""}`
+    ? sweep ? `${c.label} · ${cases.length} cases` : "Single case"
     : c.pending ? "Geometry scripts are still running…" : `Cannot simulate: ${c.error}`;
   box.append(h("div", { class: "form-section sim-run" },
     h("h3", { text: "Run in browser" }),
     h("div", { class: "sim-controls" }, allBtn, runBtn, abortBtn, h("label", { class: "sim-engine" }, "Engine", engine), h("label", { class: "sim-threads" }, "Threads", threads)),
-    h("p", { class: "hint sim-case-hint", text: `${caseLine}${sweep ? " · " + cases.length + " cases" : ""}${pending ? " · waiting for geometry scripts" : ""}. Local WASM · lumped ports.` }),
+    h("p", { class: "hint sim-case-hint", title: c.name || "", text: `${caseLine}${pending && !c.pending ? " · preparing cases" : ""}` }),
     unavailable ? h("div", { class: "note warn" },
       h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
       !isolationBlocked ? h("button", { type: "button", onclick: async e => {

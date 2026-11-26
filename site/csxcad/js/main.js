@@ -892,7 +892,7 @@ function renderSim() {
   fieldRefreshers = simRefreshers = [];
   box.replaceChildren();
   const d = state.derived;
-  add(box, h("div", { class: "sim-head" }, h("span", { class: "hint", text: "Local simulation · export JSON for native CI." }),
+  add(box, h("div", { class: "sim-head" }, h("span", { class: "hint", text: "Simulation settings" }),
     h("button", { type: "button", class: "icon head-btn sim-max-btn", title: "Maximize (Esc to restore)", "aria-label": "Maximize simulation panel",
       onclick: () => setSimMax(!state.simMax) }, icon(state.simMax ? "minimize" : "maximize"))));
   renderRunPanel(box, simContext);
@@ -905,7 +905,7 @@ function renderSim() {
 const simContext = {
   getCase(c = state.derived.case) {
     const d = state.derived;
-    const base = { id: c.id, name: c.name };
+    const base = { id: c.id, name: c.name, label: shortCaseLabel(c), index: d.cases.indexOf(c)+1 };
     if (d.caseError) return { ...base, error: d.caseError };
     if (state.doc.generator) return { ...base, error: "configs with a Python generator can only run in the radiators scripts" };
     try {
@@ -1602,7 +1602,7 @@ function renderParams() {
         h("button", { type: "button", class: "small", onclick: () => edit(dd => { dd.parameters ??= {}; unknown.forEach(n => { dd.parameters[n] = 1; }); }) }, "Define all = 1")) : null,
       h("div", { class: "actions" },
         h("button", { type: "button", onclick: () => edit(dd => { dd.parameters ??= {}; dd.parameters[uniqueParam(dd, "p")] = 1; }) }, "+ Parameter")),
-      h("p", { class: "hint", text: "Fields accept numbers, a parameter name ({\"$param\"}) or an expression ({\"$expr\"}) with + − * / % **, abs min max sqrt sin cos tan floor ceil, pi, e — the same grammar the radiators sweep runner evaluates." })));
+      h("details", { class: "param-help" }, h("summary", { text: "Expression syntax" }), h("p", { class: "hint", text: "Fields accept numbers, a parameter name ({\"$param\"}) or an expression ({\"$expr\"}) with + − * / % **, abs min max sqrt sin cos tan floor ceil, pi, e — the same grammar the radiators sweep runner evaluates." }))));
   if (swept.size) add(left, h("p", { class: "hint" }, `Swept in Simulation: ${[...swept].join(", ")}. `,
     h("button", { type: "button", class: "small", onclick: () => openSheet("sim") }, "Open sweep")));
   add(box, left);
@@ -1676,10 +1676,10 @@ function renderSweep(d, swept) {
     } else delete dd.sweep;
     state.caseIndex = 0;
   }));
-  sec.append(h("label", { class: "check-inline" }, on, "Expand into independent simulation cases (max " + MAX_CASES + ")"));
+  sec.append(h("label", { class: "check-inline" }, on, "Enable sweep (max " + MAX_CASES + " cases)"));
   if (!doc.sweep) return sec;
   const mode = h("select", { "aria-label": "Sweep mode" },
-    h("option", { value: "product", text: "product — every combination" }), h("option", { value: "zip", text: "zip — pair equal-length axes" }));
+    h("option", { value: "product", text: "All combinations" }), h("option", { value: "zip", text: "Pair by index" }));
   mode.value = doc.sweep.mode || "product";
   mode.addEventListener("change", () => edit(dd => { dd.sweep.mode = mode.value; }));
   sec.append(row("Mode", mode));
@@ -1692,10 +1692,10 @@ function renderSweep(d, swept) {
   }) }, "+ Sweep axis")));
   if (d.caseError) sec.append(h("div", { class: "note warn", text: d.caseError }));
   else {
-    sec.append(h("div", { class: "hint", text: `${d.cases.length} case${d.cases.length > 1 ? "s" : ""} → results/${slug()}__case-0001 … each runs as its own FDTD job.` }));
+    sec.append(h("div", { class: "hint", text: `${d.cases.length} case${d.cases.length > 1 ? "s" : ""}` }));
     const list = h("div", { class: "case-list", role: "listbox", "aria-label": "Cases" });
     d.cases.forEach((c, k) => list.append(h("div", { role: "option", class: k === state.caseIndex ? "active" : "", "aria-selected": String(k === state.caseIndex),
-      onclick: () => { state.caseIndex = k; refresh(); }, text: `${c.id}  ${c.name}` })));
+      onclick: () => changeCase(k), title: c.name, text: shortCaseLabel(c) })));
     sec.append(list);
   }
   return sec;
@@ -1801,6 +1801,14 @@ function renderJson(force = false) {
   ta.dataset.dirty = "0";
 }
 
+// Case names show only swept values; the full parameter set is available in
+// the option title and the exported configuration.
+function shortCaseLabel(c) {
+  if(c.id==="default")return "Default";
+  const n=Number(c.id.match(/\d+$/)?.[0]);
+  const values=Object.keys(state.doc.sweep?.parameters||{}).filter(k=>k in c.parameters).map(k=>k+"="+String(c.parameters[k]));
+  return (Number.isFinite(n)?"#"+n:c.id)+(values.length?" · "+values.join(", "):"");
+}
 // Keep the frozen Results selector and viewport selector in sync, without
 // rebuilding an unchanged select while the user is choosing a case.
 function syncCaseSelectors() {
@@ -1809,13 +1817,13 @@ function syncCaseSelectors() {
   for(const id of ["caseSelect","resultCase"]){
     const select=$(id);
     const labels=d.cases.map(c=>{
-      const label=c.name==="Default"?c.name:`${c.id} · ${c.name}`;
+      const label=shortCaseLabel(c);
       const s=caseRunState(c.id)?.status;
       return id==="resultCase" && s ? `${s==="done"?"✓":s==="running"?"▶":s==="failed"?"!":s==="queued"?"…":s==="stopped"?"■":"–"} ${label} · ${s}` : label;
     });
     const key=JSON.stringify(labels);
     if(select.dataset.optionsKey!==key){
-      select.replaceChildren(...labels.map((text,k)=>h("option",{value:k,text})));
+      select.replaceChildren(...labels.map((text,k)=>h("option",{value:k,text,title:d.cases[k].name})));
       select.dataset.optionsKey=key;
     }
     select.value=state.caseIndex;
@@ -1823,14 +1831,21 @@ function syncCaseSelectors() {
   $("caseWrap").hidden=d.cases.length<=1;
   $("resultCaseCount").textContent=`${state.caseIndex+1}/${d.cases.length}`;
 }
-function stepResultCase(delta) {
-  const next=Math.max(0,Math.min(state.derived.cases.length-1,state.caseIndex+delta));
+// Preserve the relative vertical position when comparing cases. If a target
+// has no results yet, keep the prior fraction until a completed case returns.
+let resultScrollFraction=0;
+function changeCase(index) {
+  const next=Math.max(0,Math.min(state.derived.cases.length-1,index));
   if(next===state.caseIndex)return;
+  const area=$("resultBody");
+  const before=area.scrollHeight-area.clientHeight;
+  if(area.clientHeight>0 && before>1)resultScrollFraction=area.scrollTop/before;
   state.caseIndex=next;
   persist();
   refresh();
-  $("resultBody").scrollTop=0;
+  if(area.clientHeight>0)area.scrollTop=resultScrollFraction*Math.max(0,area.scrollHeight-area.clientHeight);
 }
+function stepResultCase(delta) { changeCase(state.caseIndex+delta); }
 function installResultSwipe(){
   const area=$("resultBody");
   let start=null;
@@ -2133,7 +2148,7 @@ async function boot() {
     });
   }
   for (const id of ["caseSelect", "resultCase"]) {
-    $(id).addEventListener("change", e => { state.caseIndex = Number(e.target.value); persist(); refresh(); });
+    $(id).addEventListener("change", e => changeCase(Number(e.target.value)));
   }
   $("patternSelect").addEventListener("change", e => {
     const run = resultFor(state.derived.case.id);
