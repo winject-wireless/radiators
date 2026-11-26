@@ -204,6 +204,12 @@ for filename in ("editor.js", "editor.css", "plotly.min.js", "jscad-modeling.min
     editor_html = editor_html.replace(f"./{filename}\"", f"./{filename}?v={digest}\"")
 (args.site / "editor.html").write_text(editor_html)
 
+# Parametric CSXCAD editor (static, Capacitor-ready): vendors three.js and
+# bundles schema v2 examples into site/dist/csxcad/.
+import subprocess
+subprocess.run([sys.executable, str(src_dir / "csxcad" / "prepare.py"), "--out", str(args.site / "csxcad")],
+               check=True)
+
 for sim in simulations.values():
     sim["cases"].sort(key=lambda case: case["id"])
 manifest = {

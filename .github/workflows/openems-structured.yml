@@ -121,6 +121,12 @@ jobs:
           found = {path.name for path in Path('antennas').glob('yagi_*.json')}
           assert found == {expected}, f'Only the best Yagi config should exist: {found}'
           PY
+      # Self-hosted Linux runners do not necessarily have 'node' on PATH, and
+      # the validation step below already needs it.
+      - name: Install Node.js for viewer validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Validate generic parameter sweeps without openEMS
         run: |
           python3 -m unittest discover -s scripts -p 'test_yagi_orientation.py' -v
@@ -130,6 +136,7 @@ jobs:
           python3 -m py_compile antennas/simulate.py antennas/simulate_v2.py site/build_site.py
           node --check site/editor.js
           node site/check_editor.js
+          node site/csxcad/check.mjs
           python3 scripts/sweep.py examples/racetrack_loop_sweep.json
           python3 scripts/sweep.py examples/helix_sweep.json
       - name: Detect changed antenna configurations
@@ -234,11 +241,6 @@ jobs:
         run: |
           python3 scripts/run_simulations.py --list selected-antennas.txt --results results \
             --skip-complete --cpus-per-job 2 --memory-gib-per-job 5 --reserve-memory-gib 2
-      # Self-hosted Linux runners do not necessarily have 'node' on PATH.
-      - name: Install Node.js for viewer validation
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
       - name: Build and verify complete static result viewer
         env:
           REQUIRE_TARGET: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -254,6 +256,10 @@ jobs:
           node --check site/dist/editor.js
           node --check site/dist/jscad-modeling.min.js
           node site/check_editor.js site/dist
+          for f in index.html sw.js js/main.js vendor/three.module.min.js vendor/addons/controls/OrbitControls.js examples/index.json; do
+            test -s "site/dist/csxcad/$f"
+          done
+          node --check site/dist/csxcad/sw.js
           node --check site/dist/plotly.min.js
           node site/check_viewer.js site/dist
           node site/check_camera.js site/dist
