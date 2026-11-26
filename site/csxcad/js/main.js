@@ -962,8 +962,12 @@ function updateProbe() {
   const pos = run.probePosition;
   for (const b of controls.querySelectorAll("[data-section]")) b.setAttribute("aria-pressed", String(run.sections.includes(b.dataset.section)));
   $("probeToggle").setAttribute("aria-pressed", String(run.probeVisible));
-  $("sectionFollow").setAttribute("aria-pressed", String(run.followProbe));
-  viewport?.setSections(run.sections, run.followProbe && pos ? pos : [0,0,0]);
+  // A hidden probe must never leave the principal planes offset.
+  const canFollow = !!run.probeVisible && Array.isArray(pos) && pos.length === 3 && pos.every(Number.isFinite);
+  if (!canFollow) run.followProbe = false;
+  $("sectionFollow").disabled = !canFollow;
+  $("sectionFollow").setAttribute("aria-pressed", String(!!run.followProbe));
+  viewport?.setSections(run.sections, canFollow && run.followProbe ? pos : [0,0,0]);
   if (!pos || !run.probeVisible) return;
   const s = sampleDirection(record, pos);
   if (!s) return;
@@ -2256,11 +2260,15 @@ async function boot() {
   $("probeToggle").addEventListener("click", () => {
     if (!activeProbe) return;
     const run = activeProbe.run; run.probeVisible = !run.probeVisible;
-    if (!run.probeVisible && state.handle === "result-probe") state.handle = null;
+    if (!run.probeVisible) {
+      run.followProbe = false;
+      if (state.handle === "result-probe") state.handle = null;
+    }
     updateProbe(); syncHandles();
   });
   $("sectionFollow").addEventListener("click", () => {
-    if (!activeProbe) return; activeProbe.run.followProbe = !activeProbe.run.followProbe; updateProbe();
+    if (!activeProbe?.run.probeVisible) return;
+    activeProbe.run.followProbe = !activeProbe.run.followProbe; updateProbe();
   });
   $("probeSelect").addEventListener("click", () => {
     if (!activeProbe) return;

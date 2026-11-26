@@ -112,6 +112,27 @@ try {
   // Three independent cuts; selection uses the real geometry-editor gizmo.
   const sectionCount = name => page.evaluate(n => window.__csxcad.viewport.sections.children.filter(x => x.userData.section === n && x.isLine).length, name);
   for (const name of ["XY","YZ","XZ"]) assert.equal(await sectionCount(name),1);
+  const assertPlanes = async (point) => {
+    const planes = await page.evaluate(() => {
+      const v = window.__csxcad.viewport;
+      const items = {};
+      for (const [name,axis] of [["XY",2],["YZ",0],["XZ",1]]) {
+        const square=v.sections.children.find(x=>x.isMesh&&x.userData.section===name);
+        const line=v.sections.children.find(x=>x.isLine&&x.userData.section===name);
+        const positions=line?.geometry.attributes.position.array||[];
+        items[name]={position:square?.position.toArray(),coordinates:Array.from(positions).filter((_,i)=>i%3===axis)};
+      }
+      return {items,grid:v.grid.position.toArray(),minZ:v.bounds.min.z};
+    });
+    assert.deepEqual(planes.grid,[0,0,0]);
+    assert.ok(planes.minZ<0,"Dipole must extend below global XY");
+    for(const [name,axis] of [["XY",2],["YZ",0],["XZ",1]]) {
+      const expected=[0,0,0];expected[axis]=point[axis];
+      assert.deepEqual(planes.items[name].position,expected,name+" plane origin");
+      assert.ok(planes.items[name].coordinates.every(x=>Math.abs(x-point[axis])<1e-5),name+" intersection offset");
+    }
+  };
+  await assertPlanes([0,0,0]);
   await page.locator('[data-section="XY"]').click();
   assert.equal(await sectionCount("XY"),0);
   await page.locator('[data-section="XY"]').click();
@@ -142,6 +163,7 @@ try {
   assert.deepEqual(after.point,[20,10,15]);
   assert.equal(after.doc,before.doc);
   assert.match(await page.locator("#probePosition").textContent(), /X 20.0.*Y 10.0.*Z 15.0/);
+  await assertPlanes([0,0,0]);
   // Projected marker radius stays constant across camera dolly and viewport resize.
   const projectedRadius=()=>page.evaluate(()=>{
     const v=window.__csxcad.viewport, o=v.handles.children.find(h=>h.userData.handleKey==="result-probe");
@@ -156,11 +178,16 @@ try {
   assert.ok(Math.abs(await projectedRadius()-r0)<0.5);
   assert.ok(r0>=5 && r0<=8);
   await page.locator("#sectionFollow").click();
-  assert.equal(await page.evaluate(() => window.__csxcad.viewport.sections.children.find(x=>x.isMesh && x.userData.section==="XY").position.z),15);
+  await assertPlanes([20,10,15]);
   await page.locator("#probeToggle").click();
   assert.equal(await page.evaluate(() => window.__csxcad.viewport.handles.children.some(x=>x.userData.handleKey==="result-probe")),false);
+  assert.equal(await page.locator("#sectionFollow").getAttribute("aria-pressed"),"false");
+  assert.ok(await page.locator("#sectionFollow").isDisabled());
+  await assertPlanes([0,0,0]);
   await page.locator("#probeToggle").click();
   assert.ok(await page.locator("#probeReadout").isVisible());
+  assert.ok(await page.locator("#sectionFollow").isEnabled());
+  await assertPlanes([0,0,0]);
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("button", { name: "Download result.json" }).click(),

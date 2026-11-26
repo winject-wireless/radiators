@@ -80,10 +80,10 @@
       </label>
       <div id="radiationTools" class="radiation-tools" hidden>
         <div class="seg" role="group" aria-label="Radiation sections">
-          <button data-section="XY" aria-pressed="true" title="XY section (Z constant)">XY</button>
-          <button data-section="YZ" aria-pressed="true" title="YZ section (X constant)">YZ</button>
-          <button data-section="XZ" aria-pressed="true" title="XZ section (Y constant)">XZ</button>
-          <button id="sectionFollow" aria-pressed="false" title="Move section planes through the sampling point instead of the origin">Follow</button>
+          <button data-section="XY" aria-pressed="true" title="XY section: Z = 0, or probe Z when Follow is active">XY</button>
+          <button data-section="YZ" aria-pressed="true" title="YZ section: X = 0, or probe X when Follow is active">YZ</button>
+          <button data-section="XZ" aria-pressed="true" title="XZ section: Y = 0, or probe Y when Follow is active">XZ</button>
+          <button id="sectionFollow" aria-pressed="false" title="Follow the visible sampling point; off keeps planes at the global origin">Follow</button>
           <button id="probeToggle" aria-pressed="true" title="Show sampling point">Point</button>
         </div>
       </div>

@@ -324,7 +324,9 @@ export class Viewport {
     this.overlays.traverse(o => { if (o.userData.scaleWithView) o.scale.setScalar(diag * 0.006); });
     const gridSize = Math.max(10, Math.ceil(diag * 1.5));
     if (!this.grid || Math.abs(gridSize - this.gridSize) / this.gridSize > 0.5) this._makeGrid(gridSize);
-    this.grid.position.z = Math.min(0, box.min.z);
+    // The construction grid represents the global XY plane, not the bottom
+    // of the model's bounding box. Negative-Z geometry must not move it.
+    this.grid.position.set(0, 0, 0);
     this.setSelection(this.selection);
     if (first) { this._fitted = true; this.view("iso"); }
     return errors;

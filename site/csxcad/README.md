@@ -131,7 +131,9 @@ After a successful run, select a far-field frequency in the viewport. **XY, YZ,
 XZ** show the exact intersections of the triangulated radiation surface with
 the three principal planes through the origin. Each plane can be toggled
 independently. **Follow point** moves all three enabled planes through the
-sampling point instead.
+visible sampling point instead. Hiding the point turns Follow off and resets
+the planes to the global origin (XY: Z=0, YZ: X=0, XZ: Y=0). The construction
+grid always lies at global Z=0, even if the geometry extends below it.
 
 The yellow sampling point reports its XYZ display coordinates, theta/phi,
 interpolated directivity, gain (including radiation efficiency), realized gain
