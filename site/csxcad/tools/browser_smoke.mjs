@@ -287,6 +287,30 @@ try {
     assert.equal(fonts.hint,12);
     assert.equal(await mobilePage.locator(".sim-run-actions").getByRole("button",{name:"Stop",exact:true}).isVisible(),false);
     assert.match(await mobilePage.locator(".editor-build").textContent(),/^Build [0-9a-f]{12}$/);
+    // The example picker contains long multiline names and descriptions.
+    // Verify no flex shrink or text spill, even beyond the scroll viewport.
+    await mobilePage.locator("#menuButton").click();
+    await mobilePage.locator('[data-action="examples"]').click();
+    await mobilePage.locator("#dialog .example-list > button").first().waitFor({state:"visible"});
+    const picker=mobilePage.locator("#dialog .example-list");
+    const layout=await picker.evaluate(el=>{
+      const rows=[...el.querySelectorAll(":scope > button")];
+      const rects=rows.map(row=>{
+        const r=row.getBoundingClientRect(),children=[...row.children].map(c=>c.getBoundingClientRect());
+        return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,
+          contained:children.every(c=>c.top>=r.top-1&&c.bottom<=r.bottom+1&&c.left>=r.left-1&&c.right<=r.right+1)};
+      });
+      return {count:rows.length,scrollable:el.scrollHeight>el.clientHeight,
+        contained:rects.every(r=>r.contained),
+        separated:rects.every((r,i)=>i===0||r.top>=rects[i-1].bottom+2)};
+    });
+    assert.ok(layout.count>=5);
+    assert.ok(layout.scrollable,"Expected example list to scroll");
+    assert.ok(layout.contained,"Example text escapes its row");
+    assert.ok(layout.separated,"Example rows overlap");
+    await picker.evaluate(el=>{el.scrollTop=el.scrollHeight;});
+    assert.ok(await picker.evaluate(el=>el.scrollTop>0));
+    await mobilePage.locator("#dialogActions").getByRole("button",{name:"Close",exact:true}).click();
   } finally {await phone.close();}
   console.log("Browser CSXCAD + streaming sweep + mobile navigation: PASS");
 } finally {

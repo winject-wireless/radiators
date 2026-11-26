@@ -478,9 +478,23 @@ dialog[open] { animation: pop .16s ease-out; }
 dialog::backdrop { background: rgb(5 8 12 / .55); backdrop-filter: blur(3px); }
 dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-.example-list { display: flex; flex-direction: column; gap: 6px; max-height: 55dvh; overflow: auto; }
-.example-list button { justify-content: flex-start; text-align: left; white-space: normal; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 12px; }
-.example-list small { color: var(--muted); font-weight: 400; }
+.example-list {
+  display:flex; flex-direction:column; align-items:stretch; gap:5px;
+  max-height:min(65dvh, 520px); overflow-y:auto; overflow-x:hidden;
+  overscroll-behavior:contain; padding:2px 3px 2px 2px;
+}
+/* A scrollable flex column must not shrink its children to fit the viewport.
+   Each entry grows to its wrapped title and description. */
+.example-list > button {
+  flex:0 0 auto; width:100%; min-width:0; height:auto;
+  display:grid; grid-template-columns:minmax(0,1fr); align-content:center;
+  justify-items:start; text-align:left; white-space:normal; gap:3px;
+  padding:7px 9px; overflow-wrap:anywhere;
+}
+.example-list > button > strong,
+.example-list > button > small { display:block; min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; line-height:1.4; }
+.example-list > button > strong { font-size:var(--ui-text); font-weight:600; }
+.example-list > button > small { font-size:var(--ui-small); color:var(--muted); font-weight:400; }
 
 /* ---------- tablet ---------- */
 @media (max-width: 1100px) {
@@ -863,3 +877,14 @@ button[hidden],.button[hidden],input[hidden],.sim-run-actions [hidden] { display
 .workspace-unit-settings .row {grid-template-columns:minmax(90px,40%) minmax(0,1fr);}
 .unit-field input {font-variant-numeric:tabular-nums;}
 .vec3 .unit-field .value {font-size:var(--ui-small);text-align:right;padding:0 3px;}
+
+/* Keep picker rows compact without allowing global button padding/gap rules
+   to override the multiline list layout. */
+dialog .example-list > button { padding:7px 9px; gap:3px; }
+@media (max-width:760px),(max-height:520px) and (max-width:1000px) {
+  dialog .example-list { max-height:min(65dvh, 520px); }
+  dialog .example-list > button { min-height:40px; }
+  dialog:has(.example-list) { padding:12px; }
+  dialog:has(.example-list) h2 { margin-bottom:8px; }
+  dialog:has(.example-list) .dialog-actions { margin-top:8px; }
+}
