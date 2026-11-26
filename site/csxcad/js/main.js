@@ -2122,7 +2122,8 @@ async function boot() {
   refresh();
   setStatus(message);
   matchMedia("(max-width: 760px)").addEventListener("change", () => { closeSheet(); setDock(state.dock); refresh({ params: false }); });
-  registerServiceWorker();
 }
 
+// Start isolation before the editor loads its examples and WebGL viewport.
+registerServiceWorker();
 boot();
