@@ -5,6 +5,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { tessellate } from "./geometry.js";
+import { samplePattern, peakProbe, sectionSegments } from "./sim/radiation.js";
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -26,9 +27,11 @@ export function materialColor(m) {
 }
 
 export class Viewport {
-  constructor(container, { onPick, onHandle, onHandleMove, onHandleDrag, onScalarMove }) {
+  constructor(container, { onPick, onHandle, onHandleMove, onHandleDrag, onScalarMove, onProbe }) {
     this.container = container;
     this.onPick = onPick;
+    this.onProbe = onProbe || (() => {});
+    this.sectionVisibility = { XY: true, YZ: true, XZ: true };
     this.onHandle = onHandle || (() => {});
     this.onHandleMove = onHandleMove || (() => {});
     this.onHandleDrag = onHandleDrag || (() => {});
@@ -61,7 +64,18 @@ export class Viewport {
     this.parts = new THREE.Group();
     this.overlays = new THREE.Group();
     this.radiation = new THREE.Group();
-    this.scene.add(this.parts, this.overlays, this.radiation);
+    this.sections = new THREE.Group();
+    this.probe = new THREE.Group();
+    this.probePoint = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, depthWrite: false }));
+    this.probePoint.renderOrder = 22;
+    this.probeRay = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, depthTest: false, depthWrite: false }));
+    this.probeRay.renderOrder = 21;
+    this.probe.add(this.probePoint, this.probeRay);
+    this.probe.visible = false;
+    this.probeSelected = false;
+    this.scene.add(this.parts, this.overlays, this.radiation, this.sections, this.probe);
     this.axes = new THREE.AxesHelper(1);
     this.scene.add(this.axes);
     this.grid = null;
@@ -80,11 +94,12 @@ export class Viewport {
     this.gizmo.addEventListener("mouseDown", () => { this._gizmoGrab = true; });
     this.gizmo.addEventListener("dragging-changed", e => {
       this.controls.enabled = !e.value;
-      this.onHandleDrag(e.value, this.handleKey);
+      if (this.gizmo.object !== this.probePoint) this.onHandleDrag(e.value, this.handleKey);
     });
     this.gizmo.addEventListener("objectChange", () => {
       const o = this.gizmo.object;
-      if (o && this.gizmo.dragging) this.onHandleMove(o.userData.handleKey, o.position.toArray());
+      if (o === this.probePoint && this.gizmo.dragging) this.updateProbe();
+      else if (o && this.gizmo.dragging) this.onHandleMove(o.userData.handleKey, o.position.toArray());
     });
     this.scene.add(this.gizmo);
     this.label = document.createElement("div");
@@ -120,6 +135,7 @@ export class Viewport {
         for (const hnd of this.handles.children) {
           hnd.scale.setScalar(Math.max(1e-6, hnd.position.distanceTo(this.camera.position) * 0.011 * touch * (hnd.userData.size || 1) * (hnd === this._hover ? 1.35 : 1)));
         }
+        if (this.probe.visible) this.probePoint.scale.setScalar(Math.max(1e-6, this.probePoint.position.distanceTo(this.camera.position) * 0.012 * touch));
         this.renderer.render(this.scene, this.camera);
       }
       requestAnimationFrame(loop);
@@ -168,6 +184,10 @@ export class Viewport {
       const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       this.raycaster.setFromCamera(ndc, this.camera);
       this.raycaster.params.Line.threshold = this.bounds.getSize(new THREE.Vector3()).length() / 150;
+      if (this.probe.visible && this.raycaster.intersectObject(this.probePoint, false).length) {
+        this.selectProbe(true); return;
+      }
+      this.selectProbe(false);
       const hh = this.raycaster.intersectObjects(this.handles.children, false).find(x => x.object.userData.kind !== "scalar");
       if (hh) { this.onHandle(hh.object.userData.handleKey); return; }
       const targets = [...this.parts.children, ...this.overlays.children.filter(o => o.userData.ref)];
@@ -303,9 +323,7 @@ export class Viewport {
     if (box.isEmpty()) box.copy(this.domainBox || new THREE.Box3(new THREE.Vector3(-50, -50, -50), new THREE.Vector3(50, 50, 50)));
     const first = !this._fitted;
     this.bounds = box;
-    const pattern = this._radiationRecord;
-    this._radiationRecord = undefined;
-    this.setRadiation(pattern);
+    this.setRadiation(this._radiationRecord);
     const diag = box.getSize(new THREE.Vector3()).length() || 100;
     this.axes.scale.setScalar(diag * 0.18);
     this.overlays.traverse(o => { if (o.userData.scaleWithView) o.scale.setScalar(diag * 0.006); });
@@ -320,18 +338,28 @@ export class Viewport {
   // Directivity surface uses normalized E-field amplitude, not power or a physical radius.
   // The peak display radius surrounds the model and uses the same angular convention as NF2FF.
   setRadiation(record) {
-    if (record === this._radiationRecord) return;
+    const radius = 1.65 * Math.max(10, ...this.bounds.min.toArray().map(Math.abs), ...this.bounds.max.toArray().map(Math.abs));
+    if (record === this._radiationRecord && radius === this._radiationRadius) return;
+    const previous = this._radiationRecord;
+    const previousRadius = this._radiationRadius;
     this._radiationRecord = record;
+    this._radiationRadius = radius;
     this._dirty = true;
     for (const o of this.radiation.children) {
       o.geometry.dispose();
       o.material.dispose();
     }
     this.radiation.clear();
-    if (!record?.radiation_valid) return;
+    for (const o of this.sections.children) { o.geometry.dispose(); o.material.dispose(); }
+    this.sections.clear();
+    if (!record?.radiation_valid) {
+      this.probe.visible = false;
+      this.selectProbe(false);
+      this.onProbe(null);
+      return;
+    }
     const { theta_deg: theta, phi_deg: phi, directivity_dbi: db, max_directivity_dbi: peak } = record;
     if (!theta?.length || !phi?.length || !Number.isFinite(peak)) return;
-    const radius = 1.65 * Math.max(10, ...this.bounds.min.toArray().map(Math.abs), ...this.bounds.max.toArray().map(Math.abs));
     const pos = [], colors = [], indices = [];
     const color = new THREE.Color();
     const n = phi.length;
@@ -358,6 +386,56 @@ export class Viewport {
     this.radiation.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
       vertexColors: true, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false,
     })));
+    for (const [plane, axis, color] of [["XY",2,0x65aaff],["YZ",0,0xff7979],["XZ",1,0x6bdf9a]]) {
+      const cut = sectionSegments(pos,indices,axis,radius);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(cut.map(v=>v*1.002),3));
+      const line = new THREE.LineSegments(g,new THREE.LineBasicMaterial({ color, depthTest: false, depthWrite: false, transparent: true, opacity: 0.95 }));
+      line.name = plane;
+      line.visible = this.sectionVisibility[plane];
+      line.renderOrder = 15;
+      this.sections.add(line);
+    }
+    if (!previous?.radiation_valid || !this.probe.visible) this.probePoint.position.set(...peakProbe(record,radius));
+    else if (previousRadius && previousRadius !== radius) this.probePoint.position.multiplyScalar(radius/previousRadius);
+    this.probe.visible = true;
+    this.updateProbe();
+  }
+
+  setSection(plane, visible) {
+    if (!(plane in this.sectionVisibility)) return;
+    this.sectionVisibility[plane] = visible;
+    const line = this.sections.getObjectByName(plane);
+    if (line) line.visible = visible;
+    this._dirty = true;
+  }
+
+  selectProbe(active) {
+    active = !!active && this.probe.visible;
+    this.probeSelected = active;
+    this.probePoint.material.color.set(active ? 0xffd166 : 0xffffff);
+    if (active) {
+      this.gizmo.attach(this.probePoint);
+      this.gizmo.showX = this.gizmo.showY = this.gizmo.showZ = true;
+      this.gizmo.setTranslationSnap(null);
+      this.handleKey = null;
+    } else if (this.gizmo.object === this.probePoint) this.gizmo.detach();
+    this._dirty = true;
+    if (this.probe.visible) this.updateProbe();
+  }
+
+  resetProbe() {
+    if (!this.probe.visible) return;
+    this.probePoint.position.set(...peakProbe(this._radiationRecord,this._radiationRadius));
+    this.selectProbe(true);
+  }
+
+  updateProbe() {
+    if (!this.probe.visible || !this._radiationRecord) return;
+    this.probeRay.geometry.setFromPoints([new THREE.Vector3(),this.probePoint.position]);
+    this.probeRay.geometry.computeBoundingSphere();
+    this._dirty = true;
+    this.onProbe(samplePattern(this._radiationRecord,this.probePoint.position.toArray()),this.probeSelected);
   }
 
   setOption(key, value) {
@@ -466,6 +544,8 @@ export class Viewport {
       }
     }
     for (const [k, o] of keep) if (!want.has(k) && this._scalar?.object !== o) { this.handles.remove(o); o.material.dispose(); }
+    if (this.probeSelected && this.probe.visible && !activeKey) return;
+    if (this.probeSelected) this.selectProbe(false);
     const target = this.handles.children.find(o => o.userData.handleKey === activeKey && o.userData.kind === "point");
     this.handleKey = target ? activeKey : null;
     if (target && target.userData.axes.some(Boolean)) {
