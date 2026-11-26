@@ -39,7 +39,7 @@ export function frequencies(sweeps, f0, fc) {
 const BOX_FACES = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]];
 
 // v2_geometry.install_geometry → { xml (primitive element), lo, hi, preview }
-function installGeometry(g) {
+export function installGeometry(g) {
   const shape = g.shape ?? g.type;
   const priority = Math.trunc(Number(g.priority ?? 10));
   const T = transformer(g);

@@ -356,7 +356,22 @@ for (const [shape, def] of Object.entries(SHAPES)) assert.ok(tessellate({ shape,
   assert.deepEqual(displayBounds(translated),displayBounds(two.geometry[0]));
   const corrected=checkCase(two);
   assert.ok(!corrected.some(x=>x.msg.includes("inconsistent face winding")||x.msg.includes("not a closed two-manifold")),JSON.stringify(corrected));
-  assert.deepEqual(feedWarnings(two),[],"Penetrating endpoints must be recognized inside both shells");
+  assert.ok(!feedWarnings(two).some(x=>x.includes("no conductor contact detected")),"Penetrating endpoints must be recognized inside both shells");
+  assert.ok(feedWarnings(two).some(x=>x.includes("transverse half-cell")),"Coarse grid must warn despite geometric contact");
+  // Current user case: 8 mm outer diameter, 19 mm arms, 5 mm gap.
+  const wide=structuredClone(two);
+  wide.domain.start=[-79,-79,-102];wide.domain.stop=[79,79,107];
+  wide.geometry=expandScripts({materials:wide.materials,geometry:[
+    {name:"d",shape:"cylindrical_shell",material:"pec-metal",start:[0,0,9],stop:[0,0,28],radius:3.75,thickness:.5},
+    {name:"g",shape:"cylindrical_shell",material:"pec-metal",start:[0,0,-4],stop:[0,0,-23],radius:3.75,thickness:.5},
+    ...[[9,-1],[-4,1]].map(([z,axis],i)=>({name:i?"g_cap":"d_cap",script:"hemisphere",args:{center:[0,0,z],axis:[0,0,axis],radius:4,thickness:.5,rings:10,segments:32,material:"pec-metal"}}))
+  ]},editorRun).geometry;
+  wide.ports[0].stop=[0,0,5.1];
+  const coarse=feedWarnings(wide);
+  assert.equal(coarse.filter(x=>x.includes("transverse half-cell")).length,2,JSON.stringify(coarse));
+  assert.ok(coarse.every(x=>!x.includes("no conductor contact detected")));
+  wide.mesh.refinements=[{start:[-5,-5,-5],stop:[5,5,10],resolution_mm:.25}];
+  assert.ok(!feedWarnings(wide).some(x=>x.includes("transverse half-cell")),"Refined contact should pass the transverse sampling heuristic");
   // Still detect genuine gaps, hollow interior and damaged meshes.
   const outside=structuredClone(two);outside.ports[0].start[2]=.1;
   assert.ok(feedWarnings(outside).some(x=>x.includes("start terminal")));

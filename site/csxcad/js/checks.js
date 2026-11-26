@@ -3,6 +3,8 @@
 // does not mean the model is electrically sound (feed, mesh convergence).
 
 import { solverBounds, vec3, transformer, rotationMatrix, helixPoints, tessellate } from "./geometry.js";
+import { installGeometry } from "./sim/model.js";
+import { setupMesh } from "./sim/mesh.js";
 
 const fin = v => typeof v === "number" && Number.isFinite(v);
 
@@ -87,7 +89,29 @@ function endSamples(a,b,k,end){
   const axes=[0,1,2].filter(i=>i!==k),values=i=>a[i]===b[i]?[a[i]]:[a[i],(a[i]+b[i])/2,b[i]];
   return values(axes[0]).flatMap(x=>values(axes[1]).map(y=>{const q=[...end];q[axes[0]]=x;q[axes[1]]=y;return q;}));
 }
-function checkFeed(p,a,b,k,conductors,mesh,warn){
+// Inspect the real generated grid around an axial point terminal. A nearby
+// transverse half-cell sample is a resolution heuristic, not a reproduction
+// of openEMS's material assignment on its staggered Yee grid.
+function transverseSamples(grid,p,k){
+  const samples=[];
+  for(let i=0;i<3;i++){
+    if(i===k)continue;
+    const lines=grid.lines[i];
+    let j=lines.findIndex(v=>v>=p[i]-EPS);
+    if(j<0)continue;
+    if(Math.abs(lines[j]-p[i])<=EPS){
+      for(const n of [j-1,j+1])if(n>=0&&n<lines.length){
+        const q=[...p];q[i]=(p[i]+lines[n])/2;
+        samples.push({q,axis:i,spacing:Math.abs(lines[n]-p[i])});
+      }
+    }else if(j>0){
+      const q=[...p];q[i]=(lines[j-1]+lines[j])/2;
+      samples.push({q,axis:i,spacing:lines[j]-lines[j-1]});
+    }
+  }
+  return samples;
+}
+function checkFeed(p,a,b,k,conductors,mesh,warn,getGrid){
   if(!conductors.length){warn("No supported conductive geometry found for lumped-port terminals; check the feed model.");return;}
   const nominal=mesh?.uniform_step_mm&&mesh.grid_mode==="uniform"?mesh.uniform_step_mm:mesh?.resolution_mm??mesh?.max_cell_mm??5;
   const length=Math.abs(a[k]-b[k]);
@@ -102,6 +126,21 @@ function checkFeed(p,a,b,k,conductors,mesh,warn){
     if(!hit||best>EPS){
       warn("Lumped-port "+name+" terminal: no conductor contact detected"+(points.length===1&&Number.isFinite(best)?" (nearest "+hit.name+", "+Number(best.toPrecision(3))+" mm away)":" at sampled face points")+". Check for an unintended air gap; open or capacitively coupled feeds may be intentional.");
       continue;
+    }
+    // Even a penetrating terminal may be too narrow on the actual grid.
+    // A closed curved surface can pass CAD contact but miss nearby Yee samples.
+    if(points.length===1&&best < -EPS&&hit.curved){
+      const grid=getGrid?.();
+      if(grid){
+        const nearby=transverseSamples(grid,sample,k);
+        const missed=nearby.filter(({q})=>hit.distance(q)>EPS);
+        if(missed.length){
+          const spacing=Math.max(...missed.map(s=>s.spacing));
+          warn("Lumped-port "+name+" terminal has shallow/narrow contact with "+hit.name+
+            " ("+Number((-best).toPrecision(3))+" mm inside conductor). Nearby transverse half-cell samples lie outside the metal; mesh spacing up to "+
+            Number(spacing.toPrecision(3))+" mm. Refine the feed and thin shell or use a finite contact pad. Geometric contact alone does not guarantee FDTD connectivity.");
+        }
+      }
     }
     // An ordinary planar boundary contact is valid. Flag a tangential
     // point contact on a curved/mesh surface, not every flush port endpoint.
@@ -253,6 +292,23 @@ export function checkCase(cfg) {
   // Ports
   const ports = cfg.ports ?? cfg.sources ?? [];
   if (!ports.length) err("ports", "At least one port is required");
+  // Lazily build exactly the same feature grid as the browser solver. Avoid
+  // paying for mesh construction unless a narrow curved contact needs it.
+  let attemptedGrid=false,feedGrid=null;
+  const getFeedGrid=()=>{
+    if(attemptedGrid)return feedGrid;
+    attemptedGrid=true;
+    try{
+      if(!mesh||!ds||!de)return null;
+      const g=(geometry||[]).map(installGeometry);
+      const bounds=ports.map(p=>{
+        const ext=p.type==="coaxial"?Number(p.outer_radius??0):0;
+        return [p.start.map((v,i)=>Math.min(v,p.stop[i])-ext),p.start.map((v,i)=>Math.max(v,p.stop[i])+ext)];
+      });
+      feedGrid=setupMesh(cfg,g.map(x=>[x.lo,x.hi]),bounds,g.map(x=>x.preview),ports,ds,de).grid;
+    }catch{/* malformed inputs are covered by existing checks */}
+    return feedGrid;
+  };
   const active = ports.filter(p => p.excite ?? p.enabled ?? false);
   if (ports.length && active.length !== 1) err("ports", `Exactly one port must be excited per run (now ${active.length})`);
   const ids = ports.map(p => Math.trunc(Number(p.id ?? p.port_number ?? 1)));
@@ -274,7 +330,7 @@ export function checkCase(cfg) {
       if (a && b && ["x", "y", "z"].includes(d)) {
         const k = "xyz".indexOf(d);
         if (a[k] === b[k]) err(label, `Lumped port has zero length along its direction ${d}`, ref);
-        else checkFeed(p,a,b,k,conductors,mesh,msg=>warn(label,msg,ref));
+        else checkFeed(p,a,b,k,conductors,mesh,msg=>warn(label,msg,ref),getFeedGrid);
       }
     } else if (p.type === "msl" || p.type === "coaxial") {
       const metal = mats.get(p.metal_material);
