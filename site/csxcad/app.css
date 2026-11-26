@@ -814,3 +814,42 @@ body.dock-collapsed .workspace {grid-template-rows:minmax(0,1fr) 48px;}
   .sim-polars {grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));}
   .result-download {min-height:34px;font-size:12px;}
 }
+
+/* Final typography contract: a form's labels, values, options and actions
+   have one text scale. Only titles, annotations and KPI values differ. */
+:root { --ui-line: 1.4; --ui-small-line: 1.4; }
+html { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+body { font-size:var(--ui-text); line-height:var(--ui-line); }
+button,.button,input,select,textarea { font-size:var(--ui-text); line-height:var(--ui-line); }
+input,select,textarea { font-family:inherit; }
+textarea.code,.script-code .CodeMirror,.pname,.ptable .pname,.field.expr input { font-family:var(--mono); font-size:var(--ui-text); }
+.panel-head h2, .results-head h2,.sim-run-head h3,dialog h2 { font-size:var(--ui-title);line-height:var(--ui-line);font-weight:650; }
+.form-section > h3,.form-section > summary,.sim-setup-card > h3,.sim-setup-card > summary,.tree-section h3,.side-title,.sim-results .result-section-head h3,.sim-results .result-summary-head h3 { font-size:var(--ui-text);line-height:var(--ui-line);font-weight:600;color:var(--text); }
+.row > label,.row > .lbl,.check-inline,.sim-engine,.sim-threads,.case-list div,.case-select,.case-select select,.result-case select,.sim-controls button,.sim-controls input,.sim-controls select,.dock-tabs [role=tab] { font-size:var(--ui-text);line-height:var(--ui-line); }
+.hint,.note,.field-hint,.field .value,.unit,.sim-case-hint,.sim-run-head .sim-case-hint,.sim-stats,.sim-log-box summary,.sim-setup-card .hint,.ptable .uses,.probe-details,.chart-card figcaption,.kpi-label,.kpi-sub,.sim-results .sim-pattern h4 { font-size:var(--ui-small);line-height:var(--ui-small-line); }
+.field .value { font-family:inherit; }
+.field.expr .value { font-family:var(--mono); }
+.row > label,.row > .lbl { align-self:center;padding-top:0; }
+.row.wide > label { align-self:start; }
+.row > .field:not(.invalid) > .value:not(:empty),.arg-field > .field:not(.invalid) > .value:not(:empty) { max-width:55%;overflow:hidden;text-overflow:ellipsis;display:block;line-height:calc(var(--field-h) - 2px);padding-inline:7px; }
+.row > .field:not(.expr):not(.invalid):has(> .value:not(:empty)) > input,.arg-field > .field:not(.expr):not(.invalid):has(> .value:not(:empty)) > input { padding-right:38px; }
+.row > .field:focus-within > input,.arg-field > .field:focus-within > input { padding-right:6px!important; }
+button[hidden],.button[hidden],input[hidden],.sim-run-actions [hidden] { display:none!important; }
+@media (max-width:760px),(max-height:520px) and (max-width:1000px) {
+  .panel-head { min-height:42px; }
+  .row { grid-template-columns:minmax(70px,30%) minmax(0,1fr);align-items:center; }
+  .row.wide { grid-template-columns:minmax(0,1fr); }
+  .row > label,.row > .lbl { padding:0; }
+  .sim-run-head h3 { font-size:var(--ui-text); }
+  .sim-run-head .sim-case-hint { font-size:var(--ui-small); }
+  .sim-setup-card .row:has(> .vec3) { grid-template-columns:minmax(0,1fr);gap:3px; }
+  .sim-setup-card .row:has(> .vec3) > .lbl:empty { display:none; }
+  .sim-setup-card .vec3 select { width:100%;min-width:0;font-size:var(--ui-text);padding-inline:4px; }
+  .view-toolbar .case-select,.view-toolbar .case-select select,.view-presets > button,.view-toolbar .toggles > button,#radiationTools .seg > button { font-size:var(--ui-small);line-height:var(--ui-small-line); }
+  .mobile-nav button { font-size:11px;line-height:1.25; }
+}
+@supports (-webkit-touch-callout:none) {
+  /* iOS zooms focused inputs below 16px; do not disable user zoom. */
+  @media (max-width:760px) { input:focus,select:focus,textarea:focus { font-size:16px; } }
+}
+.editor-build { font-size:var(--ui-small);color:var(--muted);padding:4px 7px; }

@@ -37,7 +37,13 @@ self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   if (e.request.cache === "only-if-cached" && e.request.mode !== "same-origin") return;
-  e.respondWith(fetch(e.request).then(r => {
+  // Revalidate the small app shell instead of trusting the browser's HTTP
+  // freshness lifetime. Large immutable vendor assets keep normal caching.
+  const scope = new URL(self.registration.scope);
+  const relative = url.pathname.slice(scope.pathname.length);
+  const request = e.request.mode === "navigate" || relative === "app.css" || relative.startsWith("js/")
+    ? new Request(e.request, { cache: "no-cache" }) : e.request;
+  e.respondWith(fetch(request).then(r => {
     if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
     return isolate(r);
   }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(isolate)));

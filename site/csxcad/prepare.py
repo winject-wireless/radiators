@@ -159,6 +159,8 @@ def build(out: Path):
     version = digest.hexdigest()[:12]
     sw = out / "sw.js"
     sw.write_text(sw.read_text().replace("CACHE_VERSION", version))
+    html = out / "index.html"
+    html.write_text(html.read_text().replace("EDITOR_BUILD", version))
     print(f"CSXCAD editor assembled in {out} (cache {version})")
 
 

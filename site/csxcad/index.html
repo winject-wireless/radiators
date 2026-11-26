@@ -8,11 +8,11 @@
 <title>CSXCAD Editor</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="./app.css">
+<link rel="stylesheet" href="./app.css?v=EDITOR_BUILD">
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/addons/" } }
 </script>
-<script type="module" src="./js/main.js"></script>
+<script type="module" src="./js/main.js?v=EDITOR_BUILD"></script>
 </head>
 <body data-sheet="">
 <header class="topbar">
@@ -43,6 +43,7 @@
         <button role="menuitem" data-action="theme">Toggle light / dark</button>
         <a role="menuitem" href="../">Simulation results viewer</a>
         <button role="menuitem" data-action="about">About this editor</button>
+        <div class="editor-build">Build EDITOR_BUILD</div>
       </div>
     </div>
   </div>

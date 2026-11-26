@@ -58,6 +58,7 @@ try {
   await page.keyboard.press("ArrowDown");
   assert.ok((await dock.boundingBox()).height<resized);
   const savedDock=(await dock.boundingBox()).height;
+  assert.equal(await page.getByLabel("openEMS engine").inputValue(),"cpu");
   const doc=await page.evaluate(()=>structuredClone(window.__csxcad.state.doc));
   doc.parameters={...(doc.parameters||{}), smoke_case:1};
   doc.sweep={enabled:true,mode:"product",parameters:{smoke_case:{values:[1,2]}}};
@@ -212,6 +213,26 @@ try {
   const axis=await page.locator(".sweep-axis").first().boundingBox();
   assert.ok(axis.height<52,"Sweep axis is not compact: "+axis.height);
   assert.deepEqual(errors, []);
+  // Real mobile emulation (touch, DPR, mobile viewport), not just a resized
+  // desktop window. Compare computed text sizes across form roles.
+  const phone=await browser.newContext({viewport:{width:390,height:844},deviceScaleFactor:3,isMobile:true,hasTouch:true});
+  try {
+    const mobilePage=await phone.newPage();
+    await mobilePage.goto(new URL("?debug=1",base).href);
+    await mobilePage.waitForFunction(()=>crossOriginIsolated&&window.__csxcad?.viewport&&document.querySelector("#sim .sim-controls"),{},{timeout:90000});
+    await mobilePage.locator('.mobile-nav [data-sheet="sim"]').click();
+    await mobilePage.waitForFunction(()=>document.body.dataset.sheet==="sim");
+    assert.equal(await mobilePage.getByLabel("openEMS engine").inputValue(),"cpu");
+    const fonts=await mobilePage.evaluate(()=>{
+      const sim=document.querySelector("#sim");
+      const font=sel=>parseFloat(getComputedStyle(sim.querySelector(sel)).fontSize);
+      return {label:font(".sim-engine"),select:font(".sim-engine select"),input:font(".sim-threads input"),button:font(".sim-run-actions button"),hint:font(".sim-case-hint"),section:font(".sim-setup-card summary")};
+    });
+    for(const k of ["label","select","input","button","section"])assert.equal(fonts[k],13,k+" font");
+    assert.equal(fonts.hint,12);
+    assert.equal(await mobilePage.locator(".sim-run-actions").getByRole("button",{name:"Stop",exact:true}).isVisible(),false);
+    assert.match(await mobilePage.locator(".editor-build").textContent(),/^Build [0-9a-f]{12}$/);
+  } finally {await phone.close();}
   console.log("Browser CSXCAD + streaming sweep + mobile navigation: PASS");
 } finally {
   await browser.close();

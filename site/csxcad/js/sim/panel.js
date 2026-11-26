@@ -7,7 +7,7 @@ import { lineChart, polarChart } from "./plot.js";
 import { registerServiceWorker, isolationUnavailableReason } from "../platform.js";
 
 const sim = {
-  engine: "basic", threads: 0, running: false, stage: "", progress: null, log: [], error: null,
+  engine: "cpu", threads: 0, running: false, stage: "", progress: null, log: [], error: null,
   ems: null, model: null, startedAt: 0, aborting: false, stopTimer: null,
 };
 let ui = null; // live DOM refs of the rendered panel
@@ -125,7 +125,7 @@ export function renderRunPanel(box, ctx) {
   ctx.onBadge(simStatus());
   if (!sim.threads) sim.threads = hc();
   const engine = h("select", { "aria-label": "openEMS engine", disabled: sim.running },
-    h("option", { value: "basic", text: "Basic" }), h("option", { value: "cpu", text: "CPU (experimental)" }));
+    h("option", { value: "cpu", text: "CPU (experimental)" }), h("option", { value: "basic", text: "Basic" }));
   engine.value = sim.engine;
   engine.addEventListener("change", () => { sim.engine = engine.value; });
   const threads = h("input", { type: "number", min: 1, max: 64, value: sim.threads, "aria-label": "Threads", disabled: sim.running });
