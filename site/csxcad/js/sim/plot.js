@@ -90,3 +90,99 @@ export function polarChart({ series, rMin, rMax, size = 230, label = "" }) {
   if (label) svg.append(text(4, 12, label, { class: "chart-axis" }));
   return svg;
 }
+
+// Smith chart uses the complex reflection coefficient, not S11 dB alone.
+// Keep missing/invalid samples as gaps and never clamp an active/nonphysical trace.
+export function smithSamples(s11, z0 = 50) {
+  if (!(Number.isFinite(z0) && z0 > 0)) throw Error("Invalid Smith chart reference impedance");
+  return (s11?.frequency_hz ?? []).map((hz, i) => {
+    let re = s11.real?.[i], im = s11.imag?.[i];
+    if (!Number.isFinite(re) || !Number.isFinite(im)) {
+      const db = s11.logmag_db?.[i], phase = s11.phase_deg?.[i];
+      if (!Number.isFinite(db) || !Number.isFinite(phase)) return null;
+      const mag = 10 ** (db / 20), rad = phase * Math.PI / 180;
+      re = mag * Math.cos(rad); im = mag * Math.sin(rad);
+    }
+    const mag = Math.hypot(re, im);
+    if (!Number.isFinite(hz) || !Number.isFinite(mag) || mag > 1 + 1e-9) return null;
+    const den = (1-re)**2 + im**2;
+    return { hz, re, im, mag, db: mag > 0 ? 20*Math.log10(mag) : -Infinity,
+      vswr: mag < 1 ? (1+mag)/(1-mag) : Infinity,
+      r: den > 1e-24 ? z0*(1-mag*mag)/den : Infinity,
+      x: den > 1e-24 ? z0*2*im/den : NaN };
+  });
+}
+
+export function smithChart({s11, z0 = 50, frequencyHz}) {
+  const S = 320, C = 160, R = 125;
+  const X = re => C + R*re, Y = im => C - R*im;
+  const wrapper = document.createElement("div");
+  const samples = smithSamples(s11, z0), valid = samples.filter(Boolean);
+  const svg = el("svg", {viewBox: `0 0 ${S} ${S}`, class: "chart", role: "img",
+    "aria-label": `Smith chart, ${z0} ohm reference. Select a frequency with the slider below.`});
+  const grid = el("g", {class:"chart-grid"});
+  grid.append(el("circle",{cx:C,cy:C,r:R}), el("line",{x1:X(-1),x2:X(1),y1:C,y2:C}));
+  for (const r of [.2,.5,1,2,5]) {
+    grid.append(el("circle",{cx:X(r/(1+r)),cy:C,r:R/(1+r)}));
+    grid.append(text(X((r-1)/(r+1)),C+12,String(r),{"text-anchor":"middle",class:"chart-tick"}));
+  }
+  for (const x of [-5,-2,-1,-.5,-.2,.2,.5,1,2,5]) {
+    const points = Array.from({length:101},(_,i)=>{
+      if(i===100)return [X(1),Y(0)];
+      const r=i/(100-i), d=(r+1)**2+x*x;
+      return [X((r*r+x*x-1)/d),Y(2*x/d)];
+    });
+    grid.append(el("path",{d:points.map(([a,b],i)=>`${i?"L":"M"}${a},${b}`).join(" "),
+      fill:"none",stroke:"var(--line-2)","stroke-width":1}));
+    const a=(x*x-1)/(1+x*x), b=2*x/(1+x*x);
+    grid.append(text(C+(R+12)*a,C-(R+12)*b+3,`${x>0?"+":""}j${x}`,
+      {"text-anchor":"middle",class:"chart-tick"}));
+  }
+  svg.append(grid,el("circle",{cx:C,cy:C,r:R/3,class:"chart-ref",fill:"none"}),
+    text(C,14,`${z0} Ω reference · normalized R / X`,{"text-anchor":"middle",class:"chart-axis"}),
+    text(C,S-5,"Dashed circle: VSWR 2:1",{"text-anchor":"middle",class:"chart-axis"}));
+  wrapper.append(svg);
+  if(!valid.length){
+    const msg=document.createElement("p");msg.className="hint";msg.textContent="No valid complex S11 samples for this chart.";wrapper.append(msg);return wrapper;
+  }
+  let d="",pen=false;
+  for(const p of samples){
+    if(!p){pen=false;continue;}
+    d+=`${pen?"L":"M"}${X(p.re)},${Y(p.im)} `;pen=true;
+  }
+  svg.append(el("path",{d,class:"chart-line",stroke:SERIES_COLORS[0]}));
+  const marker=el("circle",{r:5,fill:SERIES_COLORS[0],stroke:"var(--panel)","stroke-width":2});
+  svg.append(marker);
+  const slider=document.createElement("input");
+  slider.type="range";slider.min="0";slider.max=String(valid.length-1);slider.step="1";
+  slider.style.width="100%";slider.setAttribute("aria-label","Smith chart frequency marker");
+  const readout=document.createElement("div");readout.className="hint";readout.setAttribute("aria-live","polite");
+  const fmt=(v,n=2)=>Number.isFinite(v)?v.toFixed(n):v===Infinity?"∞":v===-Infinity?"−∞":"—";
+  function select(i){
+    const p=valid[i];if(!p)return;
+    slider.value=String(i);
+    const frequency=`${fmt(p.hz/1e9,4)} GHz`;
+    slider.setAttribute("aria-valuetext",frequency);
+    marker.setAttribute("cx",X(p.re));marker.setAttribute("cy",Y(p.im));
+    readout.textContent=`${frequency} · Z: ${fmt(p.r)} ${p.x<0?"−":"+"} j${fmt(Math.abs(p.x))} Ω · S11: ${fmt(p.db,1)} dB · VSWR: ${fmt(p.vswr)}`;
+  }
+  slider.addEventListener("input",()=>select(Number(slider.value)));
+  // Drag the marker or tap any point of the locus; the slider is also keyboard-accessible.
+  svg.style.touchAction="none";svg.style.cursor="crosshair";
+  function pick(e){
+    const matrix=svg.getScreenCTM();if(!matrix)return;
+    const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
+    const local=pt.matrixTransform(matrix.inverse());
+    let best=0,dist=Infinity;
+    valid.forEach((p,i)=>{const dd=(X(p.re)-local.x)**2+(Y(p.im)-local.y)**2;if(dd<dist){dist=dd;best=i;}});
+    select(best);
+  }
+  svg.addEventListener("pointerdown",e=>{if(e.button!==0)return;svg.setPointerCapture(e.pointerId);pick(e);});
+  svg.addEventListener("pointermove",e=>{if(svg.hasPointerCapture(e.pointerId))pick(e);});
+  wrapper.append(slider,readout);
+  const skipped=samples.length-valid.length;
+  if(skipped){const msg=document.createElement("p");msg.className="hint";msg.textContent=`${skipped} invalid or outside-unit-circle sample(s) omitted.`;wrapper.append(msg);}
+  const target=Number.isFinite(frequencyHz)?frequencyHz:valid[0].hz;
+  select(valid.reduce((best,p,i)=>Math.abs(p.hz-target)<Math.abs(valid[best].hz-target)?i:best,0));
+  return wrapper;
+}
