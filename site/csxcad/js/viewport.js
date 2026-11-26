@@ -60,7 +60,8 @@ export class Viewport {
 
     this.parts = new THREE.Group();
     this.overlays = new THREE.Group();
-    this.scene.add(this.parts, this.overlays);
+    this.radiation = new THREE.Group();
+    this.scene.add(this.parts, this.overlays, this.radiation);
     this.axes = new THREE.AxesHelper(1);
     this.scene.add(this.axes);
     this.grid = null;
@@ -302,6 +303,9 @@ export class Viewport {
     if (box.isEmpty()) box.copy(this.domainBox || new THREE.Box3(new THREE.Vector3(-50, -50, -50), new THREE.Vector3(50, 50, 50)));
     const first = !this._fitted;
     this.bounds = box;
+    const pattern = this._radiationRecord;
+    this._radiationRecord = undefined;
+    this.setRadiation(pattern);
     const diag = box.getSize(new THREE.Vector3()).length() || 100;
     this.axes.scale.setScalar(diag * 0.18);
     this.overlays.traverse(o => { if (o.userData.scaleWithView) o.scale.setScalar(diag * 0.006); });
@@ -311,6 +315,49 @@ export class Viewport {
     this.setSelection(this.selection);
     if (first) { this._fitted = true; this.view("iso"); }
     return errors;
+  }
+
+  // Directivity surface uses normalized E-field amplitude, not power or a physical radius.
+  // The peak display radius surrounds the model and uses the same angular convention as NF2FF.
+  setRadiation(record) {
+    if (record === this._radiationRecord) return;
+    this._radiationRecord = record;
+    this._dirty = true;
+    for (const o of this.radiation.children) {
+      o.geometry.dispose();
+      o.material.dispose();
+    }
+    this.radiation.clear();
+    if (!record?.radiation_valid) return;
+    const { theta_deg: theta, phi_deg: phi, directivity_dbi: db, max_directivity_dbi: peak } = record;
+    if (!theta?.length || !phi?.length || !Number.isFinite(peak)) return;
+    const radius = 1.65 * Math.max(10, ...this.bounds.min.toArray().map(Math.abs), ...this.bounds.max.toArray().map(Math.abs));
+    const pos = [], colors = [], indices = [];
+    const color = new THREE.Color();
+    const n = phi.length;
+    for (let i = 0; i < theta.length; i++) {
+      const t = theta[i] * Math.PI / 180;
+      for (let j = 0; j < n; j++) {
+        const f = phi[j] * Math.PI / 180;
+        const level = db[i]?.[j];
+        const r = Number.isFinite(level) ? radius * Math.min(1, 10 ** ((level - peak) / 20)) : 0;
+        pos.push(r * Math.sin(t) * Math.cos(f), r * Math.sin(t) * Math.sin(f), r * Math.cos(t));
+        color.setHSL(0.67 * (1 - Math.max(0, Math.min(1, (Number.isFinite(level) ? level - peak + 30 : 0) / 30))), 0.85, 0.55);
+        colors.push(color.r, color.g, color.b);
+        if (i + 1 < theta.length) {
+          const a = i * n + j, b = i * n + (j + 1) % n;
+          indices.push(a, b, a + n, b, b + n, a + n);
+        }
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    this.radiation.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false,
+    })));
   }
 
   setOption(key, value) {
@@ -501,7 +548,8 @@ export class Viewport {
   view(name) {
     this._dirty = true;
     this._focus = null;
-    const target = (this.bounds.isEmpty() ? new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) : this.bounds);
+    const target = (this.bounds.isEmpty() ? new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) : this.bounds.clone());
+    if (this.radiation.children.length) target.union(new THREE.Box3().setFromObject(this.radiation));
     const c = target.getCenter(new THREE.Vector3());
     const r = Math.max(target.getSize(new THREE.Vector3()).length() / 2, 1);
     const dist = r / Math.sin((this.camera.fov * Math.PI / 180) / 2) * (this.camera.aspect < 1 ? 1.25 / this.camera.aspect ** 0.5 : 1.05);
