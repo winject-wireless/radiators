@@ -930,6 +930,8 @@ function updateProbe() {
   if (!pos || !run.probeVisible) return;
   const s = sampleDirection(record, pos);
   if (!s) return;
+  $("probeFrequency").textContent = `Frequency ${probeFmt(record.frequency_hz / 1e9,4)} GHz`;
+  $("probePower").textContent = `Radiated power (global) ${Number.isFinite(s.radiatedPower) ? s.radiatedPower.toPrecision(3) + " W" : "—"}`;
   $("probePosition").textContent = pos.map((v,i) => `${"XYZ"[i]} ${probeFmt(v,1)}`).join(" · ") + " mm";
   $("probeAngles").textContent = `θ ${probeFmt(s.theta,1)}° · φ ${probeFmt(s.phi,1)}°`;
   $("probeDirectivity").textContent = `${probeFmt(s.directivity)} dBi`;
