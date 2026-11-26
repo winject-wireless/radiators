@@ -16,6 +16,7 @@ import { checkCase } from "./js/checks.js";
 import { STARTER, SHAPES } from "./js/schema.js";
 import { expandScripts, scriptBody, SCRIPT_TEMPLATE, normalizeSpec } from "./js/scriptcore.js";
 import { buildModel } from "./js/sim/model.js";
+import { sampleDirection, angularValue, defaultProbe, planeSegments } from "./js/sim/radiation.js";
 
 // The editor's runner (same as js/script-worker.js, minus the worker).
 const editorRun = (source, argsJSON) => new Function("__args", scriptBody(source))(argsJSON);
@@ -209,6 +210,32 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
   box.forEach((v, i) => assert.ok(Math.abs(m.nf2ff.start[i] - v) < 1e-9, "dipole NF2FF box start"));
   assert.equal(m.cells, 38 * 38 * 90);
   assert.throws(() => buildModel({ ...cfg, ports: [{ ...cfg.ports[0], type: "msl" }] }), /not supported in the browser/);
+}
+
+// Far-field sampling and exact sections: dB interpolation in linear power,
+// periodic phi, missing data, origin, and shared-edge deduplication.
+{
+  const record = { radiation_valid: true, theta_deg: [0,90,180], phi_deg: [0,90,180,270],
+    directivity_dbi: [[0,0,0,0],[0,10,0,10],[0,0,0,0]], max_directivity_dbi: 10,
+    radiation_efficiency: 0.5, mismatch_efficiency: 0.8, radiated_power_w: 1 };
+  const near = (a,b) => assert.ok(Math.abs(a-b) < 1e-9, a + " vs " + b);
+  near(angularValue(record, record.directivity_dbi, 90, 45), 10*Math.log10(5.5));
+  near(angularValue(record, record.directivity_dbi, 90, 315), 10*Math.log10(5.5));
+  const s = sampleDirection(record,[0,20,0]);
+  near(s.theta,90); near(s.phi,90); near(s.directivity,10);
+  near(s.gain,10+10*Math.log10(.5)); near(s.realizedGain,10+10*Math.log10(.4)); near(s.relativeField,1);
+  assert.equal(sampleDirection(record,[0,0,0]).gain,null);
+  near(sampleDirection(record,defaultProbe(record,100)).directivity,10);
+  assert.equal(angularValue(record,[[null,null,null,null],[null,10,0,10],[0,0,0,0]],90,0),null);
+  near(angularValue(record,[[null,null,null,null],[null,10,0,10],[0,0,0,0]],90,90),10);
+  const positions = [-1,-1,0, 1,-1,0, 1,1,0, -1,1,0];
+  const triangles = [0,1,2,0,2,3];
+  const cut = planeSegments(positions,triangles,0,0.25);
+  assert.equal(cut.length,12);
+  for (let i=0;i<cut.length;i+=3) near(cut[i],.25);
+  assert.deepEqual(planeSegments(positions,triangles,0,2),[]);
+  const shared = planeSegments([0,0,0,0,1,0,1,0,0,-1,0,0],[0,1,2,1,0,3],0);
+  assert.equal(shared.length,6);
 }
 
 // Starter and templates

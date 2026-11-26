@@ -569,3 +569,24 @@ dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
   .add-menu { position: absolute; top: auto; bottom: calc(100% + 8px); right: 0; max-height: 60dvh; }
 }
 @media (prefers-reduced-motion: reduce) { .panel, .dock-panel, .menu, dialog[open] { transition: none !important; animation: none !important; } }
+
+/* Result inspection: principal section colors correspond to the normal axes. */
+.radiation-tools { display: flex; flex-direction: column; gap: 5px; max-width: 100%; }
+.radiation-tools[hidden], .probe-readout[hidden] { display: none; }
+.radiation-tools .seg { flex-wrap: wrap; align-self: flex-start; }
+.radiation-tools [data-section="XY"][aria-pressed="true"] { color: #61adff; }
+.radiation-tools [data-section="YZ"][aria-pressed="true"] { color: #ff6978; }
+.radiation-tools [data-section="XZ"][aria-pressed="true"] { color: #53da9a; }
+.probe-readout { align-self: flex-start; background: var(--glass); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 8px; font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.4; backdrop-filter: blur(12px); }
+.probe-head { display: flex; justify-content: space-between; gap: 5px; margin-bottom: 3px; }
+.probe-head button { min-height: 26px; padding: 2px 6px; font-size: 11px; }
+.probe-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 2px 10px; margin: 3px 0; }
+.probe-metrics b { display: block; font-size: 13px; font-weight: 600; }
+.probe-readout small { color: var(--muted); font-size: 10px; }
+@media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
+  .radiation-tools { gap: 3px; }
+  .radiation-tools .seg > button { min-height: 30px; padding: 3px 6px; font-size: 11px; }
+  .probe-readout { padding: 4px 6px; font-size: 10px; }
+  .probe-metrics b { font-size: 12px; }
+  .probe-readout small { display: none; }
+}

@@ -5,6 +5,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { tessellate } from "./geometry.js";
+import { planeSegments } from "./sim/radiation.js";
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -61,7 +62,8 @@ export class Viewport {
     this.parts = new THREE.Group();
     this.overlays = new THREE.Group();
     this.radiation = new THREE.Group();
-    this.scene.add(this.parts, this.overlays, this.radiation);
+    this.sections = new THREE.Group();
+    this.scene.add(this.parts, this.overlays, this.radiation, this.sections);
     this.axes = new THREE.AxesHelper(1);
     this.scene.add(this.axes);
     this.grid = null;
@@ -328,10 +330,13 @@ export class Viewport {
       o.material.dispose();
     }
     this.radiation.clear();
+    this._sectionKey = null;
+    this._clearSections();
     if (!record?.radiation_valid) return;
     const { theta_deg: theta, phi_deg: phi, directivity_dbi: db, max_directivity_dbi: peak } = record;
     if (!theta?.length || !phi?.length || !Number.isFinite(peak)) return;
     const radius = 1.65 * Math.max(10, ...this.bounds.min.toArray().map(Math.abs), ...this.bounds.max.toArray().map(Math.abs));
+    this.radiationRadius = radius;
     const pos = [], colors = [], indices = [];
     const color = new THREE.Color();
     const n = phi.length;
@@ -358,6 +363,47 @@ export class Viewport {
     this.radiation.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
       vertexColors: true, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false,
     })));
+  }
+
+  _clearSections() {
+    for (const child of this.sections.children) {
+      child.geometry.dispose();
+      child.material.dispose();
+    }
+    this.sections.clear();
+  }
+
+  setSections(planes, point = [0, 0, 0]) {
+    const key = JSON.stringify([planes, point]);
+    if (key === this._sectionKey) return;
+    this._sectionKey = key;
+    this._clearSections();
+    this._dirty = true;
+    const surface = this.radiation.children[0]?.geometry;
+    if (!surface) return;
+    const positions = surface.attributes.position.array, indices = surface.index.array;
+    const radius = this.radiationRadius;
+    for (const [name, axis, color] of [["YZ",0,0xff6978],["XZ",1,0x53da9a],["XY",2,0x61adff]]) {
+      if (!planes.includes(name)) continue;
+      const offset = point[axis];
+      const coords = planeSegments(positions, indices, axis, offset, Math.max(1e-6, radius * 1e-7));
+      const square = new THREE.PlaneGeometry(radius * 2.1, radius * 2.1);
+      if (axis === 0) square.rotateY(Math.PI / 2);
+      if (axis === 1) square.rotateX(Math.PI / 2);
+      const plane = new THREE.Mesh(square, new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0.055, depthWrite: false, side: THREE.DoubleSide,
+      }));
+      plane.position.setComponent(axis, offset);
+      plane.userData.section = name;
+      this.sections.add(plane);
+      if (!coords.length) continue;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(coords, 3));
+      const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 }));
+      line.renderOrder = 15;
+      line.userData.section = name;
+      this.sections.add(line);
+    }
   }
 
   setOption(key, value) {
@@ -459,9 +505,10 @@ export class Viewport {
       } else {
         if (!dragging) o.position.set(...hd.pos);
         const active = hd.key === activeKey;
-        o.material.color.set(kind === "action" ? 0x5fd08a : active ? accent : 0xffffff);
+        o.material.color.set(hd.key === "result-probe" ? (active ? 0xffb020 : 0xffdf73) : kind === "action" ? 0x5fd08a : active ? accent : 0xffffff);
         o.material.opacity = kind === "action" ? 0.9 : active ? 1 : 0.85;
         o.userData.axes = hd.axes || [false, false, false];
+        o.userData.size = hd.key === "result-probe" ? 1.4 : 1;
         o.userData.snap = hd.snap;
       }
     }
