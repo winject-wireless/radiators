@@ -42,27 +42,34 @@ function workerPoolSize(model, engine, requested) {
   return Math.max(6, runtime + threads - 1);
 }
 
-let runs = new Map();
-export function clearResults() { runs = new Map(); }
+let runs = new Map(), caseStates = new Map();
+export function clearResults() { if (sim.running) stop(); runs = new Map(); caseStates = new Map(); }
+export const caseRunState = id => caseStates.get(id);
 export const resultFor = id => runs.get(id);
 
-export const simStatus = () => sim.running ? `${Math.round((sim.progress?.fraction ?? 0) * 100)}%` : runs.size ? "✓" : "";
+const fraction = () => sim.batch ? (sim.batch.finished + (sim.progress?.fraction ?? 0)) / sim.batch.total : sim.progress?.fraction ?? 0;
+export const simStatus = () => sim.running ? `${Math.round(Math.min(1,fraction()) * 100)}%` : runs.size ? "✓" : "";
 
 // ctx: { getCase() -> {config?, error?, pending?, id, name}, slug, onBadge(text), notify(msg, isError) }
 export function renderRunPanel(box, ctx) {
   const c = ctx.getCase();
+  const cases = ctx.getCases();
+  const sweep = cases.length > 1;
+  const pending = cases.some(x=>x.pending);
   ctx.onBadge(simStatus());
   if (!sim.threads) sim.threads = hc();
   const engine = h("select", { "aria-label": "openEMS engine", disabled: sim.running },
-    h("option", { value: "basic", text: "basic engine" }), h("option", { value: "cpu", text: "cpu engine (faster, experimental)" }));
+    h("option", { value: "basic", text: "Basic" }), h("option", { value: "cpu", text: "CPU (experimental)" }));
   engine.value = sim.engine;
   engine.addEventListener("change", () => { sim.engine = engine.value; });
   const threads = h("input", { type: "number", min: 1, max: 64, value: sim.threads, "aria-label": "Threads", disabled: sim.running });
   threads.addEventListener("change", () => { sim.threads = Math.max(1, Math.min(64, Math.trunc(Number(threads.value)) || hc())); });
   const unavailable = OpenEMS.unsupportedReason();
   const isolationBlocked = isolationUnavailableReason();
-  const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config || !!unavailable, onclick: () => start(ctx) }, sim.running ? "Running…" : "Run in browser");
-  const abortBtn = h("button", { type: "button", hidden: !sim.running, disabled: sim.aborting, onclick: stop, title: "Stop this run. Partial results are kept if they finish within one second." }, sim.aborting ? "Stopping…" : "Stop");
+  const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config || !!unavailable, onclick: () => start(ctx, false) }, sim.running ? "Running…" : sweep ? "Run case" : "Run in browser");
+  const allBtn = sweep ? h("button", { type: "button", class: "primary", disabled: sim.running || pending || !!unavailable || !cases.some(x=>x.config), onclick: () => start(ctx, true) }, `Run all (${cases.length})`) : null;
+  if (sweep) runBtn.classList.remove("primary");
+  const abortBtn = h("button", { type: "button", hidden: !sim.running, disabled: sim.aborting, onclick: stop, title: "Stop the current simulation and remaining sweep. Completed results are retained." }, sim.aborting ? "Stopping…" : "Stop");
   const bar = h("div", { class: "sim-bar" }, h("div", { class: "sim-bar-fill" }));
   const stats = h("div", { class: "sim-stats" });
   const logPre = h("pre", { class: "sim-log" });
@@ -74,8 +81,8 @@ export function renderRunPanel(box, ctx) {
     : c.pending ? "Geometry scripts are still running…" : `Cannot simulate: ${c.error}`;
   box.append(h("div", { class: "form-section sim-run" },
     h("h3", { text: "Run in browser" }),
-    h("p", { class: "hint", text: `${caseLine}. openEMS (WebAssembly) runs on this device; nothing is uploaded. Lumped ports only.` }),
-    h("div", { class: "sim-controls" }, runBtn, abortBtn, engine, h("label", { class: "sim-threads" }, "Threads", threads)),
+    h("div", { class: "sim-controls" }, allBtn, runBtn, abortBtn, h("label", { class: "sim-engine" }, "Engine", engine), h("label", { class: "sim-threads" }, "Threads", threads)),
+    h("p", { class: "hint sim-case-hint", text: `${caseLine}${sweep ? " · " + cases.length + " cases" : ""}${pending ? " · waiting for geometry scripts" : ""}. Local WASM · lumped ports.` }),
     unavailable ? h("div", { class: "note warn" },
       h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
       !isolationBlocked ? h("button", { type: "button", onclick: async e => {
@@ -94,83 +101,100 @@ export function renderRunPanel(box, ctx) {
 function updateProgress() {
   if (!ui) return;
   const p = sim.progress;
-  ui.bar.firstChild.style.width = `${Math.round((p?.fraction ?? (sim.running ? 0 : 1)) * 100)}%`;
+  ui.bar.firstChild.style.width = `${Math.round(Math.min(1, sim.batch ? fraction() : p?.fraction ?? (sim.running ? 0 : 1)) * 100)}%`;
   const el = sim.running ? Math.round((Date.now() - sim.startedAt) / 1000) : null;
   ui.stats.textContent = sim.running
-    ? `${sim.stage}${p ? ` · timestep ${p.timestep}${p.maxTimesteps ? "/" + p.maxTimesteps : ""} · ${fmt(p.speedMCellsPerSec, 1)} MC/s · energy ${fmt(p.energyDb, 1)} dB` : ""} · ${el} s` +
+    ? `${sim.batch ? `${sim.batch.finished}/${sim.batch.total} finished · ${sim.batch.id} · ` : ""}${sim.stage}${p ? ` · timestep ${p.timestep}${p.maxTimesteps ? "/" + p.maxTimesteps : ""} · ${fmt(p.speedMCellsPerSec, 1)} MC/s · energy ${fmt(p.energyDb, 1)} dB` : ""} · ${el} s` +
       (sim.model ? ` · ${(sim.model.cells / 1e6).toFixed(2)} M cells` : "")
-    : "";
+    : sim.summary || "";
   ui.logPre.textContent = sim.log.slice(-200).join("\n");
 }
 
-async function start(ctx) {
-  const c = ctx.getCase();
-  if (!c.config || sim.running) return;
-  sim.error = null; sim.log = []; sim.progress = null; sim.aborting = false;
-  let model;
-  try { model = buildModel(c.config); } catch (e) { sim.error = e.message; ctx.refresh(); return; }
+async function start(ctx, all = false) {
+  if (sim.running) return;
+  const cases = all ? ctx.getCases() : [ctx.getCase()];
+  if (!cases.some(c=>c.config) || cases.some(c=>c.pending)) return;
   const why = OpenEMS.unsupportedReason();
-  if (why) {
-    sim.error = isolationUnavailableReason() || why;
-    ctx.refresh();
-    return;
-  }
-  Object.assign(sim, { running: true, model, stage: "starting openEMS", startedAt: Date.now() });
-  const runCases = runs;
-  const key = JSON.stringify(c.config);
-  ctx.onBadge(simStatus());
-  ctx.refresh();
-  const tick = setInterval(updateProgress, 1000);
+  if (why) { sim.error = isolationUnavailableReason() || why; ctx.refresh(); return; }
+  // Capture immutable resolved configs; selecting another case or editing the document
+  // during the sweep cannot change the queued simulation inputs.
+  const queue = cases.map(c=>({...c, config:c.config ? structuredClone(c.config) : null}));
+  const runCases = runs, states = caseStates;
+  for (const c of queue) { states.set(c.id,{status:"queued",key: c.config ? JSON.stringify(c.config) : null}); }
+  Object.assign(sim,{running:true,aborting:false,error:null,summary:"",log:[],progress:null,model:null,
+    batch:{total:queue.length,finished:0,id:queue[0].id},stage:"preparing",startedAt:Date.now()});
+  let completed=0, failed=0, stopped=0;
+  const publish=()=>{ctx.onBadge(simStatus());ctx.refresh();};
+  publish();
+  const tick=setInterval(updateProgress,1000);
   try {
-    sim.ems = new OpenEMS({ threads: workerPoolSize(model, sim.engine, sim.threads) });
-    await sim.ems.initialize();
-    const result = await runSimulation(sim.ems, model, {
-      config: c.config, engine: sim.engine, threads: sim.threads,
-      onLog: line => { sim.log.push(line); if (sim.log.length > 2000) sim.log.splice(0, 500); },
-      onProgress: p => { sim.progress = p; ctx.onBadge(simStatus()); updateProgress(); },
-      onStage: s => { sim.stage = s; updateProgress(); },
-    });
-    result.aborted = result.aborted || sim.aborting;
-    const firstValid = result.patterns.findIndex(p => p.record.radiation_valid);
-    runCases.set(c.id, { result, key, frequency: firstValid });
-    const s = summarize(result, c.config.excitation.center_hz);
-    ctx.notify(`${result.aborted ? "Simulation stopped" : "Simulation done"} in ${result.seconds.toFixed(0)} s: best S11 ${fmt(s.bestDb, 1)} dB at ${ghz(s.bestHz)}`);
-  } catch (e) {
-    if (sim.aborting) {
-      sim.progress = null;
-      ctx.notify("Simulation stopped");
-    } else {
-      sim.error = `Simulation failed: ${e.message}`;
-      ctx.notify(sim.error, true);
+    for (const c of queue) {
+      if (sim.aborting || runs!==runCases) break;
+      const key=c.config ? JSON.stringify(c.config) : null;
+      sim.batch.id=c.id;
+      Object.assign(sim,{progress:null,model:null,stage:"preparing",startedAt:Date.now(),log:[]});
+      states.set(c.id,{status:"running",key});
+      publish();
+      try {
+        if (!c.config) throw Error(c.error || "Case configuration unavailable");
+        const model=buildModel(c.config);
+        sim.model=model;
+        sim.stage="starting openEMS";
+        sim.ems=new OpenEMS({threads:workerPoolSize(model,sim.engine,sim.threads)});
+        await sim.ems.initialize();
+        if (sim.aborting) throw Error("Stopped");
+        const result=await runSimulation(sim.ems,model,{
+          config:c.config,engine:sim.engine,threads:sim.threads,
+          onLog:line=>{sim.log.push(line);if(sim.log.length>2000)sim.log.splice(0,500);},
+          onProgress:p=>{sim.progress=p;ctx.onBadge(simStatus());updateProgress();},
+          onStage:s=>{sim.stage=s;updateProgress();}
+        });
+        result.aborted=!!(result.aborted||sim.aborting);
+        const firstValid=result.patterns.findIndex(p=>p.record.radiation_valid);
+        runCases.set(c.id,{result,key,frequency:firstValid});
+        states.set(c.id,{status:result.aborted?"stopped":"done",key});
+        if(result.aborted)stopped++;else completed++;
+        const s=summarize(result,c.config.excitation.center_hz);
+        ctx.notify(`${c.id}: ${result.aborted?"Stopped":"Done"} · S11 ${fmt(s.bestDb,1)} dB at ${ghz(s.bestHz)}`);
+      } catch(e) {
+        if(sim.aborting){states.set(c.id,{status:"stopped",key});stopped++;}
+        else {states.set(c.id,{status:"failed",key,error:e.message});failed++;ctx.notify(c.id+": "+e.message,true);}
+      } finally {
+        clearTimeout(sim.stopTimer);
+        sim.ems?.terminate();
+        sim.ems=null;
+        sim.batch.finished++;
+        sim.progress=null;
+        // Publish each result immediately, without changing the user's selected case.
+        publish();
+      }
     }
   } finally {
-    clearTimeout(sim.stopTimer);
-    clearInterval(tick);
+    clearTimeout(sim.stopTimer);clearInterval(tick);
     sim.ems?.terminate();
-    Object.assign(sim, { ems: null, running: false, aborting: false, stage: "" });
-    ctx.onBadge(simStatus());
-    ctx.refresh();
+    for(const c of queue)if(states.get(c.id)?.status==="queued")states.set(c.id,{...states.get(c.id),status:"cancelled"});
+    const cancelled=queue.length-completed-failed-stopped;
+    sim.summary=`${completed}/${queue.length} completed${failed?" · "+failed+" failed":""}${stopped?" · "+stopped+" stopped":""}${cancelled?" · "+cancelled+" cancelled":""}`;
+    Object.assign(sim,{ems:null,running:false,aborting:false,stage:"",batch:null,progress:null});
+    publish();
+    ctx.notify(sim.summary,failed>0);
   }
 }
-
 function stop() {
-  if (!sim.ems || sim.aborting) return;
-  sim.aborting = true;
-  ui.abortBtn.disabled = true;
-  ui.abortBtn.textContent = "Stopping…";
-  const ems = sim.ems;
-  if (sim.stage === "FDTD") {
-    ems.abort();
-    sim.stopTimer = setTimeout(() => ems.terminate(), 1000);
-  } else {
-    ems.terminate();
-  }
+  if (!sim.running || sim.aborting) return;
+  sim.aborting=true;
+  if(ui?.abortBtn){ui.abortBtn.disabled=true;ui.abortBtn.textContent="Stopping…";}
+  const ems=sim.ems;
+  if(!ems)return;
+  if(sim.stage==="FDTD"){ems.abort();sim.stopTimer=setTimeout(()=>ems.terminate(),1000);}
+  else ems.terminate();
 }
 
 export function renderResults(box, ctx, run, caseId, stale) {
   box.replaceChildren();
   if (!run || stale) {
-    box.append(h("p", { class: "hint", text: stale ? "This case has changed. Run it again to update its results." : "Run this case in the Simulation tab to see its results." }));
+    const status=caseRunState(caseId);
+    box.append(h("p", { class: "hint", text: stale ? "This case has changed. Run it again to update its results." : status?.status==="failed" ? "Failed: "+status.error : status?.status==="running" ? "Simulation running…" : status?.status==="queued" ? "Queued for simulation…" : status?.status==="cancelled" || status?.status==="stopped" ? "Simulation stopped before results were available." : "Run this case in the Simulation tab to see its results." }));
     return;
   }
   const r = run.result;
