@@ -126,7 +126,8 @@ function generate(a) {
       for (let j = 0; j < az; j++) faces.push([p[j], q[nx(j)], q[j]], [p[j], p[nx(j)], q[nx(j)]]);
     }
     const lastI = inner[inner.length - 1];
-    for (let j = 0; j < az; j++) faces.push([lastO[j], lastO[nx(j)], lastI[nx(j)]], [lastO[j], lastI[nx(j)], lastI[j]]);
+    // Rim outward normal is -Z before the axis rotation.
+    for (let j = 0; j < az; j++) faces.push([lastO[j], lastI[nx(j)], lastO[nx(j)]], [lastO[j], lastI[j], lastI[nx(j)]]);
   }
   // Orient local +Z along the axis with the smallest rotation (identity for [0, 0, 1]).
   const n = Math.hypot(...a.axis);

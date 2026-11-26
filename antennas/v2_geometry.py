@@ -113,8 +113,9 @@ def hemisphere_mesh(radius, thickness=None, lat_steps=10, azimuth_steps=32):
                 faces.extend([[a[j],b[nxt],b[j]],[a[j],a[nxt],b[nxt]]])
         for j in range(azimuth_steps):
             nxt=(j+1)%azimuth_steps
-            faces.extend([[outer[-1][j],outer[-1][nxt],inner[-1][nxt]],
-                          [outer[-1][j],inner[-1][nxt],inner[-1][j]]])
+            # Annular rim faces -Z; shared edges must oppose the shell walls.
+            faces.extend([[outer[-1][j],inner[-1][nxt],outer[-1][nxt]],
+                          [outer[-1][j],inner[-1][j],inner[-1][nxt]]])
     return np.asarray(verts), faces
 
 

@@ -195,7 +195,8 @@ export function hemisphereMesh(radius, thickness = null, lat = 10, az = 32) {
     const lastI = inner[inner.length - 1];
     for (let j = 0; j < az; j++) {
       const n = (j + 1) % az;
-      faces.push([lastO[j], lastO[n], lastI[n]], [lastO[j], lastI[n], lastI[j]]);
+      // The rim faces toward -Z, opposite the dome's outer surface.
+      faces.push([lastO[j], lastI[n], lastO[n]], [lastO[j], lastI[j], lastI[n]]);
     }
   }
   return { verts, faces };

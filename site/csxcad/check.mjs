@@ -182,6 +182,19 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
     const ref = hemisphereMesh(12, w || null);
     assert.equal(x.shape, "polyhedron");
     assert.deepEqual(x.faces, ref.faces);
+    const edges=new Map();
+    let volume=0;
+    for(const [a,b,c] of x.faces){
+      const [u,v,t]=[a,b,c].map(i=>x.vertices[i]);
+      volume+=(u[0]*(v[1]*t[2]-v[2]*t[1])+u[1]*(v[2]*t[0]-v[0]*t[2])+u[2]*(v[0]*t[1]-v[1]*t[0]))/6;
+      for(const [i,j] of [[a,b],[b,c],[c,a]]){
+        const k=Math.min(i,j)+","+Math.max(i,j),e=edges.get(k)||[0,0];
+        e[0]++;e[1]+=i<j?1:-1;edges.set(k,e);
+      }
+    }
+    assert.ok([...edges.values()].every(([count,orientation])=>count===2&&orientation===0),"Hemisphere mesh winding/closure");
+    const expected=2*Math.PI/3*(12**3-(w?(12-w)**3:0));
+    assert.ok(volume>0&&Math.abs(volume-expected)/expected<.03,"Hemisphere mesh volume");
     x.vertices.forEach((p, i) => p.forEach((v, k) => assert.ok(Math.abs(v - (ref.verts[i][k] + [0, 0, 5][k])) < 1e-9)));
     assert.ok(tessellate(x).indices.length / 3 === ref.faces.length);
   }
@@ -319,9 +332,32 @@ for (const [shape, def] of Object.entries(SHAPES)) assert.ok(tessellate({ shape,
   const dome=expandScripts({materials:[{name:"pec-metal",type:"pec"}],geometry:[{name:"d_cap",script:"hemisphere",args:{center:[0,0,4],axis:[0,0,-1],radius:2,thickness:.5,rings:10,segments:32,material:"pec-metal"}}]},editorRun).geometry[0];
   test.geometry[1]=dome;
   const w=checkCase(test);
-  assert.ok(w.some(x=>x.msg.includes("inconsistent face winding")));
+  assert.ok(!w.some(x=>x.msg.includes("inconsistent face winding")));
   assert.ok(w.some(x=>x.msg.includes("start terminal")&&x.msg.includes("0.5 mm")));
   assert.ok(w.some(x=>x.msg.includes("point/tip")));
+  // Both facing shells from the revised user configuration. Both port ends
+  // penetrate 0.1 mm into the metal rather than remaining in the hollow core.
+  const two=structuredClone(good);
+  two.geometry=expandScripts({materials:two.materials,geometry:[
+    {name:"d",shape:"cylindrical_shell",material:"pec-metal",start:[0,0,4],stop:[0,0,34],radius:1.75,thickness:.5},
+    {name:"g",shape:"cylindrical_shell",material:"pec-metal",start:[0,0,-2],stop:[0,0,-32],radius:1.75,thickness:.5},
+    {name:"d_cap",script:"hemisphere",args:{center:[0,0,4],axis:[0,0,-1],radius:2,thickness:.5,rings:10,segments:32,material:"pec-metal"}},
+    {name:"g_cap",script:"hemisphere",args:{center:[0,0,-2],axis:[0,0,1],radius:2,thickness:.5,rings:10,segments:32,material:"pec-metal"}}
+  ]},editorRun).geometry;
+  two.ports[0].start=[0,0,-.1];two.ports[0].stop=[0,0,2.1];
+  two.mesh.max_cell_mm=6;two.mesh.refinements=[];
+  const corrected=checkCase(two);
+  assert.ok(!corrected.some(x=>x.msg.includes("inconsistent face winding")||x.msg.includes("not a closed two-manifold")),JSON.stringify(corrected));
+  assert.deepEqual(feedWarnings(two),[],"Penetrating endpoints must be recognized inside both shells");
+  // Still detect genuine gaps, hollow interior and damaged meshes.
+  const outside=structuredClone(two);outside.ports[0].start[2]=.1;
+  assert.ok(feedWarnings(outside).some(x=>x.includes("start terminal")));
+  const hollow=structuredClone(two);hollow.ports[0].start[2]=-.8;
+  assert.ok(feedWarnings(hollow).some(x=>x.includes("start terminal")));
+  const damaged=structuredClone(two);
+  const cap=damaged.geometry.find(g=>g.name.startsWith("d_cap"));
+  cap.faces[0].reverse();
+  assert.ok(checkCase(damaged).some(x=>x.msg.includes("inconsistent face winding")));
   const rotated=structuredClone(good);
   rotated.geometry[1].transform={rotate_deg:[0,0,90],translate:[4,0,0]};
   assert.ok(feedWarnings(rotated).some(x=>x.includes("stop terminal")));

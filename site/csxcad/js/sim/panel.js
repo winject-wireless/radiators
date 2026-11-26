@@ -61,10 +61,18 @@ function resultDB() {
   }).catch(e=>{dbPromise=null;throw e;});
   return dbPromise;
 }
+// Expanded scripted hemisphere meshes already produce different resolved
+// keys when their faces change. Legacy shell primitives need a targeted
+// cache revision; unrelated existing results remain valid.
+function cacheStorageKey(key) {
+  const cfg=JSON.parse(key);
+  return cfg.geometry?.some(g=>(g.shape??g.type)==="hemispherical_shell")
+    ? "hemisphere-rim-v2:"+key : key;
+}
 async function cacheGet(key) {
   const db=await resultDB();
   return new Promise((resolve,reject)=>{
-    const req=db.transaction(CACHE_STORE,"readonly").objectStore(CACHE_STORE).get(key);
+    const req=db.transaction(CACHE_STORE,"readonly").objectStore(CACHE_STORE).get(cacheStorageKey(key));
     req.onsuccess=()=>resolve(req.result);
     req.onerror=()=>reject(req.error);
   });
@@ -75,7 +83,7 @@ async function cachePut(key, run) {
     const tx=db.transaction(CACHE_STORE,"readwrite");
     tx.oncomplete=()=>resolve();
     tx.onerror=tx.onabort=()=>reject(tx.error||Error("Result cache write aborted"));
-    tx.objectStore(CACHE_STORE).put({result:run.result,frequency:run.frequency,savedAt:Date.now()},key);
+    tx.objectStore(CACHE_STORE).put({result:run.result,frequency:run.frequency,savedAt:Date.now()},cacheStorageKey(key));
   });
 }
 export function clearResults() {
