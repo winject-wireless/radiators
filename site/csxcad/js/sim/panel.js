@@ -3,7 +3,7 @@
 import { OpenEMS } from "../../vendor/openems/openems.js";
 import { buildModel } from "./model.js";
 import { runSimulation, summarize } from "./run.js";
-import { lineChart, polarChart } from "./plot.js";
+import { lineChart, polarChart, smithChart } from "./plot.js";
 import { registerServiceWorker, isolationUnavailableReason } from "../platform.js";
 
 const sim = {
@@ -281,6 +281,10 @@ export function renderResults(box, ctx, run, caseId, stale) {
   const r = run.result;
   const s = summarize(r, r.input_config.excitation.center_hz);
   const f = r.s11.frequency_hz.map(v => v / 1e9);
+  const ports = r.input_config.ports ?? r.input_config.sources ?? [];
+  const driven = ports.find(p => Number(p.id ?? p.port_number ?? 1) === Number(r.port_id)) ?? ports.find(p => p.excite ?? p.enabled);
+  const z0 = Number(driven?.impedance_ohm ?? 50);
+  const smithFrequency = r.patterns[run.frequency]?.frequency_hz ?? r.patterns[0]?.frequency_hz ?? r.input_config.excitation.center_hz;
   const download = () => {
     const blob = new Blob([JSON.stringify(r, null, 1)], { type: "application/json" });
     const a = h("a", { href: URL.createObjectURL(blob), download: `${ctx.slug()}__${caseId}.result.json` });
@@ -304,7 +308,8 @@ export function renderResults(box, ctx, run, caseId, stale) {
       chartCard("S11 phase", lineChart({ series: [{ x: f, y: r.s11.phase_deg }], xLabel: "GHz", yLabel: "Degrees", yMin: -180, yMax: 180 })),
       r.impedance ? chartCard("Input impedance (Ω)", lineChart({ series: [{ x: f, y: r.impedance.real_ohm, label: "R" }, { x: f, y: r.impedance.imag_ohm, label: "X" }],
         xLabel: "GHz", yLabel: "Ω  (R, X)", hlines: [{ y: 0 }], xFmt: v => String(+v.toFixed(3)) })) : null,
-      chartCard("VSWR", lineChart({ series: [{ x: f, y: r.s11.vswr.map(v => v === null ? null : Math.min(v, 10)) }], xLabel: "GHz", yLabel: "VSWR", yMin: 1, hlines: [{ y: 2, label: "2:1" }], xFmt: v => String(+v.toFixed(3)) }))),
+      chartCard("VSWR", lineChart({ series: [{ x: f, y: r.s11.vswr.map(v => v === null ? null : Math.min(v, 10)) }], xLabel: "GHz", yLabel: "VSWR", yMin: 1, hlines: [{ y: 2, label: "2:1" }], xFmt: v => String(+v.toFixed(3)) })),
+      chartCard("Smith chart", smithChart({s11:r.s11,z0,frequencyHz:smithFrequency}))),
     r.patterns.length?h("div",{class:"result-section-head"},h("h3",{text:"Radiation patterns"})):null,
     ...r.patterns.map(p => patternCards(p)));
 }
