@@ -569,3 +569,23 @@ dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
   .add-menu { position: absolute; top: auto; bottom: calc(100% + 8px); right: 0; max-height: 60dvh; }
 }
 @media (prefers-reduced-motion: reduce) { .panel, .dock-panel, .menu, dialog[open] { transition: none !important; animation: none !important; } }
+
+/* Results: principal section colors and live directional probe. */
+.probe-controls[hidden], .probe-stats[hidden], .result-probe[hidden] { display: none; }
+.probe-controls button[data-section="XY"][aria-pressed="true"] { color: #65aaff; }
+.probe-controls button[data-section="YZ"][aria-pressed="true"] { color: #ff7979; }
+.probe-controls button[data-section="XZ"][aria-pressed="true"] { color: #6bdf9a; }
+.probe-stats { position: absolute; left: 10px; bottom: 14px; z-index: 4; pointer-events: none;
+  padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 10px;
+  background: var(--glass); backdrop-filter: blur(12px); max-width: min(280px,calc(100% - 80px)); font-size: 11px; }
+.probe-grid { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 2px 10px; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.probe-grid span { color: var(--muted); }
+.probe-grid b { font-weight: 600; text-align: right; }
+.probe-stats p { margin: 5px 0 0; font-size: 10px; }
+.result-probe { padding: 10px; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; }
+@media (max-width: 760px) {
+  .probe-stats { max-width: min(235px,calc(100% - 76px)); font-size: 10px; padding: 5px 7px; bottom: 65px; }
+  .probe-stats .probe-grid { gap: 1px 5px; }
+  .probe-stats .hint { display:none; }
+  body[data-sheet]:not([data-sheet=""]) .probe-stats { display: none; }
+}
