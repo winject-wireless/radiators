@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openEMS WebAssembly</title>
+<style>
+  :root { --bg: #f7f7f5; --fg: #1d1d1b; --muted: #6b6b66; --line: #d9d9d4; --accent: #2f6fdb; --card: #ffffff; --bad: #b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --fg: #ececea; --muted: #9c9c96; --line: #34342f; --accent: #7aa7ff; --card: #1f1f1d; --bad: #ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button, label.file { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  label.file input { display: none; }
+  progress { width: 100%; height: 10px; margin-top: 12px; }
+  #status { color: var(--muted); font-size: .9rem; margin-top: 6px; min-height: 1.3em; }
+  #status.bad { color: var(--bad); }
+  pre { margin: 0; max-height: 260px; overflow: auto; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; word-break: break-all; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  td, th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+  svg { width: 100%; height: auto; display: block; }
+  .files a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>openEMS WebAssembly</h1>
+  <p class="lead">openEMS FDTD and nf2ff compiled to WebAssembly, running in a Web Worker in this tab.
+    Run the bundled 2.45 GHz dipole, or an openEMS XML of your own.</p>
+
+  <div class="card">
+    <div class="row">
+      <button id="dipole" class="primary" disabled>Run dipole example</button>
+      <label class="file">Run XML file…<input id="xmlfile" type="file" accept=".xml"></label>
+      <button id="abort" disabled>Stop</button>
+      <span id="threads" style="color:var(--muted);font-size:.9rem"></span>
+    </div>
+    <progress id="progress" max="1" value="0"></progress>
+    <div id="status">Loading…</div>
+  </div>
+
+  <div class="card" id="results" hidden>
+    <svg id="s11" viewBox="0 0 640 220" role="img" aria-label="S11 in dB over frequency"></svg>
+    <table id="summary"></table>
+  </div>
+
+  <div class="card" id="filecard" hidden>
+    <strong>Output files</strong>
+    <div class="files" id="files"></div>
+  </div>
+
+  <div class="card"><pre id="log"></pre></div>
+</main>
+<script type="module">
+import { ensureIsolated } from './coi.js';
+import { OpenEMS, lumpedPort, nf2ffXml, sweepFrequencies } from './openems.js';
+
+const $ = (id) => document.getElementById(id);
+const status = (text, bad = false) => { $('status').textContent = text; $('status').classList.toggle('bad', bad); };
+const logEl = $('log');
+let logLines = [];
+const log = (line) => { logLines.push(line); if (logLines.length > 400) logLines = logLines.slice(-300); logEl.textContent = logLines.join('\n'); logEl.scrollTop = logEl.scrollHeight; };
+
+let ems = null;
+let busy = false;
+
+async function start() {
+  if (!(await ensureIsolated())) { status('This browser cannot isolate the page (no service worker / SharedArrayBuffer).', true); return; }
+  const why = OpenEMS.unsupportedReason();
+  if (why) { status(why, true); return; }
+  $('threads').textContent = `${navigator.hardwareConcurrency || '?'} threads`;
+  $('dipole').disabled = false;
+  status('Ready.');
+}
+
+async function fresh() {
+  ems?.terminate();
+  ems = await OpenEMS.create({ onLog: log, onProgress: (p) => {
+    $('progress').value = p.fraction;
+    status(`timestep ${p.timestep}${p.maxTimesteps ? ' / ' + p.maxTimesteps : ''} · ${p.speedMCellsPerSec} MC/s · energy ${p.energyDb.toFixed(1)} dB`);
+  } });
+  return ems;
+}
+
+async function simulate(xml, post) {
+  if (busy) return;
+  busy = true;
+  $('dipole').disabled = true; $('abort').disabled = false;
+  $('results').hidden = true; $('filecard').hidden = true; $('progress').value = 0; logLines = [];
+  try {
+    status('Starting openEMS…');
+    const sim = await fresh();
+    await sim.writeFile('model.xml', xml);
+    const { exitCode, seconds } = await sim.run('model.xml');
+    $('progress').value = 1;
+    if (exitCode !== 0) throw new Error(`openEMS exited with ${exitCode}`);
+    status(`FDTD done in ${seconds.toFixed(1)} s.`);
+    if (post) await post(sim, seconds);
+    await showFiles(sim);
+  } catch (e) {
+    status(String(e.message || e), true);
+  } finally {
+    busy = false;
+    $('dipole').disabled = false; $('abort').disabled = true;
+  }
+}
+
+async function showFiles(sim) {
+  const files = (await sim.list()).filter((f) => !f.dir);
+  const box = $('files');
+  box.replaceChildren();
+  for (const f of files) {
+    const a = document.createElement('a');
+    a.textContent = `${f.path} (${(f.size / 1024).toFixed(1)} kB)`;
+    a.href = '#';
+    a.onclick = async (ev) => {
+      ev.preventDefault();
+      const data = await sim.readFile(f.path);
+      const url = URL.createObjectURL(new Blob([data]));
+      Object.assign(document.createElement('a'), { href: url, download: f.path.split('/').pop() }).click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+    box.append(a, document.createElement('br'));
+  }
+  $('filecard').hidden = !files.length;
+}
+
+function plotS11(freqs, db) {
+  const W = 640, H = 220, L = 44, R = 12, T = 12, B = 30;
+  const fmin = freqs[0], fmax = freqs[freqs.length - 1];
+  const ymin = Math.min(-30, Math.floor(Math.min(...db) / 5) * 5), ymax = 0;
+  const x = (f) => L + ((f - fmin) / (fmax - fmin)) * (W - L - R);
+  const y = (v) => T + ((ymax - v) / (ymax - ymin)) * (H - T - B);
+  let g = '';
+  for (let v = ymax; v >= ymin; v -= 10) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}</text>`;
+  const step = (fmax - fmin) / 4;
+  for (let i = 0; i <= 4; i++) { const f = fmin + i * step; g += `<text x="${x(f)}" y="${H - 10}" text-anchor="middle" font-size="11" fill="var(--muted)">${(f / 1e9).toFixed(2)} GHz</text>`; }
+  const path = freqs.map((f, i) => `${i ? 'L' : 'M'}${x(f).toFixed(1)},${y(db[i]).toFixed(1)}`).join('');
+  $('s11').innerHTML = `${g}<text x="${L}" y="${T + 10}" font-size="12" fill="var(--fg)" dx="6">S11 (dB)</text><path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
+}
+
+$('dipole').onclick = async () => {
+  const [xml, box] = await Promise.all([
+    fetch('examples/dipole.xml').then((r) => r.text()),
+    fetch('examples/dipole.nf2ff.json').then((r) => r.json()),
+  ]);
+  await simulate(xml, async (sim) => {
+    const freqs = sweepFrequencies([{ start: 1.9e9, step: 25e6, end: 3.0e9 }]);
+    const port = lumpedPort(await sim.readFile('port_ut_1'), await sim.readFile('port_it_1'), freqs, 73);
+    plotS11(freqs, port.s11.db);
+    status('Far field (nf2ff)…');
+    const theta = Array.from({ length: 19 }, (_, i) => i * 10);
+    const phi = Array.from({ length: 24 }, (_, i) => i * 15);
+    await sim.writeFile('nf2ff.xml', nf2ffXml({ freqs: [2.45e9], thetaDeg: theta, phiDeg: phi, outfile: 'nf2ff.h5', box }));
+    const nf = await sim.nf2ff('nf2ff.xml');
+    if (nf.exitCode !== 0) throw new Error('nf2ff failed');
+    const ff = await sim.readNf2ff('nf2ff.h5');
+    const k = port.s11.db.indexOf(Math.min(...port.s11.db));
+    const k245 = freqs.indexOf(2.45e9);
+    $('summary').innerHTML = `
+      <tr><th>S11 minimum</th><td>${port.s11.db[k].toFixed(2)} dB at ${(freqs[k] / 1e9).toFixed(3)} GHz</td></tr>
+      <tr><th>Z<sub>in</sub> at 2.45 GHz</th><td>${port.zin.re[k245].toFixed(1)} ${port.zin.im[k245] < 0 ? '−' : '+'} j${Math.abs(port.zin.im[k245]).toFixed(1)} Ω</td></tr>
+      <tr><th>Directivity at 2.45 GHz</th><td>${(10 * Math.log10(ff.dmax[0])).toFixed(2)} dBi</td></tr>
+      <tr><th>Radiated power</th><td>${ff.prad[0].toExponential(3)} W</td></tr>`;
+    $('results').hidden = false;
+    status(`Done. nf2ff ${nf.seconds.toFixed(2)} s.`);
+  });
+};
+
+$('xmlfile').onchange = async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (file) await simulate(await file.text());
+};
+
+$('abort').onclick = () => { ems?.abort(); status('Stopping after this timestep…'); };
+
+start();
+</script>
+</body>
+</html>

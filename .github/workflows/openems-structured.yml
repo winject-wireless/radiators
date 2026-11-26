@@ -137,6 +137,8 @@ jobs:
           node --check site/editor.js
           node site/check_editor.js
           node site/csxcad/check.mjs
+          for f in site/openems/*.js site/openems/openems.mjs; do node --check "$f"; done
+          node wasm/openems/test/smoke.mjs
           python3 scripts/sweep.py examples/racetrack_loop_sweep.json
           python3 scripts/sweep.py examples/helix_sweep.json
       - name: Detect changed antenna configurations
@@ -260,6 +262,9 @@ jobs:
             test -s "site/dist/csxcad/$f"
           done
           node --check site/dist/csxcad/sw.js
+          for f in index.html openems.js openems-worker.js openems.mjs openems.wasm coi-sw.js examples/dipole.xml; do
+            test -s "site/dist/openems/$f"
+          done
           node --check site/dist/plotly.min.js
           node site/check_viewer.js site/dist
           node site/check_camera.js site/dist
