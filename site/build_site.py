@@ -11,7 +11,7 @@ import os
 import re
 from pathlib import Path
 import sys
-from shutil import copy2, rmtree
+from shutil import copy2, copytree, rmtree
 from urllib.request import Request, urlopen
 
 PLOTLY_VERSION = "2.35.3"
@@ -209,6 +209,13 @@ for filename in ("editor.js", "editor.css", "plotly.min.js", "jscad-modeling.min
 import subprocess
 subprocess.run([sys.executable, str(src_dir / "csxcad" / "prepare.py"), "--out", str(args.site / "csxcad")],
                check=True)
+
+# openEMS compiled to WebAssembly (built by wasm/openems/build.sh, committed):
+# served at openems/ for the editor and the viewer, with its demo page.
+openems_dir = args.site / "openems"
+if openems_dir.exists():
+    rmtree(openems_dir)
+copytree(src_dir / "openems", openems_dir)
 
 for sim in simulations.values():
     sim["cases"].sort(key=lambda case: case["id"])
