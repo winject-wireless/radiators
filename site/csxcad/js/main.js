@@ -13,6 +13,7 @@ import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, transformer, rotationMatrix } from "./geometry.js";
 import { storage, saveFile, registerServiceWorker, isNative } from "./platform.js";
+import { sampleDirection, defaultProbe } from "./sim/radiation.js";
 
 const $ = id => document.getElementById(id);
 const h = (tag, attrs = {}, ...kids) => {
@@ -596,7 +597,7 @@ function select(ref, { fromView = false } = {}) {
   if (ref?.kind === "sim") return openSheet("sim");
   const changed = JSON.stringify(ref) !== JSON.stringify(state.sel);
   state.sel = ref;
-  if (changed) state.handle = null;
+  if (changed || state.handle === "result-probe") state.handle = null;
   refresh({ params: false, json: false, viewport: false });
   const shown = ref && (ref.kind === "geometry" || ref.kind === "port") ? ref : null;
   viewport?.setSelection(shown);
@@ -827,6 +828,7 @@ function onHandleTap(key) {
 
 function syncHandles() {
   currentHandles = computeHandles();
+  if (activeProbe?.run.probeVisible && activeProbe.run.probePosition) currentHandles.set("result-probe", { key: "result-probe", kind: "point", pos: activeProbe.run.probePosition, axes: [true, true, true] });
   if (state.handle && !currentHandles.has(state.handle)) state.handle = null;
   for (const el of document.querySelectorAll("[data-handle]")) el.classList.toggle("handle-active", el.dataset.handle === state.handle);
   if (!viewport) return;
@@ -835,6 +837,10 @@ function syncHandles() {
   viewport.setHandles([...currentHandles.values()], state.handle, Number.isFinite(span) && span > 0 ? niceStep(span / 1000) : 0.1);
 }
 function onHandleMove(key, world) {
+  if (key === "result-probe") {
+    if (activeProbe && world.every(Number.isFinite)) { activeProbe.run.probePosition = [...world]; updateProbe(); }
+    return;
+  }
   const hd = currentHandles.get(key);
   if (!hd) return;
   const local = hd.xf.inv(world);
@@ -846,6 +852,7 @@ function onHandleMove(key, world) {
   dragFrame = requestAnimationFrame(() => refresh({ inspector: false, params: false, json: false }));
 }
 function onHandleDrag(on, key) {
+  if (key === "result-probe") { if (!on) syncHandles(); return; }
   if (on) { dragDef = currentHandles.get(key) || null; beginLive(); }
   else { dragDef = null; cancelAnimationFrame(dragFrame); endLive(); refresh({ params: false }); } // e.g. sheet ↔ box label
 }
@@ -906,7 +913,31 @@ const simContext = {
   notify: (msg, error = false) => setStatus(msg, error),
   refresh: () => { renderSim(); syncResults(); },
 };
-let displayedRun, displayedStale;
+let displayedRun, displayedStale, activeProbe = null;
+const sectionNames = ["XY", "YZ", "XZ"];
+const probeFmt = (v, n = 2) => Number.isFinite(v) ? v.toFixed(n) : "—";
+function updateProbe() {
+  const controls = $("radiationTools");
+  controls.hidden = !activeProbe;
+  if (!activeProbe) { viewport?.setSections([]); return; }
+  const { run, record } = activeProbe;
+  const pos = run.probePosition;
+  for (const b of controls.querySelectorAll("[data-section]")) b.setAttribute("aria-pressed", String(run.sections.includes(b.dataset.section)));
+  $("probeToggle").setAttribute("aria-pressed", String(run.probeVisible));
+  $("sectionFollow").setAttribute("aria-pressed", String(run.followProbe));
+  $("probeReadout").hidden = !run.probeVisible;
+  viewport?.setSections(run.sections, run.followProbe && pos ? pos : [0,0,0]);
+  if (!pos || !run.probeVisible) return;
+  const s = sampleDirection(record, pos);
+  if (!s) return;
+  $("probePosition").textContent = pos.map((v,i) => `${"XYZ"[i]} ${probeFmt(v,1)}`).join(" · ") + " mm";
+  $("probeAngles").textContent = `θ ${probeFmt(s.theta,1)}° · φ ${probeFmt(s.phi,1)}°`;
+  $("probeDirectivity").textContent = `${probeFmt(s.directivity)} dBi`;
+  $("probeGain").textContent = `${probeFmt(s.gain)} dBi`;
+  $("probeRealized").textContent = `${probeFmt(s.realizedGain)} dBi`;
+  $("probeField").textContent = probeFmt(s.relativeField === null ? null : s.relativeField * 100,1) + "%";
+  $("probeEfficiency").textContent = `Radiation η ${probeFmt(s.radiationEfficiency === null ? null : s.radiationEfficiency * 100,1)}% · Mismatch η ${probeFmt(s.mismatchEfficiency === null ? null : s.mismatchEfficiency * 100,1)}%`;
+}
 function syncResults() {
   const caseId = state.derived.case.id;
   const run = resultFor(caseId);
@@ -924,7 +955,18 @@ function syncResults() {
     }));
   }
   $("patternSelect").value = String(run?.frequency ?? -1);
-  viewport?.setRadiation(stale ? null : run?.result.patterns[run.frequency]?.record ?? null);
+  const record = stale ? null : run?.result.patterns[run.frequency]?.record ?? null;
+  viewport?.setRadiation(record);
+  if (run && record?.radiation_valid) {
+    if (activeProbe?.run !== run && state.handle === "result-probe") state.handle = null;
+    run.sections ??= [...sectionNames];
+    run.probeVisible ??= true;
+    run.followProbe ??= false;
+    run.probePosition ??= defaultProbe(record, viewport?.radiationRadius || 50);
+    activeProbe = { run, record };
+  } else { activeProbe = null; if (state.handle === "result-probe") state.handle = null; }
+  updateProbe();
+  syncHandles();
 }
 
 function setSimMax(on) {
@@ -1964,6 +2006,31 @@ function setDock(name) {
   if (name !== "sim" && state.simMax) setSimMax(false);
   state.dock = name;
   document.body.classList.remove("dock-collapsed");
+  for (const b of document.querySelectorAll("[data-section]")) b.addEventListener("click", () => {
+    if (!activeProbe) return;
+    const run = activeProbe.run, name = b.dataset.section;
+    run.sections = run.sections.includes(name) ? run.sections.filter(x => x !== name) : [...run.sections, name];
+    updateProbe();
+  });
+  $("probeToggle").addEventListener("click", () => {
+    if (!activeProbe) return;
+    const run = activeProbe.run; run.probeVisible = !run.probeVisible;
+    if (!run.probeVisible && state.handle === "result-probe") state.handle = null;
+    updateProbe(); syncHandles();
+  });
+  $("sectionFollow").addEventListener("click", () => {
+    if (!activeProbe) return; activeProbe.run.followProbe = !activeProbe.run.followProbe; updateProbe();
+  });
+  $("probeSelect").addEventListener("click", () => {
+    if (!activeProbe) return;
+    activeProbe.run.probeVisible = true; state.handle = "result-probe";
+    updateProbe(); syncHandles();
+  });
+  $("probeReset").addEventListener("click", () => {
+    if (!activeProbe) return;
+    activeProbe.run.probePosition = defaultProbe(activeProbe.record, viewport?.radiationRadius || 50);
+    updateProbe(); syncHandles();
+  });
   for (const t of document.querySelectorAll(".dock-tabs [role=tab]")) t.setAttribute("aria-selected", String(t.dataset.dock === name));
   for (const p of document.querySelectorAll(".dock-panel")) p.hidden = p.dataset.dockName !== name;
   if (name === "scripts") requestAnimationFrame(() => scriptEditor?.refresh()); // CodeMirror measures 0 while hidden
