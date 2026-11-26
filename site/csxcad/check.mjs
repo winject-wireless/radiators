@@ -16,6 +16,7 @@ import { checkCase } from "./js/checks.js";
 import { STARTER, SHAPES } from "./js/schema.js";
 import { expandScripts, scriptBody, SCRIPT_TEMPLATE, normalizeSpec } from "./js/scriptcore.js";
 import { buildModel } from "./js/sim/model.js";
+import { interpolatePattern, samplePattern, peakProbe, sectionSegments } from "./js/sim/radiation.js";
 
 // The editor's runner (same as js/script-worker.js, minus the worker).
 const editorRun = (source, argsJSON) => new Function("__args", scriptBody(source))(argsJSON);
@@ -209,6 +210,31 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
   box.forEach((v, i) => assert.ok(Math.abs(m.nf2ff.start[i] - v) < 1e-9, "dipole NF2FF box start"));
   assert.equal(m.cells, 38 * 38 * 90);
   assert.throws(() => buildModel({ ...cfg, ports: [{ ...cfg.ports[0], type: "msl" }] }), /not supported in the browser/);
+}
+
+// Far-field directional sampling: angular interpolation including periodic seam,
+// null data, undefined origin and gain / realized gain efficiency corrections.
+{
+  const r={frequency_hz:2.45e9,theta_deg:[0,90,180],phi_deg:[0,90,180,270],
+    directivity_dbi:[[0,0,0,0],[6,2,0,2],[0,0,0,0]],max_directivity_dbi:6,
+    radiation_efficiency:0.5,mismatch_efficiency:0.8,radiated_power_w:1};
+  assert.equal(interpolatePattern(r,r.directivity_dbi,90,315),4);
+  assert.equal(interpolatePattern(r,r.directivity_dbi,45,45),2);
+  assert.equal(interpolatePattern(r,[[null]],90,45),null);
+  const s=samplePattern(r,[10,0,0]);
+  assert.equal(s.directivity,6);
+  assert.ok(Math.abs(s.gain-(6+10*Math.log10(0.5)))<1e-12);
+  assert.ok(Math.abs(s.realizedGain-(6+10*Math.log10(0.4)))<1e-12);
+  assert.equal(s.relativeField,1);
+  assert.equal(samplePattern(r,[0,0,0]).gain,null);
+  assert.deepEqual(samplePattern(r,[100,0,0]).directivity,s.directivity);
+  assert.ok(Math.abs(peakProbe(r,10)[0]-10)<1e-12);
+  const verts=[1,1,1,-1,1,1,1,-1,-1,-1,-1,-1], faces=[0,1,2,1,0,3,0,2,3,1,3,2];
+  for(let axis=0;axis<3;axis++){
+    const seg=sectionSegments(verts,faces,axis,2);
+    assert.ok(seg.length>0 && seg.length%6===0);
+    for(let i=axis;i<seg.length;i+=3)assert.equal(seg[i],0);
+  }
 }
 
 // Starter and templates
