@@ -118,9 +118,20 @@ export class Viewport {
       if (this._dirty || moved || focusing || this._scalar || this.gizmo.dragging) {
         this._dirty = false;
         // Handles keep a constant on-screen size.
-        const touch = matchMedia("(pointer: coarse)").matches ? 1.5 : 1;
+        const touch = matchMedia("(pointer: coarse)").matches;
+        this.camera.updateMatrixWorld();
+        const cameraPoint=new THREE.Vector3();
+        const height=Math.max(1,this.renderer.domElement.clientHeight);
+        const projectionScale=Math.abs(this.camera.projectionMatrix.elements[5]);
         for (const hnd of this.handles.children) {
-          hnd.scale.setScalar(Math.max(1e-6, hnd.position.distanceTo(this.camera.position) * 0.011 * touch * (hnd.userData.size || 1) * (hnd === this._hover ? 1.35 : 1)));
+          if(hnd.userData.handleKey==="result-probe"){
+            // Perspective projection: world units / CSS pixel at the point's
+            // camera-space depth (not Euclidean distance). No DPR multiplier.
+            cameraPoint.copy(hnd.position).applyMatrix4(this.camera.matrixWorldInverse);
+            const depth=Math.max(this.camera.near,-cameraPoint.z);
+            const px=(touch?7:5.5)*(hnd===this._hover?1.15:1);
+            hnd.scale.setScalar(Math.max(1e-6,px*2*depth/(height*projectionScale)));
+          }else hnd.scale.setScalar(Math.max(1e-6,hnd.position.distanceTo(this.camera.position)*0.011*(touch?1.5:1)*(hnd===this._hover?1.35:1)));
         }
         this.renderer.render(this.scene, this.camera);
       }
@@ -508,7 +519,7 @@ export class Viewport {
         o.material.color.set(hd.key === "result-probe" ? (active ? 0xffb020 : 0xffdf73) : kind === "action" ? 0x5fd08a : active ? accent : 0xffffff);
         o.material.opacity = kind === "action" ? 0.9 : active ? 1 : 0.85;
         o.userData.axes = hd.axes || [false, false, false];
-        o.userData.size = hd.key === "result-probe" ? 1.4 : 1;
+        o.userData.size = 1;
         o.userData.snap = hd.snap;
       }
     }

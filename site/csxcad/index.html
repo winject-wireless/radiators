@@ -57,7 +57,7 @@
   <section class="viewport-wrap" aria-label="3D view">
     <div id="viewport" class="viewport"></div>
     <div class="view-toolbar top-left">
-      <div class="seg" role="group" aria-label="View presets">
+      <div class="seg view-presets" role="group" aria-label="View presets">
         <button data-view="iso" title="Isometric">Iso</button>
         <button data-view="top" title="Top (−Z)">Top</button>
         <button data-view="front" title="Front (+Y)">Front</button>
@@ -69,32 +69,34 @@
         <button data-toggle="grid" aria-pressed="true" title="Ground grid">Grid</button>
         <button data-toggle="xray" aria-pressed="false" title="Transparent solids">X-ray</button>
       </div>
+      <label id="caseWrap" class="case-select">
+        <span>Case</span>
+        <select id="caseSelect" aria-label="Sweep case to preview"></select>
+      </label>
       <label id="patternWrap" class="case-select" hidden>
-        Pattern <select id="patternSelect" aria-label="Radiation pattern frequency"></select>
+        <span>Pattern</span><select id="patternSelect" aria-label="Radiation pattern frequency"></select>
       </label>
       <div id="radiationTools" class="radiation-tools" hidden>
         <div class="seg" role="group" aria-label="Radiation sections">
           <button data-section="XY" aria-pressed="true" title="XY section (Z constant)">XY</button>
           <button data-section="YZ" aria-pressed="true" title="YZ section (X constant)">YZ</button>
           <button data-section="XZ" aria-pressed="true" title="XZ section (Y constant)">XZ</button>
-          <button id="sectionFollow" aria-pressed="false" title="Move section planes through the sampling point instead of the origin">Follow point</button>
+          <button id="sectionFollow" aria-pressed="false" title="Move section planes through the sampling point instead of the origin">Follow</button>
           <button id="probeToggle" aria-pressed="true" title="Show sampling point">Point</button>
         </div>
-        <div id="probeReadout" class="probe-readout">
-          <div class="probe-head"><button id="probeSelect" title="Select point and show XYZ translation gizmo">Sampling point</button><button id="probeReset" title="Reset to peak direction">Reset</button></div>
-          <div id="probePosition"></div><div id="probeAngles"></div>
-          <div class="probe-metrics">
-            <span>Directivity <b id="probeDirectivity"></b></span><span>Gain <b id="probeGain"></b></span>
-            <span>Realized gain <b id="probeRealized"></b></span><span>Relative E <b id="probeField"></b></span>
-          </div>
-          <div id="probeEfficiency" class="muted"></div>
-          <small>Directional far field · click point to drag XYZ</small>
-        </div>
       </div>
-      <label id="caseWrap" class="case-select">
-        <span>Case</span>
-        <select id="caseSelect" aria-label="Sweep case to preview"></select>
-      </label>
+    </div>
+    <div id="probeReadout" class="probe-readout probe-overlay" hidden>
+      <div class="probe-head"><button id="probeSelect" title="Select point and show XYZ translation gizmo">Probe</button><button id="probeReset" title="Reset to peak direction">Reset</button></div>
+      <div class="probe-metrics">
+        <span>D <b id="probeDirectivity"></b></span><span>Gain <b id="probeGain"></b></span>
+        <span>Realized <b id="probeRealized"></b></span><span>Rel. E <b id="probeField"></b></span>
+      </div>
+      <details class="probe-details"><summary>Point details</summary>
+        <div id="probePosition"></div><div id="probeAngles"></div>
+        <div id="probeFrequency"></div><div id="probeEfficiency"></div>
+        <small>Directional far field · click point to drag XYZ</small>
+      </details>
     </div>
     <div class="view-toolbar bottom-right">
       <div class="add-wrap">

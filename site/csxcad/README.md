@@ -104,7 +104,7 @@ compiled to WebAssembly (`site/openems`, PR #20; copied into `vendor/openems` by
 Zin, Dmax / efficiency / realized gain, S11 / Zin / VSWR charts and three directivity
 cuts per far-field frequency, and offers the run as `result.json` (the shape
 `antennas/simulate_v2.py` writes). **Stop** ends the FDTD early and post-processes what
-was computed. For sweeps, **Run all** queues a snapshot of the resolved cases and runs them sequentially to limit device memory. Completed results appear immediately in the fixed Results case selector; failed cases do not block the rest. **Stop** cancels the remaining queue and retains completed results. On phones, swipe left/right across the Results content to change cases; vertical scrolling is unaffected. Solver max timesteps and end criteria apply to both browser and native runs; advanced native CI CPU/memory settings are export-only.
+was computed. For sweeps, **Run all** queues a snapshot of the resolved cases and runs them sequentially to limit device memory. Completed results appear immediately in the fixed Results case selector; failed cases do not block the rest. **Stop** cancels the remaining queue and retains completed results. On phones, swipe left/right across the Results content to change cases; vertical scrolling is unaffected. Solver max timesteps and end criteria apply to both browser and native runs; advanced native CI CPU/memory settings are export-only. Successful results are saved locally in IndexedDB by exact resolved input and restored after a refresh, including each completed sweep case. Edited configs never reuse a mismatched result; interrupted jobs must be restarted. The browser may evict site storage or deny writes, so download important results as JSON.
 
 - `js/sim/model.js` ports `simulate_v2.output_data()` up to the run (validation,
   materials, primitives, lumped ports, NF2FF box, excitation, boundaries) and
@@ -139,7 +139,7 @@ interpolated directivity, gain (including radiation efficiency), realized gain
 point or **Sampling point** to attach the same three-axis translation gizmo as
 the geometry editor. The readout follows the drag without editing the antenna
 or invalidating simulation results. **Reset** returns to the peak direction;
-**Point** hides or shows the probe.
+**Point** hides or shows the probe. The marker has a fixed on-screen radius across camera zoom; the compact bottom readout shows directional metrics, with coordinates, angles, frequency and global efficiencies/power under **Point details**.
 
 The pattern is an angular far-field representation, not a spatial field map.
 The displayed radius and point distance in millimetres are illustrative; only

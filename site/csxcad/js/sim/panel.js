@@ -42,10 +42,76 @@ function workerPoolSize(model, engine, requested) {
   return Math.max(6, runtime + threads - 1);
 }
 
-let runs = new Map(), caseStates = new Map();
-export function clearResults() { if (sim.running) stop(); runs = new Map(); caseStates = new Map(); }
+// Persistent results are keyed by the complete resolved simulation input, not
+// the sweep index or filename. Increment the store version when solver/model
+// output compatibility changes. IndexedDB stores large patterns without the
+// small synchronous localStorage quota.
+let runs = new Map(), caseStates = new Map(), cacheAttempts = new Map();
+const CACHE_DB = "radiators-csxcad-results", CACHE_STORE = "resolved-v1";
+let dbPromise;
+function resultDB() {
+  if (!dbPromise) dbPromise = new Promise((resolve,reject)=>{
+    if (!globalThis.indexedDB) { reject(Error("IndexedDB unavailable")); return; }
+    const req=indexedDB.open(CACHE_DB,1);
+    req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(CACHE_STORE))req.result.createObjectStore(CACHE_STORE);};
+    req.onsuccess=()=>{const db=req.result;db.onversionchange=()=>{db.close();dbPromise=null;};resolve(db);};
+    req.onerror=()=>reject(req.error);
+    req.onblocked=()=>reject(Error("Result cache blocked by another tab"));
+  }).catch(e=>{dbPromise=null;throw e;});
+  return dbPromise;
+}
+async function cacheGet(key) {
+  const db=await resultDB();
+  return new Promise((resolve,reject)=>{
+    const req=db.transaction(CACHE_STORE,"readonly").objectStore(CACHE_STORE).get(key);
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+async function cachePut(key, run) {
+  const db=await resultDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(CACHE_STORE,"readwrite");
+    tx.oncomplete=()=>resolve();
+    tx.onerror=tx.onabort=()=>reject(tx.error||Error("Result cache write aborted"));
+    tx.objectStore(CACHE_STORE).put({result:run.result,frequency:run.frequency,savedAt:Date.now()},key);
+  });
+}
+export function clearResults() {
+  if (sim.running) stop();
+  runs=new Map();caseStates=new Map();cacheAttempts=new Map();
+}
 export const caseRunState = id => caseStates.get(id);
 export const resultFor = id => runs.get(id);
+
+// Called as the document resolves (including asynchronous geometry scripts).
+// Only exact config matches are restored; in-flight simulations take priority.
+export async function restoreResults(ctx) {
+  const target=runs, states=caseStates, attempts=cacheAttempts;
+  const jobs=[];
+  for(const c of ctx.getCases()){
+    if(!c.config)continue;
+    const key=JSON.stringify(c.config);
+    if(target.get(c.id)?.key===key || attempts.get(c.id)===key)continue;
+    if(["queued","running"].includes(states.get(c.id)?.status))continue;
+    attempts.set(c.id,key);
+    jobs.push({id:c.id,key});
+  }
+  if(!jobs.length)return;
+  const cached=await Promise.all(jobs.map(async j=>{
+    try{return {...j,entry:await cacheGet(j.key)};}catch{return j;}
+  }));
+  if(runs!==target)return;
+  const current=new Map(ctx.getCases().filter(c=>c.config).map(c=>[c.id,JSON.stringify(c.config)]));
+  let changed=false;
+  for(const {id,key,entry} of cached){
+    if(!entry?.result || current.get(id)!==key || attempts.get(id)!==key ||
+      target.get(id)?.key===key || ["queued","running"].includes(states.get(id)?.status))continue;
+    target.set(id,{result:entry.result,key,frequency:entry.frequency,cached:true});
+    states.set(id,{status:"done",key});changed=true;
+  }
+  if(changed)ctx.refresh();
+}
 
 const fraction = () => sim.batch ? (sim.batch.finished + (sim.progress?.fraction ?? 0)) / sim.batch.total : sim.progress?.fraction ?? 0;
 export const simStatus = () => sim.running ? `${Math.round(Math.min(1,fraction()) * 100)}%` : runs.size ? "✓" : "";
@@ -95,6 +161,7 @@ export function renderRunPanel(box, ctx) {
       } }, "Retry isolation") : null,
       h("a", { href: location.href, target: "_blank", rel: "noopener noreferrer" }, "Open editor directly (new tab)")) : null,
     sim.running || sim.progress ? bar : null, stats, sim.error ? h("div", { class: "note warn", text: sim.error }) : null,
+    sim.cacheWarning ? h("p",{class:"hint",text:sim.cacheWarning}) : null,
     sim.running || sim.log.length ? logBox : null));
   updateProgress();
 }
@@ -122,7 +189,7 @@ async function start(ctx, all = false) {
   const queue = cases.map(c=>({...c, config:c.config ? structuredClone(c.config) : null}));
   const runCases = runs, states = caseStates;
   for (const c of queue) { states.set(c.id,{status:"queued",key: c.config ? JSON.stringify(c.config) : null}); }
-  Object.assign(sim,{running:true,aborting:false,error:null,summary:"",log:[],progress:null,model:null,
+  Object.assign(sim,{running:true,aborting:false,error:null,cacheWarning:null,summary:"",log:[],progress:null,model:null,
     batch:{total:queue.length,finished:0,id:queue[0].id},stage:"preparing",startedAt:Date.now()});
   let completed=0, failed=0, stopped=0;
   const publish=()=>{ctx.onBadge(simStatus());ctx.refresh();};
@@ -152,7 +219,11 @@ async function start(ctx, all = false) {
         });
         result.aborted=!!(result.aborted||sim.aborting);
         const firstValid=result.patterns.findIndex(p=>p.record.radiation_valid);
-        runCases.set(c.id,{result,key,frequency:firstValid});
+        const run={result,key,frequency:firstValid};
+        // Commit the cache before publishing completion, so an immediate reload
+        // after the completion badge cannot race the persistent write.
+        if(!result.aborted)try{await cachePut(key,run);}catch(e){sim.cacheWarning="Result cache unavailable: "+e.message;}
+        runCases.set(c.id,run);
         states.set(c.id,{status:result.aborted?"stopped":"done",key});
         if(result.aborted)stopped++;else completed++;
         const s=summarize(result,c.config.excitation.center_hz);
@@ -208,7 +279,7 @@ export function renderResults(box, ctx, run, caseId, stale) {
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
   box.append(
-    h("h3", { text: "Results" }),
+    h("h3", { text: run.cached ? "Results · cached on this device" : "Results" }),
     r.aborted ? h("div", { class: "note warn", text: "Stopped early: the results use the time steps computed so far." }) : null,
     h("div", { class: "sim-kpis" },
       kpi("Best S11", `${fmt(s.bestDb, 1)} dB`, ghz(s.bestHz)),

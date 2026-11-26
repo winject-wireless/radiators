@@ -8,7 +8,7 @@ import {
 import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
-import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState } from "./sim/panel.js";
+import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, transformer, rotationMatrix } from "./geometry.js";
@@ -263,13 +263,19 @@ function loadDoc(cfg, message) {
   state.caseIndex = 0;
   history.undo = []; history.redo = [];
   if (viewport) viewport._fitted = false;
+  persist();
   refresh();
   if (message) setStatus(message);
 }
 
 function persist() {
-  storage.set(DRAFT_KEY, { doc: state.doc, savedAt: new Date().toISOString() });
+  // A loaded/edited example is now the user's draft. Do not let its original
+  // example query overwrite that draft on refresh; retain other query flags.
+  const url=new URL(location.href);
+  if(url.searchParams.has("example")){url.searchParams.delete("example");historyReplaceURL(url);}
+  storage.set(DRAFT_KEY, { doc: state.doc, caseIndex: state.caseIndex, savedAt: new Date().toISOString() });
 }
+function historyReplaceURL(url){ window.history.replaceState(window.history.state,"",url); }
 
 // Structural edit with undo. fn mutates state.doc.
 function edit(fn, opts = {}) {
@@ -921,13 +927,13 @@ const probeFmt = (v, n = 2) => Number.isFinite(v) ? v.toFixed(n) : "—";
 function updateProbe() {
   const controls = $("radiationTools");
   controls.hidden = !activeProbe;
+  $("probeReadout").hidden = !activeProbe || !activeProbe.run.probeVisible;
   if (!activeProbe) { viewport?.setSections([]); return; }
   const { run, record } = activeProbe;
   const pos = run.probePosition;
   for (const b of controls.querySelectorAll("[data-section]")) b.setAttribute("aria-pressed", String(run.sections.includes(b.dataset.section)));
   $("probeToggle").setAttribute("aria-pressed", String(run.probeVisible));
   $("sectionFollow").setAttribute("aria-pressed", String(run.followProbe));
-  $("probeReadout").hidden = !run.probeVisible;
   viewport?.setSections(run.sections, run.followProbe && pos ? pos : [0,0,0]);
   if (!pos || !run.probeVisible) return;
   const s = sampleDirection(record, pos);
@@ -938,9 +944,11 @@ function updateProbe() {
   $("probeGain").textContent = `${probeFmt(s.gain)} dBi`;
   $("probeRealized").textContent = `${probeFmt(s.realizedGain)} dBi`;
   $("probeField").textContent = probeFmt(s.relativeField === null ? null : s.relativeField * 100,1) + "%";
+  $("probeFrequency").textContent = `${probeFmt(record.frequency_hz / 1e9,4)} GHz · P rad ${Number.isFinite(s.radiatedPower)?s.radiatedPower.toPrecision(3)+" W":"—"}`;
   $("probeEfficiency").textContent = `Radiation η ${probeFmt(s.radiationEfficiency === null ? null : s.radiationEfficiency * 100,1)}% · Mismatch η ${probeFmt(s.mismatchEfficiency === null ? null : s.mismatchEfficiency * 100,1)}%`;
 }
 function syncResults() {
+  void restoreResults(simContext);
   const caseId = state.derived.case.id;
   const run = resultFor(caseId);
   const stale = !!run && JSON.stringify(simContext.getCase().config) !== run.key;
@@ -1812,12 +1820,14 @@ function syncCaseSelectors() {
     }
     select.value=state.caseIndex;
   }
+  $("caseWrap").hidden=d.cases.length<=1;
   $("resultCaseCount").textContent=`${state.caseIndex+1}/${d.cases.length}`;
 }
 function stepResultCase(delta) {
   const next=Math.max(0,Math.min(state.derived.cases.length-1,state.caseIndex+delta));
   if(next===state.caseIndex)return;
   state.caseIndex=next;
+  persist();
   refresh();
   $("resultBody").scrollTop=0;
 }
@@ -2123,7 +2133,7 @@ async function boot() {
     });
   }
   for (const id of ["caseSelect", "resultCase"]) {
-    $(id).addEventListener("change", e => { state.caseIndex = Number(e.target.value); refresh(); });
+    $(id).addEventListener("change", e => { state.caseIndex = Number(e.target.value); persist(); refresh(); });
   }
   $("patternSelect").addEventListener("change", e => {
     const run = resultFor(state.derived.case.id);
@@ -2212,6 +2222,7 @@ async function boot() {
     } catch { message = "Example not found; starter loaded"; }
   } else if (draft?.doc) {
     initial = draft.doc;
+    state.caseIndex = Math.max(0,Math.trunc(Number(draft.caseIndex)||0));
     message = `Restored local draft (${new Date(draft.savedAt).toLocaleString()})`;
   }
   try { state.doc = normalizeDoc(initial); } catch { state.doc = normalizeDoc(STARTER); }

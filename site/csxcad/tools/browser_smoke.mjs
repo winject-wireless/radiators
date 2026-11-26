@@ -105,6 +105,19 @@ try {
   assert.deepEqual(after.point,[20,10,15]);
   assert.equal(after.doc,before.doc);
   assert.match(await page.locator("#probePosition").textContent(), /X 20.0.*Y 10.0.*Z 15.0/);
+  // Projected marker radius stays constant across camera dolly and viewport resize.
+  const projectedRadius=()=>page.evaluate(()=>{
+    const v=window.__csxcad.viewport, o=v.handles.children.find(h=>h.userData.handleKey==="result-probe");
+    v.camera.updateMatrixWorld();
+    const depth=-o.position.clone().applyMatrix4(v.camera.matrixWorldInverse).z;
+    return o.scale.x*v.renderer.domElement.clientHeight*Math.abs(v.camera.projectionMatrix.elements[5])/(2*depth);
+  });
+  await page.waitForTimeout(150);
+  const r0=await projectedRadius();
+  await page.evaluate(()=>{const v=window.__csxcad.viewport;v.camera.position.lerp(v.controls.target,0.25);v.markDirty();});
+  await page.waitForTimeout(150);
+  assert.ok(Math.abs(await projectedRadius()-r0)<0.5);
+  assert.ok(r0>=5 && r0<=8);
   await page.locator("#sectionFollow").click();
   assert.equal(await page.evaluate(() => window.__csxcad.viewport.sections.children.find(x=>x.isMesh && x.userData.section==="XY").position.z),15);
   await page.locator("#probeToggle").click();
@@ -120,9 +133,21 @@ try {
   assert.ok(result.s11.logmag_db.some(Number.isFinite));
   assert.ok(result.impedance.real_ohm.some(Number.isFinite));
   assert.ok(result.patterns.some(p => p.record.radiation_valid && Number.isFinite(p.max_directivity_dbi)));
+  // Completed sweep cases must restore after a real reload, without running FDTD.
+  await page.reload();
+  await page.waitForFunction(()=>window.__csxcad?.viewport && [...document.querySelector("#resultCase").options].length===2 && [...document.querySelector("#resultCase").options].every(o=>o.textContent.includes("done")),{}, {timeout:90000});
+  await page.locator('[data-dock="results"]').click();
+  assert.ok(await page.locator("#resultCharts").getByText("Results · cached on this device",{exact:true}).isVisible());
+  assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
   // Mobile Results selector stays in the header and swipe navigates without
   // requiring a tap on the select. Vertical scrolling does not change cases.
   await page.setViewportSize({width:390,height:844});
+  await page.waitForFunction(()=>matchMedia("(max-width:760px)").matches);
+  const toolbar=await page.locator(".view-toolbar.top-left").boundingBox();
+  assert.ok(toolbar.height<150,"Mobile toolbar too tall: "+toolbar.height);
+  const probe=await page.locator("#probeReadout").boundingBox();
+  assert.ok(probe && probe.height<140,"Mobile probe too tall");
+  assert.ok(Math.abs(await projectedRadius()-r0)<2);
   await page.locator('.mobile-nav [data-sheet="results"]').click();
   await page.waitForFunction(()=>document.body.dataset.sheet==="results");
   const body=page.locator("#resultBody");
