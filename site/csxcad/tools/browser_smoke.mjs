@@ -64,6 +64,45 @@ try {
   assert.equal(await page.evaluate(() => window.__csxcad.viewport.radiation.children.length), 0);
   await pattern.selectOption(selected);
   assert.equal(await page.evaluate(() => window.__csxcad.viewport.radiation.children.length), 1);
+  // Three independent cuts; selection uses the real geometry-editor gizmo.
+  const sectionCount = name => page.evaluate(n => window.__csxcad.viewport.sections.children.filter(x => x.userData.section === n && x.isLine).length, name);
+  for (const name of ["XY","YZ","XZ"]) assert.equal(await sectionCount(name),1);
+  await page.locator('[data-section="XY"]').click();
+  assert.equal(await sectionCount("XY"),0);
+  await page.locator('[data-section="XY"]').click();
+  assert.equal(await sectionCount("XY"),1);
+  assert.ok(await page.locator("#probeReadout").isVisible());
+  assert.match(await page.locator("#probeGain").textContent(), /-?\d+\.\d+ dBi/);
+  // Use the same picker callback as a click on the sampling sphere, and verify
+  // that the attached translation gizmo exposes every axis.
+  await page.evaluate(() => window.__csxcad.viewport.onHandle("result-probe"));
+  const probeState = () => page.evaluate(() => {
+    const { viewport, state } = window.__csxcad;
+    const g = viewport.gizmo;
+    return { key: g.object?.userData.handleKey, axes: [g.showX,g.showY,g.showZ],
+      point: g.object?.position.toArray(), doc: JSON.stringify(state.doc) };
+  });
+  const before = await probeState();
+  assert.equal(before.key,"result-probe");
+  assert.deepEqual(before.axes,[true,true,true]);
+  // Exercise the TransformControls drag events used by the XYZ editing handles.
+  await page.evaluate(() => {
+    const g = window.__csxcad.viewport.gizmo;
+    g.dragging = true;
+    g.object.position.set(20,10,15);
+    g.dispatchEvent({type:"objectChange"});
+    g.dragging = false;
+  });
+  const after = await probeState();
+  assert.deepEqual(after.point,[20,10,15]);
+  assert.equal(after.doc,before.doc);
+  assert.match(await page.locator("#probePosition").textContent(), /X 20.0.*Y 10.0.*Z 15.0/);
+  await page.locator("#sectionFollow").click();
+  assert.equal(await page.evaluate(() => window.__csxcad.viewport.sections.children.find(x=>x.isMesh && x.userData.section==="XY").position.z),15);
+  await page.locator("#probeToggle").click();
+  assert.equal(await page.evaluate(() => window.__csxcad.viewport.handles.children.some(x=>x.userData.handleKey==="result-probe")),false);
+  await page.locator("#probeToggle").click();
+  assert.ok(await page.locator("#probeReadout").isVisible());
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("button", { name: "Download result.json" }).click(),
