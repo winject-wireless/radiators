@@ -72,6 +72,13 @@
       <label id="patternWrap" class="case-select" hidden>
         Pattern <select id="patternSelect" aria-label="Radiation pattern frequency"></select>
       </label>
+      <div id="probeControls" class="seg probe-controls" role="group" aria-label="Radiation sections and probe" hidden>
+        <button data-section="XY" aria-pressed="true" title="XY section (Z = 0)">XY</button>
+        <button data-section="YZ" aria-pressed="true" title="YZ section (X = 0)">YZ</button>
+        <button data-section="XZ" aria-pressed="true" title="XZ section (Y = 0)">XZ</button>
+        <button id="probeSelect" aria-pressed="false" title="Select the sampling point and show XYZ handles">Probe</button>
+        <button id="probeReset" title="Move the sampling point to peak directivity">Peak</button>
+      </div>
       <label id="caseWrap" class="case-select">
         <span>Case</span>
         <select id="caseSelect" aria-label="Sweep case to preview"></select>
@@ -87,6 +94,7 @@
       <span id="chipText"></span>
       <button id="chipEdit" class="primary">Edit</button>
     </div>
+    <div id="probeStats" class="probe-stats" aria-label="Live sampling point information" hidden></div>
     <div id="viewError" class="view-error" hidden></div>
   </section>
 
@@ -124,6 +132,7 @@
       <div class="panel-head sheet-only"><h2>Simulation results</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
       <div class="panel-body">
         <label class="case-select">Case <select id="resultCase" aria-label="Simulation results case"></select></label>
+        <div id="resultProbe" class="result-probe" hidden></div>
         <div id="resultCharts" class="sim-results"></div>
       </div>
     </div>
