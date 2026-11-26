@@ -12,7 +12,7 @@ import { upgradeTextarea } from "./code-editor.js";
 import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
-import { solverBounds, transformer, rotationMatrix } from "./geometry.js";
+import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
 import { storage, saveFile, registerServiceWorker, isNative } from "./platform.js";
 import { sampleDirection, defaultProbe } from "./sim/radiation.js";
 
@@ -1229,8 +1229,7 @@ function inspectGeometry(box, title, i) {
   let bounds = null;
   if (rg) {
     try {
-      const [lo, hi] = solverBounds(rg);
-      bounds = h("p", { class: "hint", text: `Bounds (${state.derived.case.id}): [${lo.map(fmt).join(", ")}] → [${hi.map(fmt).join(", ")}] mm` });
+      bounds = worldBoundsNote(rg);
     } catch { /* reported in checks */ }
   }
   add(box, moreSection(
@@ -1278,6 +1277,13 @@ function convertHelix(i) {
   });
 }
 
+function worldBoundsNote(parts) {
+  try {
+    const [lo,hi]=displayBounds(parts);
+    return h("p",{class:"hint world-bounds",text:`World bounds: [${lo.map(fmt).join(", ")}] → [${hi.map(fmt).join(", ")}] mm`});
+  }catch{return null;}
+}
+
 // Script instance: the object editor is generated from the script's argument declarations.
 function inspectScriptInstance(box, title, i) {
   const g = state.doc.geometry[i];
@@ -1311,6 +1317,7 @@ function inspectScriptInstance(box, title, i) {
   add(box, moreSection(
     ...entries.filter(([k, d]) => !isMainArg(k, d)).map(([k, d]) => argRow(i, k, d)),
     row("Priority", numField([...base, "priority"], { optional: true, def: 10, int: true, aria: "Priority" })),
+    ex?.objects?.length ? worldBoundsNote(ex.objects) : null,
     ex?.objects ? h("p", { class: "hint", text: `Generates ${ex.objects.length} object${ex.objects.length === 1 ? "" : "s"}: ` +
       ex.objects.slice(0, 16).map(o => `${o.name.slice(o.name.indexOf("/") + 1)} (${o.shape})`).join(", ") + (ex.objects.length > 16 ? " …" : "") }) : null,
     extra.length ? h("div", { class: "note warn" }, `Not declared by the script: ${extra.join(", ")} `,

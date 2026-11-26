@@ -311,6 +311,38 @@ try {
     await picker.evaluate(el=>{el.scrollTop=el.scrollHeight;});
     assert.ok(await picker.evaluate(el=>el.scrollTop>0));
     await mobilePage.locator("#dialogActions").getByRole("button",{name:"Close",exact:true}).click();
+    // Reproduce the opposing shell/cap assembly on a mobile WebGL viewport.
+    const assembly=await mobilePage.evaluate(()=>structuredClone(window.__csxcad.state.doc));
+    assembly.materials=[{name:"pec-metal",type:"pec"}];
+    assembly.parameters={L:30,d_diameter:4,g_r:1};
+    assembly.sweep={mode:"product",parameters:{g_r:{values:[124,62,31]}}};
+    assembly.geometry=[
+      {name:"d",shape:"cylindrical_shell",material:"pec-metal",start:[0,0,0],stop:[0,0,{$param:"L"}],radius:{$expr:"d_diameter/2-0.5/2"},thickness:.5,transform:{translate:[0,0,{$expr:"2+d_diameter/2"}]}},
+      {name:"g",shape:"cylindrical_shell",material:"pec-metal",start:[0,0,0],stop:[0,0,{$expr:"-L"}],radius:{$expr:"d_diameter/2-0.5/2"},thickness:.5,transform:{translate:[0,0,{$expr:"-d_diameter/2"}]}},
+      ...[[4,-1],[-2,1]].map(([z,axis],i)=>({name:i?"g_cap":"d_cap",script:"hemisphere",args:{center:[0,0,z],axis:[0,0,axis],radius:{$expr:"d_diameter/2"},thickness:.5,rings:10,segments:32,material:"pec-metal"}}))
+    ];
+    assembly.ports=[{id:1,name:"feed",type:"lumped",start:[0,0,-.1],stop:[0,0,2.1],direction:"z",impedance_ohm:50,excite:true}];
+    await mobilePage.locator("#openFile").setInputFiles({name:"shell-assembly.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(assembly))});
+    await mobilePage.waitForFunction(()=>window.__csxcad.viewport.parts.children.length===4,{}, {timeout:30000});
+    const render=await mobilePage.evaluate(()=>{
+      const v=window.__csxcad.viewport;
+      v.setSelection(null);v.scene.updateMatrixWorld(true);
+      return v.parts.children.map((g,i)=>{
+        const mesh=g.children[0];mesh.geometry.computeBoundingBox();
+        const bb=mesh.geometry.boundingBox;
+        const z=[19,-17,3,-1][i];
+        v.raycaster.ray.origin.set(10,0,z);v.raycaster.ray.direction.set(-1,0,0);
+        const hit=v.raycaster.intersectObject(mesh,false)[0];
+        return {z:[bb.min.z,bb.max.z],visible:g.visible,opaque:!mesh.material.transparent&&mesh.material.opacity===1&&mesh.material.depthWrite,
+          front:mesh.material.side===0,hit:hit?.point.x??null};
+      });
+    });
+    assert.deepEqual(render.map(r=>r.z.map(z=>Math.round(z*1e6)/1e6)),[[4,34],[-32,-2],[2,4],[-2,0]]);
+    assert.ok(render.every(r=>r.visible&&r.opaque&&r.front&&r.hit>0),"Closed metal shells must expose their near faces");
+    await mobilePage.evaluate(()=>{
+      const v=window.__csxcad.viewport;v.controls.target.set(0,0,1);v.camera.position.set(0,-.25,1);v.controls.update();v.markDirty();
+    });
+    await mobilePage.waitForFunction(()=>window.__csxcad.viewport.camera.near<.001,{}, {timeout:5000});
   } finally {await phone.close();}
   console.log("Browser CSXCAD + streaming sweep + mobile navigation: PASS");
 } finally {

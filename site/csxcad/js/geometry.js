@@ -311,6 +311,20 @@ export function tessellate(g) {
   return { positions, indices: Uint32Array.from(mesh.i), flat };
 }
 
+// World-space bounds of the actual display mesh, not the conservative
+// solver envelope (which pads cylinders along their axial direction).
+export function displayBounds(parts) {
+  const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+  for(const g of Array.isArray(parts)?parts:[parts]){
+    const {positions}=tessellate(g);
+    for(let i=0;i<positions.length;i++){
+      const k=i%3;lo[k]=Math.min(lo[k],positions[i]);hi[k]=Math.max(hi[k],positions[i]);
+    }
+  }
+  if(!lo.every(Number.isFinite))throw Error("No display geometry");
+  return [lo,hi];
+}
+
 // Bounds exactly as install_geometry() reports them (used for domain checks).
 export function solverBounds(g) {
   const shape = g.shape ?? g.type;

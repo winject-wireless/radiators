@@ -119,6 +119,7 @@ export class Viewport {
         this._dirty = false;
         // Handles keep a constant on-screen size.
         const touch = matchMedia("(pointer: coarse)").matches;
+        this._updateClipPlanes();
         this.camera.updateMatrixWorld();
         const cameraPoint=new THREE.Vector3();
         const height=Math.max(1,this.renderer.domElement.clientHeight);
@@ -141,6 +142,23 @@ export class Viewport {
   }
 
   markDirty() { this._dirty = true; }
+
+  // Fit sets the pose, not a permanent near plane. At close feed inspection
+  // distances the original fit-dependent near plane can cut through conductors.
+  _updateClipPlanes() {
+    const distance=Math.max(1e-4,this.camera.position.distanceTo(this.controls.target));
+    const center=this.bounds.getCenter(new THREE.Vector3());
+    const diagonal=Math.max(1,this.bounds.getSize(new THREE.Vector3()).length());
+    const near=Math.max(1e-5,Math.min(distance/1000,diagonal/2000));
+    let far=Math.max(10,distance*4,this.camera.position.distanceTo(center)+diagonal*4);
+    if(this.domainBox&&this.options.domain){
+      far=Math.max(far,this.camera.position.distanceTo(this.domainBox.getCenter(new THREE.Vector3()))+this.domainBox.getSize(new THREE.Vector3()).length());
+    }
+    if(Math.abs(this.camera.near-near)>near*0.01||Math.abs(this.camera.far-far)>far*0.01){
+      this.camera.near=near;this.camera.far=far;
+      this.camera.updateProjectionMatrix();
+    }
+  }
 
   applyTheme() {
     this._dirty = true;
@@ -233,14 +251,16 @@ export class Viewport {
         geo.computeVertexNormals();
         const m = mats.get(part.material);
         const dielectric = m?.type === "dielectric";
-        const shell = /shell/.test(part.shape);
+        // PEC and conductive shells are closed material volumes, not
+        // translucent skins. Draw their inner and outer surfaces using their
+        // actual winding, just like a solid conductor. Only sheets need both sides.
         const mat = new THREE.MeshStandardMaterial({
           // Matte, CAD-style shading: no mirror reflections, just soft form.
           color: materialColor(m), metalness: dielectric ? 0 : 0.15, roughness: 0.85, envMapIntensity: 0.6,
-          transparent: dielectric || shell || this.options.xray, opacity: this.options.xray ? 0.35 : dielectric ? 0.45 : shell ? 0.8 : 1,
-          side: t.flat || shell || dielectric ? THREE.DoubleSide : THREE.FrontSide,
+          transparent: dielectric || this.options.xray, opacity: this.options.xray ? 0.35 : dielectric ? 0.45 : 1,
+          side: t.flat || dielectric ? THREE.DoubleSide : THREE.FrontSide,
           depthWrite: !(dielectric || this.options.xray), flatShading: part.shape === "box",
-          polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+          polygonOffset: t.flat, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
         });
         mat.userData.base = { transparent: mat.transparent, opacity: mat.opacity, depthWrite: mat.depthWrite };
         const mesh = new THREE.Mesh(geo, mat);
@@ -619,10 +639,8 @@ export class Viewport {
     };
     const d = new THREE.Vector3(...(dirs[name] || dirs.iso)).normalize();
     this.camera.position.copy(c.clone().add(d.multiplyScalar(dist)));
-    this.camera.near = dist / 1000;
-    this.camera.far = dist * 100;
-    this.camera.updateProjectionMatrix();
     this.controls.target.copy(c);
+    this._updateClipPlanes();
     this.controls.update();
   }
 

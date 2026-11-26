@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluate, parameterSets, resolveCase, fieldToValue, valueToField, renameParameter, sweepValues, parseUnitField, formatUnitField, normalizeWorkspaceUnits, resolveTemplate } from "./js/params.js";
-import { tessellate, solverBounds, helixPoints } from "./js/geometry.js";
+import { tessellate, solverBounds, displayBounds, helixPoints } from "./js/geometry.js";
 import { checkCase } from "./js/checks.js";
 import { STARTER, SHAPES } from "./js/schema.js";
 import { expandScripts, scriptBody, SCRIPT_TEMPLATE, normalizeSpec } from "./js/scriptcore.js";
@@ -346,6 +346,14 @@ for (const [shape, def] of Object.entries(SHAPES)) assert.ok(tessellate({ shape,
   ]},editorRun).geometry;
   two.ports[0].start=[0,0,-.1];two.ports[0].stop=[0,0,2.1];
   two.mesh.max_cell_mm=6;two.mesh.refinements=[];
+  // Actual display geometry must retain the translated +Z and -Z arms,
+  // with each hemisphere's rim aligned to its corresponding tube.
+  for(const [i,z] of [[0,[4,34]],[1,[-32,-2]],[2,[2,4]],[3,[-2,0]]]){
+    const [lo,hi]=displayBounds(two.geometry[i]);
+    assert.ok(Math.abs(lo[2]-z[0])<1e-6&&Math.abs(hi[2]-z[1])<1e-6,two.geometry[i].name+" wrong world Z");
+  }
+  const translated={...two.geometry[0],start:[0,0,0],stop:[0,0,30],transform:{translate:[0,0,4]}};
+  assert.deepEqual(displayBounds(translated),displayBounds(two.geometry[0]));
   const corrected=checkCase(two);
   assert.ok(!corrected.some(x=>x.msg.includes("inconsistent face winding")||x.msg.includes("not a closed two-manifold")),JSON.stringify(corrected));
   assert.deepEqual(feedWarnings(two),[],"Penetrating endpoints must be recognized inside both shells");
