@@ -3,8 +3,7 @@
 A parametric geometry editor for radiators **schema v2** antenna configs. It
 edits the CSXCAD side of a simulation (geometry primitives, materials, ports,
 domain, mesh and outputs) and saves the JSON that goes into `antennas/`.
-**It does not simulate.** The radiators scripts (`scripts/run_simulations.py`,
-`antennas/simulate_v2.py`, CI) are still the simulator.
+Run lumped-port cases locally in the browser using openEMS WebAssembly. The native radiators scripts (`scripts/run_simulations.py`, `antennas/simulate_v2.py`, CI) remain available for other configurations.
 
 Published at `https://winject-wireless.github.io/radiators/csxcad/`.
 
