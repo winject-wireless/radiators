@@ -60,7 +60,8 @@ export class Viewport {
 
     this.parts = new THREE.Group();
     this.overlays = new THREE.Group();
-    this.scene.add(this.parts, this.overlays);
+    this.radiation = new THREE.Group();
+    this.scene.add(this.parts, this.overlays, this.radiation);
     this.axes = new THREE.AxesHelper(1);
     this.scene.add(this.axes);
     this.grid = null;
@@ -103,26 +104,39 @@ export class Viewport {
     this.resizeObserver.observe(container);
     this.applyTheme();
     this.resize();
+    // Render on demand: only when the camera moves, a focus animation runs, or something
+    // changed (any public method calls markDirty). Saves CPU/battery, e.g. during simulations.
+    this._dirty = true;
+    this.controls.addEventListener("change", () => { this._dirty = true; });
+    this.gizmo.addEventListener("change", () => { this._dirty = true; });
     const loop = now => {
+      const focusing = !!this._focus;
       this._stepFocus(now);
-      this.controls.update();
-      // Handles keep a constant on-screen size.
-      const touch = matchMedia("(pointer: coarse)").matches ? 1.5 : 1;
-      for (const hnd of this.handles.children) {
-        hnd.scale.setScalar(Math.max(1e-6, hnd.position.distanceTo(this.camera.position) * 0.011 * touch * (hnd.userData.size || 1) * (hnd === this._hover ? 1.35 : 1)));
+      const moved = this.controls.update();
+      if (this._dirty || moved || focusing || this._scalar || this.gizmo.dragging) {
+        this._dirty = false;
+        // Handles keep a constant on-screen size.
+        const touch = matchMedia("(pointer: coarse)").matches ? 1.5 : 1;
+        for (const hnd of this.handles.children) {
+          hnd.scale.setScalar(Math.max(1e-6, hnd.position.distanceTo(this.camera.position) * 0.011 * touch * (hnd.userData.size || 1) * (hnd === this._hover ? 1.35 : 1)));
+        }
+        this.renderer.render(this.scene, this.camera);
       }
-      this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
   }
 
+  markDirty() { this._dirty = true; }
+
   applyTheme() {
+    this._dirty = true;
     this.scene.background = null;
     if (this.grid) this._makeGrid(this.gridSize);
   }
 
   resize() {
+    this._dirty = true;
     const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
@@ -131,6 +145,7 @@ export class Viewport {
 
   // Shift the rendered image up by half of an overlay's height (phone sheets).
   setBottomInset(px) {
+    this._dirty = true;
     this.bottomInset = px;
     const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
     if (px > 0) this.camera.setViewOffset(w, h, 0, Math.min(px, h * 0.9) / 2, w, h);
@@ -183,6 +198,7 @@ export class Viewport {
 
   // model = { geometry:[resolved comps], ports, materials, domain, mesh, hidden:Set<index> }
   update(model) {
+    this._dirty = true;
     for (const g of [this.parts, this.overlays]) {
       g.traverse(o => { o.geometry?.dispose(); o.material?.dispose?.(); });
       g.clear();
@@ -287,6 +303,9 @@ export class Viewport {
     if (box.isEmpty()) box.copy(this.domainBox || new THREE.Box3(new THREE.Vector3(-50, -50, -50), new THREE.Vector3(50, 50, 50)));
     const first = !this._fitted;
     this.bounds = box;
+    const pattern = this._radiationRecord;
+    this._radiationRecord = undefined;
+    this.setRadiation(pattern);
     const diag = box.getSize(new THREE.Vector3()).length() || 100;
     this.axes.scale.setScalar(diag * 0.18);
     this.overlays.traverse(o => { if (o.userData.scaleWithView) o.scale.setScalar(diag * 0.006); });
@@ -298,13 +317,58 @@ export class Viewport {
     return errors;
   }
 
+  // Directivity surface uses normalized E-field amplitude, not power or a physical radius.
+  // The peak display radius surrounds the model and uses the same angular convention as NF2FF.
+  setRadiation(record) {
+    if (record === this._radiationRecord) return;
+    this._radiationRecord = record;
+    this._dirty = true;
+    for (const o of this.radiation.children) {
+      o.geometry.dispose();
+      o.material.dispose();
+    }
+    this.radiation.clear();
+    if (!record?.radiation_valid) return;
+    const { theta_deg: theta, phi_deg: phi, directivity_dbi: db, max_directivity_dbi: peak } = record;
+    if (!theta?.length || !phi?.length || !Number.isFinite(peak)) return;
+    const radius = 1.65 * Math.max(10, ...this.bounds.min.toArray().map(Math.abs), ...this.bounds.max.toArray().map(Math.abs));
+    const pos = [], colors = [], indices = [];
+    const color = new THREE.Color();
+    const n = phi.length;
+    for (let i = 0; i < theta.length; i++) {
+      const t = theta[i] * Math.PI / 180;
+      for (let j = 0; j < n; j++) {
+        const f = phi[j] * Math.PI / 180;
+        const level = db[i]?.[j];
+        const r = Number.isFinite(level) ? radius * Math.min(1, 10 ** ((level - peak) / 20)) : 0;
+        pos.push(r * Math.sin(t) * Math.cos(f), r * Math.sin(t) * Math.sin(f), r * Math.cos(t));
+        color.setHSL(0.67 * (1 - Math.max(0, Math.min(1, (Number.isFinite(level) ? level - peak + 30 : 0) / 30))), 0.85, 0.55);
+        colors.push(color.r, color.g, color.b);
+        if (i + 1 < theta.length) {
+          const a = i * n + j, b = i * n + (j + 1) % n;
+          indices.push(a, b, a + n, b, b + n, a + n);
+        }
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    this.radiation.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false,
+    })));
+  }
+
   setOption(key, value) {
+    this._dirty = true;
     this.options[key] = value;
     if (key === "grid" && this.grid) this.grid.visible = value;
     this.overlays.children.forEach(o => { if (o.userData.overlay === key) o.visible = value; });
   }
 
   setSelection(ref) {
+    this._dirty = true;
     this.selection = ref;
     const focused = ref && (ref.kind === "geometry" || ref.kind === "port");
     for (const group of this.parts.children) {
@@ -362,6 +426,7 @@ export class Viewport {
   //          scalar {key, kind:"scalar", base, dir, dist, enabled} → slides along base + dir·t;
   //          action {key, kind:"action", pos} → tap only (e.g. insert a wire vertex).
   setHandles(list, activeKey, snap) {
+    this._dirty = true;
     this.snap = snap || 0;
     const keep = new Map(this.handles.children.map(o => [o.userData.handleKey, o]));
     const want = new Set();
@@ -444,6 +509,7 @@ export class Viewport {
         const text = this.onScalarMove(o.userData.handleKey, t);
         if (text === null) return; // rejected (out of range)
         o.position.copy(B).addScaledVector(D, t);
+        this._dirty = true;
         const span = Math.max(Math.abs(t), this.bounds.getSize(new THREE.Vector3()).length() * 0.05);
         this.guide.geometry.setFromPoints([B.clone().addScaledVector(D, -span * 0.15), B.clone().addScaledVector(D, t + Math.sign(t || 1) * span * 0.3)]);
         this.guide.visible = true;
@@ -473,14 +539,17 @@ export class Viewport {
       if (this._scalar || e.pointerType !== "mouse" || e.buttons) return;
       this._rayAt(e);
       const o = this.raycaster.intersectObjects(this.handles.children, false)[0]?.object || null;
+      if (this._hover !== o) this._dirty = true;
       this._hover = o;
       el.style.cursor = o ? (o.userData.kind === "scalar" ? (o.userData.enabled ? "grab" : "not-allowed") : "pointer") : "";
     });
   }
 
   view(name) {
+    this._dirty = true;
     this._focus = null;
-    const target = (this.bounds.isEmpty() ? new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) : this.bounds);
+    const target = (this.bounds.isEmpty() ? new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) : this.bounds.clone());
+    if (this.radiation.children.length) target.union(new THREE.Box3().setFromObject(this.radiation));
     const c = target.getCenter(new THREE.Vector3());
     const r = Math.max(target.getSize(new THREE.Vector3()).length() / 2, 1);
     const dist = r / Math.sin((this.camera.fov * Math.PI / 180) / 2) * (this.camera.aspect < 1 ? 1.25 / this.camera.aspect ** 0.5 : 1.05);

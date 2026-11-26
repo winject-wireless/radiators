@@ -104,6 +104,21 @@ def fetch_codemirror():
     stamp.write_text(CM_VERSION + "\n")
 
 
+# openEMS compiled to WebAssembly (site/openems, built by wasm/openems): copied into the
+# editor so it is self-contained (Pages, PWA and the Android wrapper).
+OPENEMS_FILES = ("openems.js", "openems-core.js", "openems-post.js", "openems-worker.js",
+                 "openems.mjs", "openems.wasm", "BUILD-INFO.txt")
+
+
+def copy_openems():
+    src, dst = repo / "site" / "openems", here / "vendor" / "openems"
+    dst.mkdir(parents=True, exist_ok=True)
+    for name in OPENEMS_FILES:
+        if not (src / name).is_file():
+            raise RuntimeError(f"missing {src / name} (openEMS wasm build)")
+        copy2(src / name, dst / name)
+
+
 def collect_examples():
     target = here / "examples"
     if target.exists():
@@ -154,6 +169,7 @@ def main():
     args = parser.parse_args()
     fetch_vendor()
     fetch_codemirror()
+    copy_openems()
     collect_examples()
     build(args.out.resolve())
 

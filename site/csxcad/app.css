@@ -163,7 +163,7 @@ body.dock-collapsed .workspace { grid-template-rows: minmax(0, 1fr) 42px; }
 .head-btn .ico { width: 16px; height: 16px; flex-basis: 16px; }
 .panel-body { overflow: auto; min-height: 0; flex: 1; padding: 4px 12px 14px; overscroll-behavior: contain; }
 .sheet-close, .sheet-only { display: none; }
-.dock-tabs { display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 8px; border-bottom: 1px solid var(--line); }
+.dock-tabs { overflow-x: auto; flex-shrink: 0; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 8px; border-bottom: 1px solid var(--line); }
 .dock-tabs [role="tab"] {
   border: 0; border-radius: 7px; background: transparent; min-height: 28px; padding: 4px 11px;
   color: var(--muted); font-size: 13.5px;
@@ -412,6 +412,45 @@ body.script-max #panelScripts .panel-head.sheet-only { display: flex; }
 body.script-max .script-code .CodeMirror { height: calc(100dvh - 190px); }
 body.script-max .script-editor { grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); }
 
+/* ---------- in-browser simulation ---------- */
+:root { --plot-1: #5aa9ff; --plot-2: #f2a65a; --plot-3: #5fd08a; --plot-4: #d58cf0; }
+.sim-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.sim-head .hint { margin: 0; flex: 1; }
+.sim-run { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px 12px !important; margin-bottom: 14px; background: var(--panel-2); }
+.sim-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sim-controls select { max-width: 260px; }
+.sim-threads { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.sim-threads input { width: 64px; }
+.sim-bar { height: 6px; border-radius: 3px; background: var(--panel-3); margin-top: 10px; overflow: hidden; }
+.sim-bar-fill { height: 100%; width: 0; background: var(--primary); transition: width .4s; }
+.sim-stats { font-size: 12px; color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.sim-log-box summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.sim-log { max-height: 180px; overflow: auto; font-size: 11px; line-height: 1.4; background: var(--field); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 8px; white-space: pre-wrap; }
+.sim-results h3 { margin: 14px 0 8px; font-size: 13px; font-weight: 650; }
+.sim-results h4 { margin: 12px 0 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.sim-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 10px; }
+.kpi-label { font-size: 11px; color: var(--faint); }
+.kpi-value { font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.kpi-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.sim-charts, .sim-polars { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-top: 10px; }
+.sim-polars { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.chart-card { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 8px; }
+.chart-card figcaption { font-size: 11.5px; color: var(--muted); margin-bottom: 2px; }
+.chart { width: 100%; height: auto; display: block; }
+.chart-grid line, .chart-grid circle { stroke: var(--line-2); stroke-width: 1; fill: none; }
+.chart-ref { stroke: var(--warn); stroke-dasharray: 4 3; stroke-width: 1; }
+.chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.chart-tick { fill: var(--faint); font-size: 10px; }
+.chart-axis { fill: var(--muted); font-size: 10.5px; }
+.badge.run { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); margin-left: 3px; }
+.sim-head .sim-max-btn { margin-left: auto; }
+body.sim-max #panelSim {
+  position: fixed; z-index: 45; top: calc(52px + var(--safe-t)); left: var(--gap); right: var(--gap); bottom: var(--gap);
+  border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: var(--shadow); background: var(--panel);
+}
+body.sim-max #panelSim .panel-head.sheet-only { display: flex; }
+
 /* ---------- checks ---------- */
 .check-summary { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .checks-list { list-style: none; margin: 0; padding: 0; }
@@ -478,7 +517,7 @@ dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
   body[data-sheet="model"] #panelModel, body[data-sheet="inspect"] #panelInspect,
   body[data-sheet="params"] #panelParams, body[data-sheet="checks"] #panelChecks,
   body[data-sheet="json"] #panelJson, body[data-sheet="scripts"] #panelScripts,
-  body[data-sheet="sim"] #panelSim { transform: none; visibility: visible; }
+  body[data-sheet="results"] #panelResults, body[data-sheet="sim"] #panelSim { transform: none; visibility: visible; }
   body:not([data-sheet=""]) .view-toolbar.bottom-right, body:not([data-sheet=""]) .selection-chip { display: none; }
   .panel-head { position: relative; padding: 18px 10px 6px 18px; cursor: grab; touch-action: none; }
   .panel-head::before { content: ""; position: absolute; top: 7px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--line-2); }
@@ -488,7 +527,7 @@ dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
   .sheet-close, .sheet-only { display: flex; }
   .sheet-close { border: 0; background: var(--panel-2) !important; border-radius: 50% !important; min-width: 30px !important; min-height: 30px !important; font-size: 14px !important; }
   .mobile-nav {
-    display: grid; grid-template-columns: repeat(5, 1fr); position: relative; z-index: 30;
+    display: grid; grid-template-columns: repeat(6, 1fr); position: relative; z-index: 30;
     background: var(--glass); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4);
     border-top: 1px solid var(--line); padding: 4px 6px calc(4px + var(--safe-b));
   }
@@ -507,6 +546,8 @@ dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
   input, select { min-height: var(--field-h); font-size: 17.5px; } /* 16px avoids Android/iOS zoom-on-focus */
   body.sheet-peek .panel { height: auto; max-height: 46dvh; }
   body.script-max #panelScripts { position: absolute; top: 0; left: 0; right: 0; bottom: 0; height: auto; border-radius: 0; }
+  body.sim-max #panelSim { position: absolute; top: 0; left: 0; right: 0; bottom: 0; height: auto; border-radius: 0; }
+  .sim-charts, .sim-polars { grid-template-columns: 1fr; }
   body.script-max .script-code .CodeMirror { height: calc(100dvh - 330px); min-height: 260px; }
   body.script-max .script-editor { grid-template-columns: 1fr; }
   .script-code .CodeMirror { height: 240px; font-size: 13px; }

@@ -8,6 +8,7 @@ import {
 import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
+import { renderRunPanel, resultFor, clearResults, renderResults } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, transformer, rotationMatrix } from "./geometry.js";
@@ -108,6 +109,7 @@ const state = {
   handle: null,         // active position handle ("geometry.0.start"), gets the 3-axis gizmo
   scriptSel: null,      // script shown in the Scripts tab
   scriptMax: false,     // Scripts editor maximized
+  simMax: false,        // Simulation panel maximized (results charts)
 };
 const history = { undo: [], redo: [], live: null };
 let viewport = null;
@@ -253,6 +255,7 @@ function normalizeDoc(cfg) {
 
 function loadDoc(cfg, message) {
   state.doc = normalizeDoc(cfg);
+  clearResults();
   for (const [k, v] of scriptRT.cache) if (!v.ok && /^timed out/.test(v.error)) scriptRT.cache.delete(k); // retry slow scripts
   state.sel = null; // open showing the whole model; selecting a part fades the rest
   state.hidden.clear();
@@ -876,10 +879,63 @@ function renderSim() {
   fieldRefreshers = simRefreshers = [];
   box.replaceChildren();
   const d = state.derived;
+  add(box, h("div", { class: "sim-head" }, h("span", { class: "hint", text: "Run the current case here, or save the JSON for the radiators simulator (CI)." }),
+    h("button", { type: "button", class: "icon head-btn sim-max-btn", title: "Maximize (Esc to restore)", "aria-label": "Maximize simulation panel",
+      onclick: () => setSimMax(!state.simMax) }, icon(state.simMax ? "minimize" : "maximize"))));
+  renderRunPanel(box, simContext);
   const settings = h("div", { class: "sim-settings" });
   inspectSim(settings, h("span"));
   add(box, h("div", { class: "sim-layout" }, renderSweep(d, new Set(Object.keys(state.doc.sweep?.parameters || {}))), ...settings.children));
   box.scrollTop = scroll;
+}
+// What the run panel needs from the editor.
+const simContext = {
+  getCase() {
+    const d = state.derived;
+    const base = { id: d.case.id, name: d.case.name };
+    if (state.doc.generator) return { ...base, error: "configs with a Python generator can only run in the radiators scripts" };
+    try {
+      const ex = expandResolved(resolveCase(state.doc, d.case.parameters));
+      if (ex.pending) return { ...base, pending: true };
+      if (ex.error) return { ...base, error: ex.error };
+      return { ...base, config: ex.cfg };
+    } catch (e) { return { ...base, error: e.message }; }
+  },
+  slug: () => slug(),
+  onBadge(text) { for (const id of ["simBadge", "simBadgeMobile"]) { const b = $(id); if (b) b.textContent = text; } },
+  notify: (msg, error = false) => setStatus(msg, error),
+  refresh: () => { renderSim(); syncResults(); },
+};
+let displayedRun, displayedStale;
+function syncResults() {
+  const caseId = state.derived.case.id;
+  const run = resultFor(caseId);
+  const stale = !!run && JSON.stringify(simContext.getCase().config) !== run.key;
+  if (run !== displayedRun || stale !== displayedStale) {
+    displayedRun = run;
+    displayedStale = stale;
+    renderResults($("resultCharts"), simContext, run, caseId, stale);
+    const patterns = stale ? [] : run?.result.patterns || [];
+    $("patternWrap").hidden = !patterns.some(p => p.record.radiation_valid);
+    $("patternSelect").replaceChildren(new Option("Off", "-1"), ...patterns.map((p, i) => {
+      const option = new Option(`${p.frequency_hz / 1e9} GHz · ${p.record.radiation_valid ? p.max_directivity_dbi.toFixed(1) + " dBi peak" : "unavailable"}`, String(i));
+      option.disabled = !p.record.radiation_valid;
+      return option;
+    }));
+  }
+  $("patternSelect").value = String(run?.frequency ?? -1);
+  viewport?.setRadiation(stale ? null : run?.result.patterns[run.frequency]?.record ?? null);
+}
+
+function setSimMax(on) {
+  state.simMax = on;
+  document.body.classList.toggle("sim-max", on);
+  if (on) {
+    if (mobile()) { if (document.body.dataset.sheet !== "sim") openSheet("sim"); document.body.classList.add("sheet-tall"); }
+    else setDock("sim");
+  } else if (mobile()) document.body.classList.remove("sheet-tall");
+  for (const b of document.querySelectorAll(".sim-max-btn")) b.replaceChildren(icon(on ? "minimize" : "maximize"));
+  requestAnimationFrame(syncViewInset);
 }
 
 // Scripts: JavaScript generators generate(args) → [primitives]; each use is one Model object
@@ -1697,11 +1753,10 @@ function refresh(opts = {}) {
   $("caseBadge").textContent = d.cases.length > 1 ? String(d.cases.length) : "";
   $("undo").disabled = !history.undo.length;
   $("redo").disabled = !history.redo.length;
-  const caseSel = $("caseSelect");
-  $("caseWrap").hidden = d.cases.length < 2;
-  if (d.cases.length > 1) {
-    caseSel.replaceChildren(...d.cases.map((c, k) => h("option", { value: k, text: `${c.id} · ${c.name}` })));
-    caseSel.value = state.caseIndex;
+  for (const id of ["caseSelect", "resultCase"]) {
+    const select = $(id);
+    select.replaceChildren(...d.cases.map((c, k) => h("option", { value: k, text: c.name === "Default" ? c.name : `${c.id} · ${c.name}` })));
+    select.value = state.caseIndex;
   }
   if (o.tree) renderTree();
   if (o.inspector) renderInspector();
@@ -1724,6 +1779,7 @@ function refresh(opts = {}) {
     ve.hidden = !msgs.length;
     ve.textContent = msgs.slice(0, 3).join(" · ") + (msgs.length > 3 ? ` (+${msgs.length - 3})` : "");
   }
+  syncResults();
   showChip();
   syncHandles();
   const errors = d.checks.list.filter(c => c.level === "error").length;
@@ -1858,7 +1914,7 @@ async function menuAction(action) {
     case "about":
       openDialog("About the CSXCAD editor", h("div", {},
         h("p", { text: "A parametric geometry editor for radiators schema v2 antenna configs (CSXCAD primitives, materials, ports, domain, mesh and outputs)." }),
-        h("p", { text: "It does not simulate. Save the JSON into antennas/ and the radiators openEMS scripts (scripts/run_simulations.py, CI) resolve parameters, expand sweeps and run each case." }),
+        h("p", { text: "Run the current lumped-port case in your browser with openEMS WebAssembly, or save the JSON into antennas/ for the native simulator (CI)." }),
         h("p", { class: "hint", text: "Touch: one finger orbits, two fingers zoom and pan, tap selects. Desktop: left-drag orbit, right-drag pan, wheel zoom; Ctrl+Z / Ctrl+Shift+Z, Ctrl+S, Ctrl+D duplicate, Delete removes, F fits." })));
       break;
   }
@@ -1867,7 +1923,7 @@ async function menuAction(action) {
 // ---------------------------------------------------------------- mobile sheets
 function openSheet(name, { peek = false } = {}) {
   if (!mobile()) {
-    if (["params", "scripts", "checks", "sim", "json"].includes(name)) setDock(name);
+    if (["params", "scripts", "checks", "sim", "results", "json"].includes(name)) setDock(name);
     return;
   }
   const cur = document.body.dataset.sheet;
@@ -1895,6 +1951,7 @@ function syncViewInset() {
 function closeSheet(fromPop = false) {
   if (!document.body.dataset.sheet) return;
   if (state.scriptMax) { state.scriptMax = false; document.body.classList.remove("script-max"); }
+  if (state.simMax) { state.simMax = false; document.body.classList.remove("sim-max"); }
   document.body.dataset.sheet = "";
   document.body.classList.remove("sheet-tall", "sheet-peek");
   for (const b of document.querySelectorAll(".mobile-nav button")) b.classList.remove("active");
@@ -1904,6 +1961,7 @@ function closeSheet(fromPop = false) {
 }
 function setDock(name) {
   if (name !== "scripts" && state.scriptMax) setScriptMax(false);
+  if (name !== "sim" && state.simMax) setSimMax(false);
   state.dock = name;
   document.body.classList.remove("dock-collapsed");
   for (const t of document.querySelectorAll(".dock-tabs [role=tab]")) t.setAttribute("aria-selected", String(t.dataset.dock === name));
@@ -1975,7 +2033,13 @@ async function boot() {
       if (key === "xray") refresh({ tree: false, inspector: false, params: false, json: false });
     });
   }
-  $("caseSelect").addEventListener("change", () => { state.caseIndex = +$("caseSelect").value; refresh(); });
+  for (const id of ["caseSelect", "resultCase"]) {
+    $(id).addEventListener("change", e => { state.caseIndex = Number(e.target.value); refresh(); });
+  }
+  $("patternSelect").addEventListener("change", e => {
+    const run = resultFor(state.derived.case.id);
+    if (run) { run.frequency = Number(e.target.value); syncResults(); }
+  });
   for (const t of document.querySelectorAll(".dock-tabs [role=tab]")) t.addEventListener("click", () => setDock(t.dataset.dock));
   $("dockToggle").addEventListener("click", () => {
     document.body.classList.toggle("dock-collapsed");
@@ -2002,6 +2066,7 @@ async function boot() {
     const typing = e.target.closest("input, textarea, select, [contenteditable], .CodeMirror");
     // Esc leaves the maximized editor, unless the editor used it (e.g. to close the autocomplete list).
     if (e.key === "Escape" && state.scriptMax && !e.defaultPrevented) { setScriptMax(false); return; }
+    if (e.key === "Escape" && state.simMax && !e.defaultPrevented) { setSimMax(false); return; }
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); return; }
     if (typing) return;

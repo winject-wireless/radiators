@@ -31,10 +31,20 @@ export class OpenEMS {
     const why = OpenEMS.unsupportedReason();
     if (why) throw new OpenEMSError(why);
     const ems = new OpenEMS(options);
-    const handle = await ems.call('init', { pthreadPoolSize: options.threads });
-    ems.abortView = new Int32Array(handle.memory.buffer);
-    ems.abortIndex = handle.ptr >> 2;
-    return ems;
+    try {
+      await ems.initialize();
+      return ems;
+    } catch (error) {
+      ems.terminate();
+      throw error;
+    }
+  }
+
+  // Separate initialization lets a caller terminate the worker while it starts.
+  async initialize() {
+    const handle = await this.call('init', { pthreadPoolSize: this.options.threads });
+    this.abortView = new Int32Array(handle.memory.buffer);
+    this.abortIndex = handle.ptr >> 2;
   }
 
   // null if this page can run openEMS, else why not

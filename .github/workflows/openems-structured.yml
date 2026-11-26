@@ -299,9 +299,32 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           path: source/site/dist
+  browser-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Assemble editor and install browser test dependencies
+        run: |
+          python3 site/csxcad/prepare.py
+          npm install --no-save --no-package-lock playwright@1.51.1
+          npx playwright install --with-deps chromium
+      - name: Test editor and WebAssembly solver in Chromium
+        run: |
+          python3 -m http.server 8080 --bind 127.0.0.1 --directory site/csxcad/www &
+          server=$!
+          trap 'kill "$server" || true' EXIT
+          for i in {1..20}; do
+            if curl -fsS http://localhost:8080/ >/dev/null; then break; fi
+            sleep 1
+          done
+          node site/csxcad/tools/browser_smoke.mjs http://localhost:8080/
   deploy-pages:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: simulate
+    needs: [simulate, browser-smoke]
     runs-on: ubuntu-latest
     environment:
       name: github-pages

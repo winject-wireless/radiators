@@ -3,8 +3,7 @@
 A parametric geometry editor for radiators **schema v2** antenna configs. It
 edits the CSXCAD side of a simulation (geometry primitives, materials, ports,
 domain, mesh and outputs) and saves the JSON that goes into `antennas/`.
-**It does not simulate.** The radiators scripts (`scripts/run_simulations.py`,
-`antennas/simulate_v2.py`, CI) are still the simulator.
+Run lumped-port cases locally in the browser using openEMS WebAssembly. The native radiators scripts (`scripts/run_simulations.py`, `antennas/simulate_v2.py`, CI) remain available for other configurations.
 
 Published at `https://winject-wireless.github.io/radiators/csxcad/`.
 
@@ -97,6 +96,32 @@ expands them after resolving parameters (`scripts/sweep.py` runs
 `js/scriptcore.js` in a Web Worker. Scripts get 2 s per run. See
 `examples/script_radials_sweep.json`.
 
+## Simulating in the browser
+
+**Simulation → Run in browser** simulates the current case on the device with openEMS
+compiled to WebAssembly (`site/openems`, PR #20; copied into `vendor/openems` by
+`prepare.py`). Nothing is uploaded. The results panel shows best S11, the −10 dB band,
+Zin, Dmax / efficiency / realized gain, S11 / Zin / VSWR charts and three directivity
+cuts per far-field frequency, and offers the run as `result.json` (the shape
+`antennas/simulate_v2.py` writes). **Stop** ends the FDTD early and post-processes what
+was computed.
+
+- `js/sim/model.js` ports `simulate_v2.output_data()` up to the run (validation,
+  materials, primitives, lumped ports, NF2FF box, excitation, boundaries) and
+  `js/sim/mesh.js` ports CSXCAD's `SmoothMeshLines` and `setup_mesh`, so the XML matches
+  the Python simulator: `tools/sim_parity.py` compares the mesh and every primitive with
+  native CSXCAD for all repo configs, and `tools/sim_e2e.mjs` compares a wasm run with a
+  native `result.json` (S11, Zin, Dmax, efficiency). `check.mjs` (CI) compares the dipole
+  with the golden `site/openems/examples/dipole.xml`.
+- Lumped ports only; MSL / coaxial ports and Python generators still need the radiators
+  scripts.
+- openEMS uses threads (SharedArrayBuffer), so the page must be cross-origin isolated:
+  `sw.js` adds COOP / COEP headers and the page reloads once on the first visit. This
+  works on https (GitHub Pages) and `http://localhost`; a plain-http LAN address cannot
+  run simulations (serve it over https with the same headers instead).
+- Large models are slow on phones; the dipole example (`examples/dipole_2450.json`,
+  ~130k cells) is a quick test.
+
 ## Layout
 
 Desktop: model tree | 3D view | inspector, with a Parameters / Checks / JSON
@@ -118,6 +143,8 @@ back closes it). One finger orbits, two fingers zoom and pan, tap selects.
 | `prepare.py` | Vendors three.js 0.160.0, bundles examples, builds `www/` |
 | `js/code-editor.js` | CodeMirror script editor and script-aware autocomplete |
 | `js/scriptcore.js`, `js/script-worker.js` | Geometry scripts: argument types, expansion (shared with the simulator), worker runner |
+| `js/sim/*.js` | In-browser simulation: mesh, openEMS model, run + post-processing, charts, run panel |
+| `tools/sim_parity.py`, `tools/sim_e2e.mjs` | Parity with the native simulator (need native openEMS) |
 | `check.mjs` | Node parity and smoke checks (run in CI) |
 
 There is no bundler: plain ES modules plus an import map. `prepare.py` pins
