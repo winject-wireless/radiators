@@ -907,6 +907,31 @@ const simContext = {
   refresh: () => { renderSim(); syncResults(); },
 };
 let displayedRun, displayedStale;
+function showProbeInfo(info, selected = false) {
+  $("probeControls").hidden = !info;
+  $("probeStats").hidden = !info;
+  $("resultProbe").hidden = !info;
+  $("probeSelect").setAttribute("aria-pressed", String(selected));
+  if (!info) return;
+  const fmt = (v,n=2) => Number.isFinite(v) ? v.toFixed(n) : "—";
+  const db = v => Number.isFinite(v) ? fmt(v)+" dBi" : "—";
+  const pct = v => Number.isFinite(v) ? fmt(v*100,1)+"%" : "—";
+  const rows = [
+    ["XYZ (display mm)", info.point.map(v=>fmt(v,1)).join(", ")],
+    ["θ / φ", Number.isFinite(info.theta) ? fmt(info.theta,1)+"° / "+fmt(info.phi,1)+"°" : "Undefined at origin"],
+    ["Frequency", fmt(info.frequency/1e9,4)+" GHz"],
+    ["Directivity", db(info.directivity)], ["Gain", db(info.gain)], ["Realized gain", db(info.realizedGain)],
+    ["Relative E-field", pct(info.relativeField)], ["Radiation efficiency (global)", pct(info.radiationEfficiency)],
+    ["Mismatch efficiency (global)", pct(info.mismatchEfficiency)],
+    ["Radiated power (global)", Number.isFinite(info.radiatedPower) ? info.radiatedPower.toPrecision(3)+" W" : "—"]
+  ];
+  for (const id of ["probeStats","resultProbe"]) {
+    const box=$(id);
+    box.replaceChildren(h("strong",{text:"Far-field sampling point"}),
+      h("div",{class:"probe-grid"},...rows.flatMap(([k,v])=>[h("span",{text:k}),h("b",{text:v})])),
+      h("p",{class:"hint",text:"Directional sample from the origin; display distance is not a physical field measurement."}));
+  }
+}
 function syncResults() {
   const caseId = state.derived.case.id;
   const run = resultFor(caseId);
@@ -2036,6 +2061,17 @@ async function boot() {
   for (const id of ["caseSelect", "resultCase"]) {
     $(id).addEventListener("change", e => { state.caseIndex = Number(e.target.value); refresh(); });
   }
+  for (const b of document.querySelectorAll("[data-section]")) b.addEventListener("click", () => {
+    const on=b.getAttribute("aria-pressed")!=="true";
+    b.setAttribute("aria-pressed",String(on));
+    viewport?.setSection(b.dataset.section,on);
+  });
+  $("probeSelect").addEventListener("click", () => {
+    if (!viewport) return;
+    if (!viewport.probeSelected) { state.handle=null; viewport.selectProbe(true); }
+    else viewport.selectProbe(false);
+  });
+  $("probeReset").addEventListener("click", () => { state.handle=null; viewport?.resetProbe(); });
   $("patternSelect").addEventListener("change", e => {
     const run = resultFor(state.derived.case.id);
     if (run) { run.frequency = Number(e.target.value); syncResults(); }
@@ -2109,6 +2145,7 @@ async function boot() {
       onPick: ref => select(ref, { fromView: true }),
       onHandle: onHandleTap,
       onHandleMove, onHandleDrag, onScalarMove,
+      onProbe: (info, selected) => { if (selected) state.handle = null; showProbeInfo(info, selected); },
     });
     // ?debug exposes internals for automated UI tests.
     if (new URLSearchParams(location.search).has("debug")) window.__csxcad = { state, viewport, scriptRT };
