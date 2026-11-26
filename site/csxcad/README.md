@@ -98,13 +98,13 @@ expands them after resolving parameters (`scripts/sweep.py` runs
 
 ## Simulating in the browser
 
-**Simulation → Run in browser** simulates the current case on the device with openEMS
+**Simulation → Run in browser** simulates a single case on the device with openEMS
 compiled to WebAssembly (`site/openems`, PR #20; copied into `vendor/openems` by
 `prepare.py`). Nothing is uploaded. The results panel shows best S11, the −10 dB band,
 Zin, Dmax / efficiency / realized gain, S11 / Zin / VSWR charts and three directivity
 cuts per far-field frequency, and offers the run as `result.json` (the shape
 `antennas/simulate_v2.py` writes). **Stop** ends the FDTD early and post-processes what
-was computed.
+was computed. For sweeps, **Run all** queues a snapshot of the resolved cases and runs them sequentially to limit device memory. Completed results appear immediately in the fixed Results case selector; failed cases do not block the rest. **Stop** cancels the remaining queue and retains completed results. On phones, swipe left/right across the Results content to change cases; vertical scrolling is unaffected. Solver max timesteps and end criteria apply to both browser and native runs; advanced native CI CPU/memory settings are export-only.
 
 - `js/sim/model.js` ports `simulate_v2.output_data()` up to the run (validation,
   materials, primitives, lumped ports, NF2FF box, excitation, boundaries) and
