@@ -44,16 +44,24 @@ try {
 
   await page.goto(new URL("?example=examples__dipole_2450.json&debug=1", base).href);
   await page.waitForFunction(() => crossOriginIsolated && window.__csxcad?.viewport && document.querySelector("#sim .sim-controls"), { }, { timeout: 90000 });
+  const doc=await page.evaluate(()=>structuredClone(window.__csxcad.state.doc));
+  doc.parameters={...(doc.parameters||{}), smoke_case:1};
+  doc.sweep={enabled:true,mode:"product",parameters:{smoke_case:{values:[1,2]}}};
+  await page.locator("#openFile").setInputFiles({name:"sweep-smoke.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(doc))});
+  await page.waitForFunction(()=>document.querySelector("#resultCase")?.options.length===2);
   await page.locator('[data-dock="sim"]').click();
   await page.getByRole("spinbutton", { name: "Threads" }).fill("2");
   await page.getByRole("spinbutton", { name: "Threads" }).press("Tab");
-  await page.getByRole("button", { name: "Run in browser", exact: true }).click();
-  await page.waitForFunction(() => {
-    const error = document.querySelector("#sim .sim-run .note.warn");
-    if (error) throw Error(error.textContent);
-    return document.querySelector("#simBadge")?.textContent === "✓";
-  }, {}, { timeout: 240000 });
+  await page.getByRole("button", { name: "Run all (2)", exact: true }).click();
   await page.locator('[data-dock="results"]').click();
+  await page.waitForFunction(()=>document.querySelector("#resultCase")?.options[0].textContent.includes("done"),{}, {timeout:240000});
+  assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
+  assert.match(await page.locator("#resultCase option").nth(1).textContent(),/queued|running|done/);
+  await page.waitForFunction(()=>[...document.querySelector("#resultCase").options].every(o=>o.textContent.includes("done")),{}, {timeout:240000});
+  await page.waitForFunction(()=>document.querySelector("#simBadge")?.textContent==="✓");
+  await page.locator("#resultCase").selectOption("1");
+  assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
+  await page.locator("#resultCase").selectOption("0");
   assert.ok(await page.locator("#resultCharts").getByText("Best S11", { exact: true }).isVisible());
   assert.ok(await page.locator("#resultCharts svg").count() >= 4);
   assert.ok(await page.locator("#patternSelect").isVisible());
@@ -112,8 +120,32 @@ try {
   assert.ok(result.s11.logmag_db.some(Number.isFinite));
   assert.ok(result.impedance.real_ohm.some(Number.isFinite));
   assert.ok(result.patterns.some(p => p.record.radiation_valid && Number.isFinite(p.max_directivity_dbi)));
+  // Mobile Results selector stays in the header and swipe navigates without
+  // requiring a tap on the select. Vertical scrolling does not change cases.
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('.mobile-nav [data-sheet="results"]').click();
+  await page.waitForFunction(()=>document.body.dataset.sheet==="results");
+  const body=page.locator("#resultBody");
+  const swipe=async(dx,dy)=>body.evaluate((el,{dx,dy})=>{
+    const point=(x,y)=>({clientX:x,clientY:y});
+    const a=new Event("touchstart",{bubbles:true});
+    Object.defineProperty(a,"touches",{value:[point(200,200)]});
+    el.dispatchEvent(a);
+    const b=new Event("touchend",{bubbles:true});
+    Object.defineProperty(b,"changedTouches",{value:[point(200+dx,200+dy)]});
+    el.dispatchEvent(b);
+  },{dx,dy});
+  await swipe(-100,5);
+  assert.equal(await page.locator("#resultCase").inputValue(),"1");
+  await swipe(5,100);
+  assert.equal(await page.locator("#resultCase").inputValue(),"1");
+  await swipe(100,5);
+  assert.equal(await page.locator("#resultCase").inputValue(),"0");
+  assert.ok(await page.locator("#resultCase").isVisible());
+  await body.evaluate(el=>{el.scrollTop=el.scrollHeight;});
+  assert.ok(await page.locator("#resultCase").isVisible());
   assert.deepEqual(errors, []);
-  console.log("Browser CSXCAD + openEMS dipole: PASS");
+  console.log("Browser CSXCAD + streaming sweep + mobile navigation: PASS");
 } finally {
   await browser.close();
 }

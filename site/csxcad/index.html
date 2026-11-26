@@ -140,9 +140,8 @@
       <div class="panel-body" id="sim"></div>
     </div>
     <div id="panelResults" class="panel dock-panel" data-sheet-name="results" data-dock-name="results" hidden>
-      <div class="panel-head sheet-only"><h2>Simulation results</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
-      <div class="panel-body">
-        <label class="case-select">Case <select id="resultCase" aria-label="Simulation results case"></select></label>
+      <div class="panel-head results-head"><h2>Simulation results</h2><label class="result-case"><select id="resultCase" aria-label="Simulation results case"></select><span id="resultCaseCount" class="muted"></span></label><button class="sheet-close icon" aria-label="Close">✕</button></div>
+      <div class="panel-body" id="resultBody">
         <div id="resultCharts" class="sim-results"></div>
       </div>
     </div>

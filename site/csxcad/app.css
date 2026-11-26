@@ -590,3 +590,34 @@ dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
   .probe-metrics b { font-size: 12px; }
   .probe-readout small { display: none; }
 }
+
+/* Compact, touch-friendly run toolbar and fixed result navigation. */
+.sim-run { padding: 6px 8px 8px !important; margin-bottom: 8px; }
+.sim-run h3 { margin: 0 0 5px; }
+.sim-controls { gap: 5px; }
+.sim-controls button, .sim-controls select, .sim-controls input { min-height: 34px; font-size: 13px; padding: 3px 8px; }
+.sim-controls select { max-width: 156px; }
+.sim-engine, .sim-threads { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.sim-threads input { width: 56px; }
+.sim-case-hint { margin: 4px 0 0; font-size: 12px; }
+.sim-stats:empty { display: none; }
+.results-head { flex-shrink: 0; border-bottom: 1px solid var(--line); padding: 5px 10px; min-height: 40px; }
+.results-head h2 { flex: 0 1 auto; font-size: 13px; }
+.result-case { display: flex; align-items: center; flex: 1; min-width: 0; gap: 5px; }
+.result-case select { width: 100%; min-width: 0; min-height: 32px; font-size: 13px; }
+#resultCaseCount { font-size: 11px; white-space: nowrap; }
+#resultBody { touch-action: pan-y; }
+@media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
+  .sim-controls button,.sim-controls select,.sim-controls input { min-height: 40px; padding: 3px 8px; }
+  .sim-controls select,.sim-controls input { font-size: 16px; }
+  .sim-controls select { max-width: 138px; }
+  .sim-controls button { font-size: 13px; }
+  .sim-threads input { width: 54px; }
+  .results-head { padding: 16px 8px 4px 10px; gap: 6px; }
+  .results-head h2 { font-size: 13px; flex-shrink: 0; }
+  .result-case select { font-size: 16px; min-height: 39px; }
+  .results-head .sheet-close { flex-shrink: 0; }
+  #resultBody { padding-inline: 10px; }
+  .sim-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+  .kpi { padding: 6px 8px; }
+}
