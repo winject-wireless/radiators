@@ -118,7 +118,10 @@ was computed.
 - openEMS uses threads (SharedArrayBuffer), so the page must be cross-origin isolated:
   `sw.js` adds COOP / COEP headers and the page reloads once on the first visit. This
   works on https (GitHub Pages) and `http://localhost`; a plain-http LAN address cannot
-  run simulations (serve it over https with the same headers instead).
+  run simulations (serve it over https with the same headers instead). The editor waits until
+  the new service worker actually controls the document before reloading. If isolation is
+  blocked, open the editor directly in Chrome (not an embedded browser), or use **Retry isolation**
+  in the Simulation panel. The native Android WebView may not expose SharedArrayBuffer.
 - Large models are slow on phones; the dipole example (`examples/dipole_2450.json`,
   ~130k cells) is a quick test.
 
