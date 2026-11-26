@@ -376,7 +376,7 @@ const unitRatio=(from,to)=>{
   return UNIT_GROUPS[g][from]/UNIT_GROUPS[g][to];
 };
 const unitNames=[...new Set([...Object.values(UNIT_GROUPS).flatMap(g=>Object.keys(g)),...Object.keys(ALIASES)])].sort((a,b)=>b.length-a.length);
-const suffix=new RegExp("^(.*?)(?:\\s+)("+unitNames.map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,"\\// Walk a config and apply fn to every template object (for renames / usage).")).join("|")+")$");
+const suffix=new RegExp("^(.*?)(?:\\s+)("+unitNames.join("|")+")$");
 export function parseUnitField(text, canonical, preferred=canonical) {
   let s=String(text).trim(),from=preferred;
   const match=s.match(suffix);
