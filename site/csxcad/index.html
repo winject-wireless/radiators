@@ -72,6 +72,25 @@
       <label id="patternWrap" class="case-select" hidden>
         Pattern <select id="patternSelect" aria-label="Radiation pattern frequency"></select>
       </label>
+      <div id="radiationTools" class="radiation-tools" hidden>
+        <div class="seg" role="group" aria-label="Radiation sections">
+          <button data-section="XY" aria-pressed="true" title="XY section (Z constant)">XY</button>
+          <button data-section="YZ" aria-pressed="true" title="YZ section (X constant)">YZ</button>
+          <button data-section="XZ" aria-pressed="true" title="XZ section (Y constant)">XZ</button>
+          <button id="sectionFollow" aria-pressed="false" title="Move section planes through the sampling point instead of the origin">Follow point</button>
+          <button id="probeToggle" aria-pressed="true" title="Show sampling point">Point</button>
+        </div>
+        <div id="probeReadout" class="probe-readout">
+          <div class="probe-head"><button id="probeSelect" title="Select point and show XYZ translation gizmo">Sampling point</button><button id="probeReset" title="Reset to peak direction">Reset</button></div>
+          <div id="probePosition"></div><div id="probeAngles"></div>
+          <div class="probe-metrics">
+            <span>Directivity <b id="probeDirectivity"></b></span><span>Gain <b id="probeGain"></b></span>
+            <span>Realized gain <b id="probeRealized"></b></span><span>Relative E <b id="probeField"></b></span>
+          </div>
+          <div id="probeEfficiency" class="muted"></div>
+          <small>Directional far field · click point to drag XYZ</small>
+        </div>
+      </div>
       <label id="caseWrap" class="case-select">
         <span>Case</span>
         <select id="caseSelect" aria-label="Sweep case to preview"></select>
