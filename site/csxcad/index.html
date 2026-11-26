@@ -16,24 +16,25 @@
 </head>
 <body data-sheet="">
 <header class="topbar">
-  <a class="brand" href="../" title="Radiators simulation results">◈<span class="brand-text"> RADIATORS</span></a>
+  <a class="brand" href="../" title="Radiators simulation results"><span class="brand-text">Radiators</span></a>
   <div class="docname">
     <input id="docName" aria-label="Simulation name" spellcheck="false" autocomplete="off">
     <span id="docMeta" class="muted">schema v2 · mm</span>
   </div>
   <div class="top-actions">
-    <button id="undo" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
-    <button id="redo" class="icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>↷</button>
+    <button id="undo" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo" disabled><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button id="redo" class="icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     <label class="button" title="Open a radiators schema v2 JSON file">
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span class="label"> Open</span>
       <input type="file" id="openFile" accept=".json,application/json" hidden>
     </label>
     <button id="save" class="primary" title="Download the antenna JSON for antennas/ (Ctrl+S)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="label"> Save JSON</span></button>
     <div class="menu-wrap">
-      <button id="menuButton" class="icon" aria-haspopup="menu" aria-expanded="false" aria-label="More">⋮</button>
+      <button id="menuButton" class="icon" aria-haspopup="menu" aria-expanded="false" aria-label="More"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5h.01M12 12h.01M12 18.5h.01" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div id="menu" class="menu" role="menu" hidden>
         <button role="menuitem" data-action="new">New from starter</button>
         <button role="menuitem" data-action="examples">Open example…</button>
+        <button role="menuitem" data-action="json">JSON source…</button>
         <button role="menuitem" data-action="export-case">Export resolved case JSON</button>
         <button role="menuitem" data-action="copy">Copy JSON to clipboard</button>
         <button role="menuitem" data-action="paste">Paste JSON from clipboard</button>
@@ -63,13 +64,11 @@
         <button data-view="right" title="Right side (+X)">Side</button>
       </div>
       <div class="seg toggles" role="group" aria-label="Show">
-        <button data-toggle="domain" aria-pressed="true" title="Simulation domain">Domain</button>
+        <button data-toggle="domain" aria-pressed="false" title="Simulation domain and mesh refinement boxes">Domain</button>
         <button data-toggle="ports" aria-pressed="true" title="Ports">Ports</button>
         <button data-toggle="grid" aria-pressed="true" title="Ground grid">Grid</button>
         <button data-toggle="xray" aria-pressed="false" title="Transparent solids">X-ray</button>
       </div>
-    </div>
-    <div class="view-toolbar top-right">
       <label id="caseWrap" class="case-select" hidden>
         <span>Case</span>
         <select id="caseSelect" aria-label="Sweep case to preview"></select>
@@ -77,7 +76,7 @@
     </div>
     <div class="view-toolbar bottom-right">
       <div class="add-wrap">
-        <button id="addButton" class="fab" aria-haspopup="menu" aria-expanded="false" aria-label="Add">＋</button>
+        <button id="addButton" class="fab" aria-haspopup="menu" aria-expanded="false" aria-label="Add"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <div id="addMenu" class="menu add-menu" role="menu" hidden></div>
       </div>
     </div>
@@ -89,24 +88,33 @@
   </section>
 
   <aside id="panelInspect" class="panel" aria-label="Inspector" data-sheet-name="inspect">
-    <div class="panel-head"><h2 id="inspectTitle">Inspector</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
+    <div class="panel-head"><h2 id="inspectTitle">Inspector</h2><div id="inspectActions" class="head-actions"></div><button class="sheet-close icon" aria-label="Close">✕</button></div>
     <div class="panel-body" id="inspector"></div>
   </aside>
 
-  <section class="dock" aria-label="Parameters, checks and JSON">
+  <section class="dock" aria-label="Params, scripts, checks and simulation">
     <div class="dock-tabs" role="tablist">
-      <button role="tab" data-dock="params" aria-selected="true">Parameters</button>
+      <button role="tab" data-dock="params" aria-selected="true">Params</button>
+      <button role="tab" data-dock="scripts" aria-selected="false">Scripts</button>
       <button role="tab" data-dock="checks" aria-selected="false">Checks <span id="checkBadge" class="badge"></span></button>
-      <button role="tab" data-dock="json" aria-selected="false">JSON</button>
-      <button id="dockToggle" class="icon dock-toggle" aria-label="Collapse dock" title="Collapse / expand">▾</button>
+      <button role="tab" data-dock="sim" aria-selected="false">Simulation <span id="caseBadge" class="badge info"></span></button>
+      <button id="dockToggle" class="icon dock-toggle" aria-label="Collapse dock" title="Collapse / expand"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
     <div id="panelParams" class="panel dock-panel" data-sheet-name="params" data-dock-name="params">
-      <div class="panel-head sheet-only"><h2>Parameters</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
+      <div class="panel-head sheet-only"><h2>Params</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
       <div class="panel-body" id="params"></div>
+    </div>
+    <div id="panelScripts" class="panel dock-panel" data-sheet-name="scripts" data-dock-name="scripts" hidden>
+      <div class="panel-head sheet-only"><h2>Scripts</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
+      <div class="panel-body" id="scripts"></div>
     </div>
     <div id="panelChecks" class="panel dock-panel" data-sheet-name="checks" data-dock-name="checks" hidden>
       <div class="panel-head sheet-only"><h2>Checks</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
       <div class="panel-body" id="checks"></div>
+    </div>
+    <div id="panelSim" class="panel dock-panel" data-sheet-name="sim" data-dock-name="sim" hidden>
+      <div class="panel-head sheet-only"><h2>Simulation</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
+      <div class="panel-body" id="sim"></div>
     </div>
     <div id="panelJson" class="panel dock-panel" data-sheet-name="json" data-dock-name="json" hidden>
       <div class="panel-head sheet-only"><h2>JSON</h2><button class="sheet-close icon" aria-label="Close">✕</button></div>
@@ -125,11 +133,11 @@
 </main>
 
 <nav class="mobile-nav" aria-label="Panels">
-  <button data-sheet="model"><span aria-hidden="true">☰</span>Model</button>
-  <button data-sheet="inspect"><span aria-hidden="true">✎</span>Edit</button>
-  <button data-sheet="params"><span aria-hidden="true">ƒ</span>Params</button>
-  <button data-sheet="checks"><span aria-hidden="true">✓</span>Checks<span id="checkBadgeMobile" class="badge"></span></button>
-  <button data-sheet="json"><span aria-hidden="true">{}</span>JSON</button>
+  <button data-sheet="model"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8.5 4.5L12 12 3.5 7.5zM3.5 12 12 16.5l8.5-4.5M3.5 16.5 12 21l8.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Model</button>
+  <button data-sheet="params"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Params</button>
+  <button data-sheet="scripts"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Scripts</button>
+  <button data-sheet="checks"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6zM8.5 12l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Checks<span id="checkBadgeMobile" class="badge"></span></button>
+  <button data-sheet="sim"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2.5-6 4 12 3-9 2 3H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Simulation</button>
 </nav>
 
 <footer class="statusbar"><span id="status" role="status">Loading…</span><span class="muted status-note">Geometry editor only — simulate with the radiators openEMS scripts.</span></footer>

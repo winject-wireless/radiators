@@ -134,6 +134,20 @@ function sphereMesh(mesh, c, r, lat = 16, lon = 32) {
   for (let j = 0; j < lon; j++) mesh.tri(bottom, last[(j + 1) % lon], last[j]);
 }
 
+// Validation mirrors v2_geometry's polyhedron branch.
+export function polyhedronData(g) {
+  const verts = g.vertices, faces = g.faces;
+  if (!Array.isArray(verts) || verts.length < 4 || verts.length > 20000) throw Error("polyhedron.vertices must be a list of 4..20000 XYZ vertices");
+  verts.forEach((v, i) => vec3(v, `polyhedron.vertices[${i}]`));
+  if (!Array.isArray(faces) || faces.length < 4 || faces.length > 40000) throw Error("polyhedron.faces must be a list of 4..40000 faces");
+  for (const f of faces) {
+    if (!Array.isArray(f) || f.length < 3 || !f.every(i => Number.isInteger(i) && i >= 0 && i < verts.length)) {
+      throw Error("polyhedron.faces must list >=3 valid vertex indices each");
+    }
+  }
+  return { verts, faces };
+}
+
 // Port of v2_geometry.hemisphere_mesh (same lat/azimuth counts as the solver).
 export function hemisphereMesh(radius, thickness = null, lat = 10, az = 32) {
   const r = positive(radius, "hemisphere.radius");
@@ -256,6 +270,14 @@ export function tessellate(g) {
       } else sphereMesh(mesh, c, r);
       break;
     }
+    case "polyhedron": {
+      // Native CSXCAD Polyhedron; polygon faces are fan-triangulated for display.
+      const { verts, faces } = polyhedronData(g);
+      const base = mesh.p.length;
+      verts.forEach(p => mesh.v(p));
+      for (const f of faces) for (let k = 1; k + 1 < f.length; k++) mesh.tri(base + f[0], base + f[k], base + f[k + 1]);
+      break;
+    }
     case "hemisphere":
     case "hemispherical_shell": {
       const w = shape === "hemispherical_shell" ? positive(g.thickness, "hemispherical_shell.thickness") : null;
@@ -313,6 +335,7 @@ export function solverBounds(g) {
     const [lo, hi] = box(pts);
     return [lo.map(x => x - r), hi.map(x => x + r)];
   }
+  if (shape === "polyhedron") return box(polyhedronData(g).verts.map(T));
   if (shape === "hemisphere" || shape === "hemispherical_shell") {
     const { verts } = hemisphereMesh(g.radius, shape === "hemispherical_shell" ? g.thickness : null);
     return box(verts.map(p => T(add(p, g.center))));

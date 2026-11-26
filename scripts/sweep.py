@@ -16,6 +16,8 @@ import json
 import math
 from pathlib import Path
 import re
+import shutil
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_CASES = 128
@@ -208,6 +210,26 @@ def _run_generator(spec, cfg, params):
     return result
 
 
+def _uses_scripts(cfg):
+    return "scripts" in cfg or any(
+        isinstance(g, dict) and "script" in g for g in cfg.get("geometry") or [])
+
+
+def _expand_scripts(cfg):
+    """Replace geometry-script instances by the primitives their JS generate() returns.
+
+    Runs scripts/geometry_scripts.mjs (the same JS core the editor uses) under Node.
+    """
+    node = shutil.which("node")
+    if node is None:
+        raise ValueError("Geometry scripts need Node.js (node) on PATH")
+    proc = subprocess.run([node, str(ROOT / "scripts" / "geometry_scripts.mjs")],
+                          input=json.dumps(cfg), capture_output=True, text=True, timeout=120)
+    if proc.returncode != 0:
+        raise ValueError(f"Geometry script failed: {proc.stderr.strip()}")
+    return json.loads(proc.stdout)
+
+
 def expand_cases(config, source):
     """Return normalized cases with ids and fully resolved config objects."""
     source = Path(source)
@@ -229,6 +251,8 @@ def expand_cases(config, source):
         if generator is not None:
             base = _run_generator(generator, base, parameters)
         resolved = resolve_template(base, parameters)
+        if _uses_scripts(resolved):
+            resolved = _expand_scripts(resolved)
         if resolved.get("schema_version") != config["schema_version"]:
             raise ValueError("Generator may not change schema_version")
         if not isinstance(resolved.get("geometry"), list):

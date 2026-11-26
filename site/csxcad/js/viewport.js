@@ -2,11 +2,14 @@
 // tap-to-select, view presets, domain box, ports and mesh refinements.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { tessellate } from "./geometry.js";
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
-const MATERIAL_COLORS = { pec: 0xd9a54a, conductive: 0xc77b4a, conducting_sheet: 0xe8884a, dielectric: 0x4fb38a };
+// Metals are lit by the environment map, so their base colors are close to real copper / brass tones.
+const MATERIAL_COLORS = { pec: 0xd8a368, conductive: 0xc9825f, conducting_sheet: 0xe0a070, dielectric: 0x3fa882 };
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 function hashHue(name) {
@@ -23,11 +26,18 @@ export function materialColor(m) {
 }
 
 export class Viewport {
-  constructor(container, { onPick }) {
+  constructor(container, { onPick, onHandle, onHandleMove, onHandleDrag, onScalarMove }) {
     this.container = container;
     this.onPick = onPick;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: false });
+    this.onHandle = onHandle || (() => {});
+    this.onHandleMove = onHandleMove || (() => {});
+    this.onHandleDrag = onHandleDrag || (() => {});
+    this.onScalarMove = onScalarMove || (() => "");
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setClearColor(0x000000, 0); // the CSS gradient behind the canvas is the background
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
     container.appendChild(this.renderer.domElement);
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 1e6);
@@ -38,8 +48,12 @@ export class Viewport {
     this.controls.screenSpacePanning = true;
     this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x404858, 1.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    // Soft image-based fill plus a key light; materials are matte, so this only shapes form.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.04).texture;
+    pmrem.dispose();
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x404858, 0.9));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
     sun.position.set(1, -1.5, 2);
     this.camera.add(sun);
     this.scene.add(this.camera);
@@ -50,9 +64,38 @@ export class Viewport {
     this.axes = new THREE.AxesHelper(1);
     this.scene.add(this.axes);
     this.grid = null;
-    this.options = { domain: true, ports: true, refinements: true, grid: true, xray: false };
+    this.options = { domain: false, ports: true, grid: true, xray: false };
     this.selection = null;
     this.bounds = new THREE.Box3(new THREE.Vector3(-50, -50, -50), new THREE.Vector3(50, 50, 50));
+
+    // Position handles of the selected object, plus a 3-axis translate gizmo on the active one.
+    this.handles = new THREE.Group();
+    this.scene.add(this.handles);
+    this.handleKey = null;
+    this.gizmo = new TransformControls(this.camera, this.renderer.domElement);
+    this.gizmo.setMode("translate");
+    this.gizmo.setSpace("world");
+    this.gizmo.size = matchMedia("(pointer: coarse)").matches ? 1.35 : 1;
+    this.gizmo.addEventListener("mouseDown", () => { this._gizmoGrab = true; });
+    this.gizmo.addEventListener("dragging-changed", e => {
+      this.controls.enabled = !e.value;
+      this.onHandleDrag(e.value, this.handleKey);
+    });
+    this.gizmo.addEventListener("objectChange", () => {
+      const o = this.gizmo.object;
+      if (o && this.gizmo.dragging) this.onHandleMove(o.userData.handleKey, o.position.toArray());
+    });
+    this.scene.add(this.gizmo);
+    this.label = document.createElement("div");
+    this.label.className = "handle-label";
+    this.label.hidden = true;
+    container.appendChild(this.label);
+    this.guide = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+      new THREE.LineBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.7, depthTest: false }));
+    this.guide.renderOrder = 19;
+    this.guide.visible = false;
+    this.scene.add(this.guide);
+    this._installScalarDrag();
 
     this.raycaster = new THREE.Raycaster();
     this._installPicking();
@@ -60,12 +103,22 @@ export class Viewport {
     this.resizeObserver.observe(container);
     this.applyTheme();
     this.resize();
-    const loop = () => { this.controls.update(); this.renderer.render(this.scene, this.camera); requestAnimationFrame(loop); };
+    const loop = now => {
+      this._stepFocus(now);
+      this.controls.update();
+      // Handles keep a constant on-screen size.
+      const touch = matchMedia("(pointer: coarse)").matches ? 1.5 : 1;
+      for (const hnd of this.handles.children) {
+        hnd.scale.setScalar(Math.max(1e-6, hnd.position.distanceTo(this.camera.position) * 0.011 * touch * (hnd.userData.size || 1) * (hnd === this._hover ? 1.35 : 1)));
+      }
+      this.renderer.render(this.scene, this.camera);
+      requestAnimationFrame(loop);
+    };
     requestAnimationFrame(loop);
   }
 
   applyTheme() {
-    this.scene.background = new THREE.Color(css("--viewport-bg") || "#0e1726");
+    this.scene.background = null;
     if (this.grid) this._makeGrid(this.gridSize);
   }
 
@@ -91,6 +144,7 @@ export class Viewport {
     el.addEventListener("pointerdown", e => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
     el.addEventListener("pointerup", e => {
       if (!down) return;
+      if (this._gizmoGrab) { this._gizmoGrab = false; down = null; return; }
       const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
       const quick = performance.now() - down.t < 450;
       down = null;
@@ -99,6 +153,8 @@ export class Viewport {
       const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       this.raycaster.setFromCamera(ndc, this.camera);
       this.raycaster.params.Line.threshold = this.bounds.getSize(new THREE.Vector3()).length() / 150;
+      const hh = this.raycaster.intersectObjects(this.handles.children, false).find(x => x.object.userData.kind !== "scalar");
+      if (hh) { this.onHandle(hh.object.userData.handleKey); return; }
       const targets = [...this.parts.children, ...this.overlays.children.filter(o => o.userData.ref)];
       const hit = this.raycaster.intersectObjects(targets, true).find(h => {
         let o = h.object;
@@ -120,7 +176,7 @@ export class Viewport {
       new THREE.Color(css("--grid-minor") || "#22344a"));
     this.grid.rotation.x = Math.PI / 2;
     this.grid.material.transparent = true;
-    this.grid.material.opacity = 0.6;
+    this.grid.material.opacity = 0.45;
     this.grid.visible = this.options.grid;
     this.scene.add(this.grid);
   }
@@ -134,33 +190,35 @@ export class Viewport {
     const errors = [];
     const mats = new Map((model.materials || []).map(m => [m.name, m]));
     const box = new THREE.Box3();
+    // A script instance arrives as { __parts: [primitive…] }: all its pieces share one
+    // group (one ref), so clicking any piece selects the whole object.
     model.geometry.forEach((g, index) => {
-      if (!g) return; // unresolved parameters; reported by the editor
-      let t;
-      try { t = tessellate(g); } catch (e) { errors.push({ index, message: e.message }); return; }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.BufferAttribute(t.positions, 3));
-      geo.setIndex(new THREE.BufferAttribute(t.indices, 1));
-      geo.computeVertexNormals();
-      const m = mats.get(g.material);
-      const dielectric = m?.type === "dielectric";
-      const shell = /shell/.test(g.shape);
-      const mat = new THREE.MeshStandardMaterial({
-        color: materialColor(m), metalness: dielectric ? 0 : 0.35, roughness: dielectric ? 0.7 : 0.38,
-        transparent: dielectric || shell || this.options.xray, opacity: this.options.xray ? 0.35 : dielectric ? 0.45 : shell ? 0.8 : 1,
-        side: t.flat || shell || dielectric ? THREE.DoubleSide : THREE.FrontSide,
-        depthWrite: !(dielectric || this.options.xray), flatShading: g.shape === "box",
-        polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.renderOrder = dielectric ? 2 : 1;
+      if (!g) return; // unresolved parameters or a script still running; reported by the editor
       const group = new THREE.Group();
-      group.add(mesh);
-      if (g.shape === "box" || /hemisphere/.test(g.shape)) {
-        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25),
-          new THREE.LineBasicMaterial({ color: 0x0b1320, transparent: true, opacity: 0.45 }));
-        group.add(edges);
+      for (const part of g.__parts || [g]) {
+        let t;
+        try { t = tessellate(part); } catch (e) { errors.push({ index, message: (g.__parts ? `${part.name}: ` : "") + e.message }); continue; }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(t.positions, 3));
+        geo.setIndex(new THREE.BufferAttribute(t.indices, 1));
+        geo.computeVertexNormals();
+        const m = mats.get(part.material);
+        const dielectric = m?.type === "dielectric";
+        const shell = /shell/.test(part.shape);
+        const mat = new THREE.MeshStandardMaterial({
+          // Matte, CAD-style shading: no mirror reflections, just soft form.
+          color: materialColor(m), metalness: dielectric ? 0 : 0.15, roughness: 0.85, envMapIntensity: 0.6,
+          transparent: dielectric || shell || this.options.xray, opacity: this.options.xray ? 0.35 : dielectric ? 0.45 : shell ? 0.8 : 1,
+          side: t.flat || shell || dielectric ? THREE.DoubleSide : THREE.FrontSide,
+          depthWrite: !(dielectric || this.options.xray), flatShading: part.shape === "box",
+          polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+        });
+        mat.userData.base = { transparent: mat.transparent, opacity: mat.opacity, depthWrite: mat.depthWrite };
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.renderOrder = dielectric ? 2 : 1;
+        group.add(mesh);
       }
+      if (!group.children.length) return;
       group.userData.ref = { kind: "geometry", index };
       group.visible = !model.hidden?.has(index);
       this.parts.add(group);
@@ -182,8 +240,8 @@ export class Viewport {
     for (const r of model.mesh?.refinements || []) {
       if (!nums(r?.start) || !nums(r?.stop)) continue;
       const helper = new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(...r.start), new THREE.Vector3(...r.stop)), 0x9d7bff);
-      helper.visible = this.options.refinements;
-      helper.userData.overlay = "refinements";
+      helper.visible = this.options.domain; // refinement boxes follow the Domain toggle
+      helper.userData.overlay = "domain";
       this.overlays.add(helper);
     }
 
@@ -248,30 +306,180 @@ export class Viewport {
 
   setSelection(ref) {
     this.selection = ref;
+    const focused = ref && (ref.kind === "geometry" || ref.kind === "port");
+    for (const group of this.parts.children) {
+      const r = group.userData.ref;
+      const ghost = focused && !(r.kind === ref.kind && r.index === ref.index);
+      group.traverse(o => {
+        const base = o.material?.userData?.base;
+        if (!base) return;
+        o.material.transparent = ghost || base.transparent;
+        o.material.opacity = ghost ? Math.min(base.opacity, o.isMesh ? 0.14 : 0.06) : base.opacity;
+        o.material.depthWrite = ghost ? false : base.depthWrite;
+        o.material.needsUpdate = true;
+      });
+    }
     for (const group of [...this.parts.children, ...this.overlays.children]) {
       const r = group.userData.ref;
       if (!r) continue;
       const on = ref && r.kind === ref.kind && r.index === ref.index;
       group.traverse(o => {
         if (o.isMesh && o.material?.emissive) {
+          // Others are ghosted, so the selection only needs a faint tint to keep its real colour.
           o.material.emissive.set(on ? css("--select-glow") || "#2d7fd0" : 0x000000);
-          o.material.emissiveIntensity = on ? 0.9 : 0;
+          o.material.emissiveIntensity = on ? 0.14 : 0;
         }
       });
-      const outline = group.children.find(c => c.userData.isOutline);
-      if (outline) { group.remove(outline); outline.geometry.dispose(); }
-      if (on && r.kind === "geometry") {
-        const mesh = group.children.find(c => c.isMesh);
-        if (mesh) {
-          const box = new THREE.Box3Helper(new THREE.Box3().setFromObject(mesh), new THREE.Color(css("--accent") || "#5ab8ff"));
-          box.userData.isOutline = true;
-          group.add(box);
-        }
-      }
     }
   }
 
+  // Smoothly re-centre on the selected object and bring it to a comfortable size.
+  focus(ref) {
+    const group = [...this.parts.children, ...this.overlays.children].find(g =>
+      g.userData.ref && ref && g.userData.ref.kind === ref.kind && g.userData.ref.index === ref.index);
+    if (!group) return;
+    const box = new THREE.Box3().setFromObject(group);
+    if (box.isEmpty()) return;
+    const c = box.getCenter(new THREE.Vector3());
+    const r = Math.max(box.getSize(new THREE.Vector3()).length() / 2, this.bounds.getSize(new THREE.Vector3()).length() / 40, 0.5);
+    const h = Math.max(1, this.container.clientHeight);
+    const covered = h / Math.max(h * 0.3, h - Math.min(this.bottomInset || 0, h * 0.7)); // part hidden by a phone sheet
+    const dist = r / Math.sin((this.camera.fov * Math.PI / 180) / 2) * 1.8 * covered * (this.camera.aspect < 1 ? 1 / this.camera.aspect ** 0.5 : 1);
+    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+    this._focus = { t0: performance.now(), fromT: this.controls.target.clone(), toT: c,
+      fromP: this.camera.position.clone(), toP: c.clone().add(dir.multiplyScalar(dist)) };
+  }
+  _stepFocus(now) {
+    const f = this._focus;
+    if (!f) return;
+    const k = Math.min(1, (now - f.t0) / 380), e = 1 - (1 - k) ** 3;
+    this.controls.target.lerpVectors(f.fromT, f.toT, e);
+    this.camera.position.lerpVectors(f.fromP, f.toP, e);
+    if (k >= 1) this._focus = null;
+  }
+
+  // handles: point {key, kind:"point", pos, axes:[bool×3]} → 3-axis gizmo when active;
+  //          scalar {key, kind:"scalar", base, dir, dist, enabled} → slides along base + dir·t;
+  //          action {key, kind:"action", pos} → tap only (e.g. insert a wire vertex).
+  setHandles(list, activeKey, snap) {
+    this.snap = snap || 0;
+    const keep = new Map(this.handles.children.map(o => [o.userData.handleKey, o]));
+    const want = new Set();
+    const accent = new THREE.Color(css("--accent") || "#5ab8ff");
+    const geoms = this._handleGeoms ??= {
+      point: new THREE.SphereGeometry(1, 16, 12), scalar: new THREE.OctahedronGeometry(1.25), action: new THREE.SphereGeometry(0.75, 12, 8),
+    };
+    for (const hd of list) {
+      const kind = hd.kind || "point";
+      want.add(hd.key);
+      let o = keep.get(hd.key);
+      if (o && o.userData.kind !== kind) { this.handles.remove(o); o.material.dispose(); o = null; }
+      if (!o) {
+        o = new THREE.Mesh(geoms[kind], new THREE.MeshBasicMaterial({ depthTest: false, transparent: true }));
+        o.renderOrder = 20;
+        o.userData.handleKey = hd.key;
+        o.userData.kind = kind;
+        this.handles.add(o);
+      }
+      const dragging = (this.gizmo.dragging && this.gizmo.object === o) || this._scalar?.object === o;
+      if (kind === "scalar") {
+        if (!dragging) {
+          o.userData.base = new THREE.Vector3(...hd.base);
+          o.userData.dir = new THREE.Vector3(...hd.dir).normalize();
+        }
+        o.userData.enabled = hd.enabled;
+        if (!dragging) o.position.copy(o.userData.base).addScaledVector(o.userData.dir, hd.dist);
+        o.material.color.set(hd.enabled ? 0xffb020 : 0x7d8796);
+        o.material.opacity = hd.enabled ? 1 : 0.6;
+      } else {
+        if (!dragging) o.position.set(...hd.pos);
+        const active = hd.key === activeKey;
+        o.material.color.set(kind === "action" ? 0x5fd08a : active ? accent : 0xffffff);
+        o.material.opacity = kind === "action" ? 0.9 : active ? 1 : 0.85;
+        o.userData.axes = hd.axes || [false, false, false];
+        o.userData.snap = hd.snap;
+      }
+    }
+    for (const [k, o] of keep) if (!want.has(k) && this._scalar?.object !== o) { this.handles.remove(o); o.material.dispose(); }
+    const target = this.handles.children.find(o => o.userData.handleKey === activeKey && o.userData.kind === "point");
+    this.handleKey = target ? activeKey : null;
+    if (target && target.userData.axes.some(Boolean)) {
+      if (this.gizmo.object !== target) this.gizmo.attach(target);
+      [this.gizmo.showX, this.gizmo.showY, this.gizmo.showZ] = target.userData.axes;
+      this.gizmo.setTranslationSnap(target.userData.snap || snap || null); // a script's `step` wins
+    } else if (this.gizmo.object) this.gizmo.detach();
+  }
+
+  _rayAt(e) {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    return this.raycaster.ray;
+  }
+  _hitScalar(e) {
+    this._rayAt(e);
+    return this.raycaster.intersectObjects(this.handles.children, false)
+      .map(x => x.object).find(o => o.userData.kind === "scalar" ? o.userData.enabled : o.userData.kind === "action") || null;
+  }
+  // Scalar handles slide along a line; runs in the capture phase so orbit/gizmo never see the grab.
+  _installScalarDrag() {
+    const el = this.container;
+    el.addEventListener("pointerdown", e => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      const o = this._hitScalar(e);
+      if (!o || o.userData.kind !== "scalar") return;
+      e.stopPropagation();
+      e.preventDefault();
+      this.controls.enabled = false;
+      this._scalar = { object: o, id: e.pointerId };
+      this.onHandleDrag(true, o.userData.handleKey);
+      const move = ev => {
+        if (ev.pointerId !== this._scalar?.id) return;
+        const ray = this._rayAt(ev);
+        const B = o.userData.base, D = o.userData.dir, V = ray.direction, w0 = B.clone().sub(ray.origin);
+        const b = D.dot(V), denom = 1 - b * b;
+        if (denom < 1e-6) return; // looking straight down the handle's line
+        let t = (b * V.dot(w0) - D.dot(w0)) / denom;
+        if (this.snap) t = Math.round(t / this.snap) * this.snap;
+        const text = this.onScalarMove(o.userData.handleKey, t);
+        if (text === null) return; // rejected (out of range)
+        o.position.copy(B).addScaledVector(D, t);
+        const span = Math.max(Math.abs(t), this.bounds.getSize(new THREE.Vector3()).length() * 0.05);
+        this.guide.geometry.setFromPoints([B.clone().addScaledVector(D, -span * 0.15), B.clone().addScaledVector(D, t + Math.sign(t || 1) * span * 0.3)]);
+        this.guide.visible = true;
+        const r = this.container.getBoundingClientRect();
+        this.label.textContent = text;
+        this.label.style.left = `${ev.clientX - r.left + 14}px`;
+        this.label.style.top = `${ev.clientY - r.top - 34}px`;
+        this.label.hidden = false;
+      };
+      const up = ev => {
+        if (ev.pointerId !== this._scalar?.id) return;
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        this._scalar = null;
+        this.controls.enabled = true;
+        this.guide.visible = false;
+        this.label.hidden = true;
+        this.onHandleDrag(false, o.userData.handleKey);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+    }, { capture: true });
+    // Hover feedback (desktop): enlarge the handle under the pointer.
+    el.addEventListener("pointermove", e => {
+      if (this._scalar || e.pointerType !== "mouse" || e.buttons) return;
+      this._rayAt(e);
+      const o = this.raycaster.intersectObjects(this.handles.children, false)[0]?.object || null;
+      this._hover = o;
+      el.style.cursor = o ? (o.userData.kind === "scalar" ? (o.userData.enabled ? "grab" : "not-allowed") : "pointer") : "";
+    });
+  }
+
   view(name) {
+    this._focus = null;
     const target = (this.bounds.isEmpty() ? new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) : this.bounds);
     const c = target.getCenter(new THREE.Vector3());
     const r = Math.max(target.getSize(new THREE.Vector3()).length() / 2, 1);
@@ -290,7 +498,11 @@ export class Viewport {
   }
 
   screenshot() {
+    // Composite onto the themed background; the live canvas is transparent.
+    this.scene.background = new THREE.Color(css("--viewport-bg") || "#0e1726");
     this.renderer.render(this.scene, this.camera);
-    return this.renderer.domElement.toDataURL("image/png");
+    const url = this.renderer.domElement.toDataURL("image/png");
+    this.scene.background = null;
+    return url;
   }
 }

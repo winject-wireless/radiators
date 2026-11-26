@@ -11,9 +11,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluate, parameterSets, resolveCase, fieldToValue, valueToField, renameParameter, sweepValues } from "./js/params.js";
-import { tessellate, solverBounds } from "./js/geometry.js";
+import { tessellate, solverBounds, helixPoints } from "./js/geometry.js";
 import { checkCase } from "./js/checks.js";
 import { STARTER, SHAPES } from "./js/schema.js";
+import { expandScripts, scriptBody, SCRIPT_TEMPLATE, normalizeSpec } from "./js/scriptcore.js";
+
+// The editor's runner (same as js/script-worker.js, minus the worker).
+const editorRun = (source, argsJSON) => new Function("__args", scriptBody(source))(argsJSON);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
@@ -105,7 +109,8 @@ print(json.dumps([{"id": c["case_id"], "name": c["case_name"], "parameters": c["
     assert.equal(c.name, pyCases[i].name, `${rel} ${c.id}: case name`);
     close(c.parameters, pyCases[i].parameters, `${rel} ${c.id} parameters`);
     if (cfg.generator) return; // Python generators run only in the simulator
-    const resolved = resolveCase(cfg, c.parameters);
+    let resolved = resolveCase(cfg, c.parameters);
+    if (cfg.scripts) resolved = expandScripts(resolved, editorRun);
     close(resolved, pyCases[i].config, `${rel} ${c.id}`);
     for (const g of resolved.geometry) {
       const t = tessellate(g);
@@ -119,6 +124,69 @@ print(json.dumps([{"id": c["case_id"], "name": c["case_name"], "parameters": c["
     }
     compared++;
   });
+}
+
+// Script template is valid and expands
+const tplSpec = normalizeSpec(JSON.parse(editorRun(SCRIPT_TEMPLATE, null)).args);
+assert.deepEqual(Object.keys(tplSpec), ["start", "height", "radius", "count", "spacing", "material"]);
+const tpl = expandScripts({ materials: [{ name: "m", type: "pec" }], scripts: { t: { source: SCRIPT_TEMPLATE } },
+  geometry: [{ name: "arr", script: "t", args: { count: 3 } }] }, editorRun);
+assert.deepEqual(tpl.geometry.map(g => g.name), ["arr/rod1", "arr/rod2", "arr/rod3"]);
+for (const g of tpl.geometry) assert.ok(tessellate(g).indices.length > 0);
+assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIPT_TEMPLATE } },
+  geometry: [{ name: "arr", script: "t", args: { count: 0 } }] }, editorRun), /count must be ≥ 1/);
+
+// Presentation keys are validated and kept
+{
+  const spec = normalizeSpec({ n: { type: "int", default: 2, step: 1, more: true, hint: "how many" } });
+  assert.deepEqual([spec.n.step, spec.n.more, spec.n.hint], [1, true, "how many"]);
+  assert.throws(() => normalizeSpec({ n: { type: "length", default: 1, step: 0 } }), /step must be a positive number/);
+  assert.throws(() => normalizeSpec({ m: { type: "material", step: 1 } }), /step must be a positive number/);
+  assert.throws(() => normalizeSpec({ n: { type: "int", default: 1, more: "yes" } }), /more must be true or false/);
+}
+
+// Built-in helix script == the legacy helix shape's wire points
+{
+  const hg = { origin: [1, 2, 3], axis: [0.3, -0.2, 1], diameter: 18, height: 30, turns: 5.25, wire_diameter: 1, phase_deg: 45, segments_per_turn: 20 };
+  const x = expandScripts({ materials: [{ name: "m", type: "pec" }], geometry: [{ name: "h", script: "helix",
+    args: (({ phase_deg, ...rest }) => ({ ...rest, phase: phase_deg }))(hg) }] }, editorRun);
+  const want = helixPoints({ shape: "helix", ...hg });
+  assert.equal(x.geometry[0].shape, "wire");
+  assert.equal(x.geometry[0].points.length, want.length);
+  x.geometry[0].points.forEach((p, i) => p.forEach((v, k) => assert.ok(Math.abs(v - want[i][k]) < 1e-9, "helix point")));
+}
+
+// Built-in hemisphere == the legacy hemisphere mesh, as a polyhedron
+{
+  const { hemisphereMesh } = await import("./js/geometry.js");
+  for (const w of [0, 2]) {
+    const x = expandScripts({ materials: [{ name: "m", type: "pec" }], geometry: [{ name: "d", script: "hemisphere",
+      args: { center: [0, 0, 5], radius: 12, thickness: w } }] }, editorRun).geometry[0];
+    const ref = hemisphereMesh(12, w || null);
+    assert.equal(x.shape, "polyhedron");
+    assert.deepEqual(x.faces, ref.faces);
+    x.vertices.forEach((p, i) => p.forEach((v, k) => assert.ok(Math.abs(v - (ref.verts[i][k] + [0, 0, 5][k])) < 1e-9)));
+    assert.ok(tessellate(x).indices.length / 3 === ref.faces.length);
+  }
+}
+
+// Built-in tapered cylinder: closed, outward-oriented mesh with the right volume
+{
+  const vol = o => o.faces.reduce((V, [i, j, k]) => { const [A, B, C] = [o.vertices[i], o.vertices[j], o.vertices[k]];
+    return V + (A[0] * (B[1] * C[2] - B[2] * C[1]) - A[1] * (B[0] * C[2] - B[2] * C[0]) + A[2] * (B[0] * C[1] - B[1] * C[0])) / 6; }, 0);
+  const closed = o => { const m = new Map(); for (const f of o.faces) for (let k = 0; k < 3; k++) m.set(f[k] + "," + f[(k + 1) % 3], (m.get(f[k] + "," + f[(k + 1) % 3]) || 0) + 1);
+    return [...m].every(([e, n]) => { const [x, y] = e.split(","); return n === 1 && m.get(y + "," + x) === 1; }); };
+  for (const [r1, r2, t] of [[10, 5, 0], [10, 0, 0], [0, 6, 0], [10, 5, 2]]) {
+    const o = expandScripts({ materials: [{ name: "m", type: "pec" }], geometry: [{ name: "tc", script: "tapered_cylinder",
+      args: { start: [0, 0, 0], stop: [3, 4, 12], radius_start: r1, radius_stop: r2, thickness: t, segments: 128 } }] }, editorRun).geometry[0];
+    const cone = (a, b) => Math.PI * 13 / 3 * (a * a + a * b + b * b);
+    const exact = t ? cone(r1, r2) - cone(r1 - t, r2 - t) : cone(r1, r2);
+    assert.equal(o.shape, "polyhedron");
+    assert.ok(closed(o), `tapered ${r1}/${r2}/${t}: mesh must be closed and consistently oriented`);
+    assert.ok(Math.abs(vol(o) - exact) / exact < 1e-3, `tapered ${r1}/${r2}/${t}: volume ${vol(o)} vs ${exact}`);
+  }
+  assert.throws(() => expandScripts({ materials: [{ name: "m", type: "pec" }], geometry: [{ name: "x", script: "tapered_cylinder",
+    args: { radius_start: 5, radius_stop: 0, thickness: 1 } }] }, editorRun), /thickness must be below both radii/);
 }
 
 // Starter and templates

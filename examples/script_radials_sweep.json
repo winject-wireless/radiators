@@ -1,0 +1,145 @@
+{
+  "schema_version": 2,
+  "name": "Monopole with scripted ground radials",
+  "description": "Example of a JS geometry script: the radials come from scripts.radials, swept over their count.",
+  "units": "mm",
+  "parameters": {
+    "n_radials": 4,
+    "droop_deg": 30,
+    "lambda4": 30.6
+  },
+  "sweep": {
+    "mode": "product",
+    "parameters": {
+      "n_radials": {
+        "values": [
+          4,
+          8
+        ]
+      }
+    }
+  },
+  "domain": {
+    "start": [
+      -110,
+      -110,
+      -100
+    ],
+    "stop": [
+      110,
+      110,
+      120
+    ],
+    "boundary": [
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8"
+    ]
+  },
+  "mesh": {
+    "max_cell_mm": 5,
+    "local_min_cell_mm": 0.5,
+    "growth_ratio": 1.4,
+    "max_cells": 5000000
+  },
+  "solver": {
+    "max_timesteps": 20000,
+    "end_criteria": 0.0001,
+    "resources": {
+      "cpus": 2,
+      "memory_gib": 5
+    }
+  },
+  "excitation": {
+    "center_hz": 2450000000,
+    "bandwidth_hz": 350000000
+  },
+  "materials": [
+    {
+      "name": "pec-metal",
+      "type": "pec"
+    }
+  ],
+  "scripts": {
+    "radials": {
+      "source": "// Ground-plane radials for a monopole: `count` rods spread evenly around `center`.\nconst args = {\n  center:   { type: \"point\",  default: [0, 0, 0], label: \"Feed point\" },\n  count:    { type: \"int\",    default: 4, min: 3, max: 32, label: \"Radials\" },\n  length:   { type: \"length\", default: 31, label: \"Radial length\" },\n  droop:    { type: \"angle\",  default: 0, min: 0, max: 60, label: \"Droop (\u00b0)\" },\n  radius:   { type: \"length\", default: 1, label: \"Rod radius\" },\n  material: { type: \"material\" },\n};\n\nfunction generate(a) {\n  const tilt = a.droop * Math.PI / 180;\n  return Array.from({ length: a.count }, (_, i) => {\n    const phi = 2 * Math.PI * i / a.count;\n    const r = a.length * Math.cos(tilt);\n    return {\n      name: `radial${i + 1}`,\n      shape: \"cylinder\",\n      start: a.center,\n      stop: [a.center[0] + r * Math.cos(phi), a.center[1] + r * Math.sin(phi), a.center[2] - a.length * Math.sin(tilt)],\n      radius: a.radius,\n    };\n  });\n}\n"
+    }
+  },
+  "geometry": [
+    {
+      "name": "radiator",
+      "shape": "cylinder",
+      "material": "pec-metal",
+      "start": [
+        0,
+        0,
+        1
+      ],
+      "stop": [
+        0,
+        0,
+        {
+          "$expr": "1 + lambda4"
+        }
+      ],
+      "radius": 1
+    },
+    {
+      "name": "ground",
+      "script": "radials",
+      "args": {
+        "center": [
+          0,
+          0,
+          0
+        ],
+        "count": {
+          "$param": "n_radials"
+        },
+        "length": {
+          "$param": "lambda4"
+        },
+        "droop": {
+          "$param": "droop_deg"
+        },
+        "material": "pec-metal"
+      }
+    }
+  ],
+  "ports": [
+    {
+      "id": 1,
+      "name": "feed",
+      "type": "lumped",
+      "start": [
+        0,
+        0,
+        0
+      ],
+      "stop": [
+        0,
+        0,
+        1
+      ],
+      "direction": "z",
+      "impedance_ohm": 50,
+      "excite": true
+    }
+  ],
+  "outputs": {
+    "s11": [
+      {
+        "start": 2200000000,
+        "step": 10000000,
+        "end": 2700000000
+      }
+    ],
+    "radiation_frequencies_hz": [
+      2450000000
+    ],
+    "include_realized_gain": true
+  }
+}

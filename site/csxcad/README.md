@@ -10,8 +10,9 @@ Published at `https://winject-wireless.github.io/radiators/csxcad/`.
 
 ## What it does
 
-- All schema v2 shapes: box / sheet, cylinder, cylindrical shell, sphere,
-  spherical shell, hemisphere, hemispherical shell, wire, helix. Transforms
+- The CSXCAD primitives: box / sheet, cylinder, cylindrical shell, sphere,
+  spherical shell, wire and polyhedron (vertices + faces). Helix and
+  hemisphere are built-in scripts; the legacy shapes still open and convert. Transforms
   (rotate X→Y→Z, then translate) and CSXCAD priority.
 - Lumped, coaxial and MSL ports (one excited), the four material types,
   domain + boundaries, mesh (with refinement boxes), excitation, S11 sweeps,
@@ -30,6 +31,71 @@ Published at `https://winject-wireless.github.io/radiators/csxcad/`.
   bundled examples from `antennas/` and `examples/`.
 - Configs that use a Python `generator` open, but their generated geometry only
   exists when the radiators scripts run.
+
+## Geometry scripts
+
+For geometry that is tedious to place by hand (element arrays, radials, meander
+lines), write a script in the **Scripts** tab. A script declares its arguments,
+each typed like a primitive input, and returns primitives:
+
+```js
+const args = {
+  center:   { type: "point",  default: [0, 0, 0] },   // vec3 field + 3-axis gizmo
+  count:    { type: "int",    default: 4, min: 3 },
+  length:   { type: "length", default: 31 },           // mm
+  material: { type: "material" },                      // defaults to the first material
+};
+function generate(a) {
+  return Array.from({ length: a.count }, (_, i) => ({ shape: "cylinder", /* … */ }));
+}
+```
+
+Argument types: `point`, `vector`, `length`, `number`, `int`, `angle`, `material`,
+`choice` (with `options`), `bool`.
+
+| Declaration key | Effect in the object editor |
+|---|---|
+| `type` | the control: point/vector → x y z (point also gets the 3-axis gizmo), length/number/int/angle → number box (mm / °), material/choice → dropdown, bool → checkbox |
+| `default` | used when the object does not set a value; shown as placeholder text |
+| `label` | row name (default: the key, capitalised) |
+| `hint` | help text under the field |
+| `more: true` | row sits under **More** unless the object sets a non-default value |
+| `step` | snapping for drag handles and the point gizmo; ↑/↓ in a plain-number field nudges by one step (Shift ×10) |
+| `min`, `max` | range checked when the script runs (error on the object and in Checks) |
+| `options` | values of a `choice` dropdown |
+| `handle` | drag diamond for a length/number: `{ from: <point arg>, dir: <vector arg> or [x,y,z], perp?, scale? }` | Each use is one object in Model
+(`{"name", "script", "args"}`); its object editor is generated from the
+declaration, argument values may be parameters or expressions, and clicking any
+generated piece selects the whole object. Generated pieces are named
+`<object>/<name or index>`; a piece without a material uses the first material
+argument.
+
+**Built-in scripts** ship with the editor and simulator and are used by name
+without storing their source: `helix` (one Wire through the coil points),
+`hemisphere` (dome or shell, one Polyhedron) and `tapered_cylinder` (frustum or
+cone between two points, one Polyhedron; thickness 0 = solid, > 0 = hollow wall
+measured inward). CSXCAD has none of these primitives; helix and hemisphere are
+identical to the legacy `helix` / `hemisphere` / `hemispherical_shell`
+shapes, which the simulator still accepts and the editor can convert (a
+legacy transform is folded into center/axis). A length
+argument can declare a drag handle, e.g.
+`height: { type: "length", default: 24, handle: { from: "origin", dir: "axis" } }`
+or `diameter: { …, handle: { from: "origin", dir: "axis", perp: true, scale: 2 } }`;
+`dir` may also name a point argument (direction from `from` towards it).
+Built-in names are reserved; use **Copy as new script** to customise one.
+
+The script editor is CodeMirror 5 (vendored by `prepare.py`, loaded only when the
+Scripts tab opens): line numbers, JavaScript highlighting, bracket matching and
+autocomplete that knows the script API (`a.` → declared arguments, `type: "` →
+argument types, `shape: "` → primitives, `Math.` → members; Ctrl+Space to open).
+The maximize button gives it the whole window (desktop) or a full-height sheet
+(phone); Esc restores.
+
+Scripts are stored in the config under `scripts.<name>.source`. The simulator
+expands them after resolving parameters (`scripts/sweep.py` runs
+`scripts/geometry_scripts.mjs`, which needs Node.js); the editor runs the same
+`js/scriptcore.js` in a Web Worker. Scripts get 2 s per run. See
+`examples/script_radials_sweep.json`.
 
 ## Layout
 
@@ -50,6 +116,8 @@ back closes it). One finger orbits, two fingers zoom and pan, tap selects.
 | `js/viewport.js` | three.js view (Z up, picking, view presets) |
 | `js/platform.js` | Save / share for browser, PWA and Capacitor |
 | `prepare.py` | Vendors three.js 0.160.0, bundles examples, builds `www/` |
+| `js/code-editor.js` | CodeMirror script editor and script-aware autocomplete |
+| `js/scriptcore.js`, `js/script-worker.js` | Geometry scripts: argument types, expansion (shared with the simulator), worker runner |
 | `check.mjs` | Node parity and smoke checks (run in CI) |
 
 There is no bundler: plain ES modules plus an import map. `prepare.py` pins

@@ -7,7 +7,10 @@ import {
 } from "./params.js";
 import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { checkCase } from "./checks.js";
-import { solverBounds } from "./geometry.js";
+import { upgradeTextarea } from "./code-editor.js";
+import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
+  normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
+import { solverBounds, transformer, rotationMatrix } from "./geometry.js";
 import { storage, saveFile, registerServiceWorker, isNative } from "./platform.js";
 
 const $ = id => document.getElementById(id);
@@ -24,6 +27,70 @@ const h = (tag, attrs = {}, ...kids) => {
   return el;
 };
 const clone = v => structuredClone(v);
+// Line icons (24x24, stroked) so every control shares one visual language.
+const ICONS = {
+  eye: "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  eyeOff: "M3 3l18 18M10.6 5.6A9.7 9.7 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.9 3.7M6.5 7.2C3.9 8.9 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.3-1M9.9 9.9a3 3 0 0 0 4.2 4.2",
+  bolt: "M13 2.5 4.5 13.5H12l-1 8 8.5-11H12z",
+  dot: "M12 12h.01",
+  sim: "M4 7.5 12 3l8 4.5v9L12 21l-8-4.5zM4 7.5l8 4.5 8-4.5M12 12v9",
+  x: "M6 6l12 12M18 6 6 18",
+  up: "M12 19V5M6 11l6-6 6 6",
+  down: "M12 5v14M6 13l6 6 6-6",
+  copy: "M8 8h11v11H8zM5 16V5h11",
+  array: "M4 4h5v5H4zM15 4h5v5h-5zM4 15h5v5H4zM15 15h5v5h-5z",
+  trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
+  chev: "m9 6 6 6-6 6",
+  maximize: "M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7",
+  minimize: "M4 14h6v6M20 10h-6V4M10 14l-7 7M14 10l7-7",
+  scripts: "m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14",
+};
+const iconBtn = (name, label, onclick, { disabled = false, danger = false } = {}) =>
+  h("button", { type: "button", class: "icon head-btn" + (danger ? " danger" : ""), title: label, "aria-label": label, disabled, onclick }, icon(name));
+// Optional fields that still hold their default live behind "More"; anything set explicitly stays visible.
+const isMainField = (f, obj) => !f.optional ||
+  (obj?.[f.key] !== undefined && JSON.stringify(obj[f.key]) !== JSON.stringify(f.default));
+function moreSection(...kids) {
+  const d = h("details", { class: "more", open: state.moreOpen || undefined },
+    h("summary", {}, icon("chev", "more-chev"), h("span", { text: "More" })), ...kids);
+  d.addEventListener("toggle", () => { state.moreOpen = d.open; });
+  return d;
+}
+const SHORT_SHAPE = { box: "box", cylinder: "cyl", cylindrical_shell: "tube", sphere: "sph", spherical_shell: "sph shell", polyhedron: "mesh",
+  hemisphere: "dome", hemispherical_shell: "dome shell", wire: "wire", helix: "helix" };
+// "Box", or "Sheet (XY plane)" for a zero-thickness box, else the schema label.
+function primitiveLabel(g, rg) {
+  if (isScriptInstance(g)) return `Script · ${g.script}`;
+  if (g?.shape === "box" && rg && nums3(rg.start) && nums3(rg.stop)) {
+    const zero = [0, 1, 2].filter(k => rg.start[k] === rg.stop[k]);
+    if (zero.length === 1) return `Sheet (${["YZ", "XZ", "XY"][zero[0]]} plane)`;
+    return "Box";
+  }
+  return SHAPES[g?.shape]?.label || g?.shape || "?";
+}
+const short = v => typeof v === "number" && Number.isFinite(v) ? String(+v.toPrecision(3)) : "?";
+// One-line dimension summary for tree rows (resolved values of the current case).
+function summarize(g) {
+  if (!g) return "";
+  const len = (a, b) => Array.isArray(a) && Array.isArray(b) ? Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) : NaN;
+  switch (g.shape) {
+    case "box": return Array.isArray(g.start) && Array.isArray(g.stop) ? [0, 1, 2].map(k => short(Math.abs(g.stop[k] - g.start[k]))).join("×") : "";
+    case "cylinder": return `r${short(g.radius)} · L${short(len(g.start, g.stop))}`;
+    case "cylindrical_shell": return `r${short(g.radius)} · t${short(g.thickness)} · L${short(len(g.start, g.stop))}`;
+    case "sphere": case "hemisphere": return `r${short(g.radius)}`;
+    case "spherical_shell": case "hemispherical_shell": return `r${short(g.radius)} · t${short(g.thickness)}`;
+    case "wire": return `${g.points?.length ?? "?"} pts · Ø${short(g.wire_diameter)}`;
+    case "polyhedron": return `${g.vertices?.length ?? "?"} v · ${g.faces?.length ?? "?"} f`;
+    case "helix": return `Ø${short(g.diameter)} · h${short(g.height)} · ${short(g.turns)}t`;
+  }
+  return g.shape;
+}
+const icon = (name, extra = "") => {
+  const s = document.createElement("span");
+  s.className = "i " + extra;
+  s.innerHTML = `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name]}" fill="none" stroke="currentColor" stroke-width="${name === "dot" ? 4 : 1.8}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return s;
+};
 const add = (el, ...kids) => el.append(...kids.flat().filter(k => k !== null && k !== undefined && k !== false));
 const DRAFT_KEY = "radiators-csxcad-draft-v1";
 const PREFS_KEY = "radiators-csxcad-prefs-v1";
@@ -32,16 +99,122 @@ const mobile = () => matchMedia("(max-width: 760px), (max-height: 520px) and (ma
 // ---------------------------------------------------------------- state
 const state = {
   doc: null,
-  sel: null,            // {kind:"geometry"|"port"|"material"|"sim", index}
+  sel: null,            // {kind:"geometry"|"port"|"material", index}
   hidden: new Set(),
   caseIndex: 0,
   jsonMode: "source",
   dock: "params",
   derived: null,
+  handle: null,         // active position handle ("geometry.0.start"), gets the 3-axis gizmo
+  scriptSel: null,      // script shown in the Scripts tab
+  scriptMax: false,     // Scripts editor maximized
 };
 const history = { undo: [], redo: [], live: null };
 let viewport = null;
+// Fields register a refresher so values update without rebuilding (and losing focus).
+// The inspector and the Simulation panel render separately, so each keeps its own list.
 let fieldRefreshers = [];
+let inspectorRefreshers = [], simRefreshers = [];
+
+// ---------------------------------------------------------------- geometry scripts runtime
+// Scripts run in a Web Worker (terminated after the time limit); results are cached by
+// source + argument values, and finished runs trigger a refresh.
+const scriptRT = { worker: null, ready: false, busy: null, queue: [], queued: new Set(), cache: new Map(), seq: 0, timer: 0, frame: 0 };
+function scriptResult(source, argsJSON) {
+  const key = (argsJSON === null ? "S" : "R" + argsJSON) + "\u0000" + source;
+  const hit = scriptRT.cache.get(key);
+  if (hit) return hit;
+  if (!scriptRT.queued.has(key)) {
+    scriptRT.queued.add(key);
+    scriptRT.queue.push({ key, source, argsJSON });
+    pumpScripts();
+  }
+  return null;
+}
+function pumpScripts() {
+  if (scriptRT.busy || !scriptRT.queue.length) return;
+  if (!scriptRT.worker) {
+    scriptRT.ready = false;
+    scriptRT.worker = new Worker(new URL("./script-worker.js", import.meta.url), { type: "module" });
+    scriptRT.worker.onmessage = e => {
+      if (e.data.ready) { scriptRT.ready = true; pumpScripts(); }
+      else if (scriptRT.busy && e.data.id === scriptRT.busy.id) finishScript(e.data);
+    };
+    scriptRT.worker.onerror = e => { // the worker itself failed to load
+      e.preventDefault?.();
+      scriptRT.worker = null;
+      for (const job of scriptRT.queue.splice(0)) { scriptRT.busy = job; finishScript({ ok: false, error: "script runner failed to start: " + (e.message || "error") }); }
+    };
+  }
+  if (!scriptRT.ready) return; // jobs start once the worker has loaded
+  const job = scriptRT.queue.pop(); // newest first: during a drag only the latest values matter
+  job.id = ++scriptRT.seq;
+  scriptRT.busy = job;
+  scriptRT.worker.postMessage({ id: job.id, source: job.source, argsJSON: job.argsJSON });
+  scriptRT.timer = setTimeout(() => {
+    scriptRT.worker.terminate();
+    scriptRT.worker = null;
+    finishScript({ ok: false, error: `timed out after ${SCRIPT_LIMITS.timeoutMs / 1000} s (endless loop?)` });
+  }, SCRIPT_LIMITS.timeoutMs);
+}
+function finishScript(res) {
+  clearTimeout(scriptRT.timer);
+  const job = scriptRT.busy;
+  scriptRT.busy = null;
+  scriptRT.cache.set(job.key, res.ok ? { ok: true, out: res.out } : { ok: false, error: res.error });
+  scriptRT.queued.delete(job.key);
+  if (scriptRT.cache.size > 400) scriptRT.cache.delete(scriptRT.cache.keys().next().value);
+  cancelAnimationFrame(scriptRT.frame);
+  scriptRT.frame = requestAnimationFrame(() => {
+    const a = document.activeElement;
+    const typing = a && (a.closest?.("#inspector") || a.closest?.("#scripts"));
+    if (state.doc) refresh({ inspector: !typing, scripts: false, params: false, json: false });
+    updateScriptStatus();
+  });
+  pumpScripts();
+}
+// Argument declarations of a script in the document: {spec} | {pending} | {error}.
+function specFor(name) {
+  const source = scriptSource(state.doc.scripts, name);
+  if (typeof source !== "string") return { error: `Undefined script: ${name}` };
+  const r = scriptResult(source, null);
+  if (!r) return { pending: true };
+  if (!r.ok) return { error: r.error };
+  try { return { spec: normalizeSpec(JSON.parse(r.out).args) }; } catch (e) { return { error: e.message }; }
+}
+// Expand one resolved instance: {objects, spec} | {pending} | {error}.
+function expandInstance(g, materials, scripts) {
+  const source = scriptSource(scripts, g.script);
+  if (typeof source !== "string") return { error: `Undefined script: ${g.script}` };
+  const sres = scriptResult(source, null);
+  if (!sres) return { pending: true };
+  if (!sres.ok) return { error: `script ${g.script}: ${sres.error}` };
+  let spec, values;
+  try {
+    spec = normalizeSpec(JSON.parse(sres.out).args);
+    values = prepareArgs(spec, g.args, materials);
+  } catch (e) { return { error: e.message, spec }; }
+  const r = scriptResult(source, JSON.stringify(values));
+  if (!r) return { pending: true, spec };
+  if (!r.ok) return { error: `script ${g.script}: ${r.error}`, spec };
+  try { return { objects: normalizeObjects(JSON.parse(r.out).objects, g, spec, values), spec }; }
+  catch (e) { return { error: `script ${g.script}: ${e.message}`, spec }; }
+}
+// A resolved case config with every script instance replaced by its primitives.
+function expandResolved(cfg) {
+  if (!cfg.scripts && !(cfg.geometry || []).some(isScriptInstance)) return { cfg };
+  const geometry = [];
+  for (const [i, g] of (cfg.geometry || []).entries()) {
+    if (!isScriptInstance(g)) { geometry.push(g); continue; }
+    const x = expandInstance(g, cfg.materials, cfg.scripts);
+    if (x.pending) return { pending: true };
+    if (x.error) return { error: x.error, where: g.name || g.script, ref: { kind: "geometry", index: i } };
+    geometry.push(...x.objects);
+  }
+  const out = { ...cfg, geometry };
+  delete out.scripts;
+  return { cfg: out };
+}
 
 function setStatus(msg, error = false) {
   const s = $("status");
@@ -80,7 +253,8 @@ function normalizeDoc(cfg) {
 
 function loadDoc(cfg, message) {
   state.doc = normalizeDoc(cfg);
-  state.sel = state.doc.geometry.length ? { kind: "geometry", index: 0 } : { kind: "sim" };
+  for (const [k, v] of scriptRT.cache) if (!v.ok && /^timed out/.test(v.error)) scriptRT.cache.delete(k); // retry slow scripts
+  state.sel = null; // open showing the whole model; selecting a part fades the rest
   state.hidden.clear();
   state.caseIndex = 0;
   history.undo = []; history.redo = [];
@@ -161,6 +335,8 @@ function derive() {
   }
   d.resolved.geometry = d.geometry;
   d.resolved.ports = d.ports;
+  d.expanded = d.geometry.map((g, i) => isScriptInstance(doc.geometry[i]) && g ? expandInstance(g, d.resolved.materials, d.resolved.scripts) : null);
+  d.expanded.forEach((x, i) => { if (x?.error && !d.errors.geometry[i]) d.errors.geometry[i] = x.error; });
   d.checks = runChecks(doc, d);
   state.derived = d;
   return d;
@@ -182,6 +358,10 @@ function runChecks(doc, d) {
     try { cfg = resolveCase(doc, c.parameters); }
     catch (e) { add({ level: "error", where: "parameters", msg: e.message }, c.id); continue; }
     if (doc.generator) continue;
+    const ex = expandResolved(cfg);
+    if (ex.pending) continue; // a script is still running; checks refresh when it finishes
+    if (ex.error) { add({ level: "error", where: ex.where, msg: ex.error, ref: ex.ref }, c.id); continue; }
+    cfg = ex.cfg;
     for (const item of checkCase(cfg)) add(item, c.id);
   }
   return { list: [...merged.values()].sort((a, b) => (a.level === "error" ? 0 : 1) - (b.level === "error" ? 0 : 1)), caseCount: cases.length };
@@ -202,7 +382,7 @@ function setPath(obj, path, value) {
 
 // ---------------------------------------------------------------- fields
 // A numeric/expression field bound to a document path.
-function numField(path, { optional = false, def, int = false, unit, placeholder, onLive, aria } = {}) {
+function numField(path, { optional = false, def, int = false, unit, placeholder, onLive, aria, prepare, step } = {}) {
   const wrap = h("div", { class: "field" });
   const input = h("input", { type: "text", inputmode: "text", autocapitalize: "off", autocomplete: "off",
     autocorrect: "off", spellcheck: "false", enterkeyhint: "done", "aria-label": aria || path.join("."),
@@ -247,10 +427,22 @@ function numField(path, { optional = false, def, int = false, unit, placeholder,
         wrap.classList.add("invalid"); hint.textContent = "Must be an integer"; return;
       }
     }
-    edit(doc => setPath(doc, path, value), { inspector: false });
+    edit(doc => { prepare?.(doc); setPath(doc, path, value); }, { inspector: false });
   };
   input.addEventListener("change", commit);
-  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); return; }
+    // ↑ / ↓ nudge a plain number by `step` (Shift: ×10); parameters and expressions are left alone.
+    if (step && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      const cur = input.value.trim() === "" && def !== undefined ? def : Number(input.value);
+      if (input.value.trim() !== "" && !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(input.value.trim())) return;
+      if (!Number.isFinite(cur)) return;
+      e.preventDefault();
+      const delta = (e.key === "ArrowUp" ? 1 : -1) * step * (e.shiftKey ? 10 : 1);
+      input.value = String(+(Math.round((cur + delta) / step) * step).toPrecision(12));
+      commit();
+    }
+  });
   if (onLive) input.addEventListener("input", () => onLive(input.value));
   fieldRefreshers.push(show);
   show();
@@ -259,8 +451,12 @@ function numField(path, { optional = false, def, int = false, unit, placeholder,
 const fmt = v => typeof v === "number" ? String(+v.toPrecision(8)) : JSON.stringify(v);
 
 function vec3Field(path, opts = {}) {
-  return h("div", { class: "vec3" }, ["x", "y", "z"].map((axis, i) =>
-    numField([...path, i], { ...opts, aria: `${opts.label || path.join(".")} ${axis}`, placeholder: axis })));
+  const key = handleKey(path);
+  const el = h("div", { class: "vec3", "data-handle": key }, ["x", "y", "z"].map((axis, i) =>
+    numField([...path, i], { ...opts, aria: `${opts.label || path.join(".")} ${axis}`,
+      placeholder: opts.defaults ? String(opts.defaults[i]) : axis })));
+  el.addEventListener("focusin", () => { if (state.handle !== key && currentHandles.has(key)) { state.handle = key; syncHandles(); } });
+  return el;
 }
 function textField(path, { optional = false, aria, onCommit } = {}) {
   const input = h("input", { type: "text", spellcheck: "false", autocomplete: "off", "aria-label": aria });
@@ -274,9 +470,9 @@ function textField(path, { optional = false, aria, onCommit } = {}) {
   show();
   return h("div", { class: "field" }, input);
 }
-function selectField(path, options, { optional = false, aria, onCommit } = {}) {
+function selectField(path, options, { optional = false, aria, onCommit, emptyLabel = "—" } = {}) {
   const sel = h("select", { "aria-label": aria });
-  const opts = optional ? [["", "—"], ...options] : options;
+  const opts = optional ? [["", emptyLabel], ...options] : options;
   for (const o of opts) {
     const [value, label] = Array.isArray(o) ? o : [o, o];
     sel.append(h("option", { value, text: label }));
@@ -333,7 +529,7 @@ function pointsField(path) {
     h("span", { text: i + 1 }),
     vec3Field([...path, i], { label: `point ${i + 1}` }),
     h("button", { type: "button", class: "icon", title: "Remove point", "aria-label": `Remove point ${i + 1}`, disabled: pts.length <= 2,
-      onclick: () => edit(doc => getPath(doc, path).splice(i, 1)) }, "✕"))));
+      onclick: () => edit(doc => getPath(doc, path).splice(i, 1)) }, icon("x")))));
   list.append(h("div", { class: "actions" },
     h("button", { type: "button", class: "small", onclick: () => edit(doc => {
       const arr = getPath(doc, path);
@@ -361,44 +557,51 @@ function renderTree() {
   };
   const geomRows = doc.geometry.map((g, i) => {
     const hidden = state.hidden.has(i);
-    const m = mats.get(typeof g.material === "string" ? g.material : "");
+    const script = isScriptInstance(g);
+    const ex = d.expanded[i];
+    const m = mats.get(script ? (ex?.objects?.[0]?.material ?? "") : typeof g.material === "string" ? g.material : "");
     return h("li", { class: "tree-row" + (isSel("geometry", i) ? " active" : "") + (d.errors.geometry[i] ? " invalid" : "") + (hidden ? " tree-hidden" : "") },
       h("button", { type: "button", class: "vis", title: hidden ? "Show" : "Hide (preview only)", "aria-label": (hidden ? "Show " : "Hide ") + (g.name || g.shape),
-        onclick: () => { hidden ? state.hidden.delete(i) : state.hidden.add(i); refresh({ inspector: false, params: false }); } }, hidden ? "○" : "◉"),
+        onclick: () => { hidden ? state.hidden.delete(i) : state.hidden.add(i); refresh({ inspector: false, params: false }); } }, icon(hidden ? "eyeOff" : "eye")),
       h("button", { type: "button", class: "tree-name", onclick: () => select({ kind: "geometry", index: i }) },
         h("span", { class: "swatch", style: `background:${swatch(m)}` }),
         h("span", { class: "nm", text: g.name || g.shape }),
-        h("span", { class: "kind", text: g.shape })));
+        h("span", { class: "kind", title: primitiveLabel(g, d.geometry[i]) },
+          h("span", { class: "kind-prim", text: script ? "script" : primitiveLabel(g, d.geometry[i]).startsWith("Sheet") ? "sheet" : SHORT_SHAPE[g.shape] || g.shape }), " ",
+          script ? `${g.script} · ${ex?.objects ? ex.objects.length + " obj" : ex?.pending ? "…" : "error"}` : summarize(d.geometry[i]))));
   });
   const portRows = doc.ports.map((p, i) => h("li", { class: "tree-row" + (isSel("port", i) ? " active" : "") + (d.errors.port[i] ? " invalid" : "") },
-    h("span", { class: "vis", style: "display:inline-flex;justify-content:center;color:" + (p.excite ? "#ff4d5e" : "var(--muted)") }, p.excite ? "⚡" : "·"),
+    h("span", { class: "vis" + (p.excite ? " excited" : ""), title: p.excite ? "Excited port" : "Passive port" }, icon(p.excite ? "bolt" : "dot")),
     h("button", { type: "button", class: "tree-name", onclick: () => select({ kind: "port", index: i }) },
-      h("span", { class: "nm", text: `${p.name || "port"} #${p.id ?? i + 1}` }), h("span", { class: "kind", text: p.type }))));
+      h("span", { class: "nm", text: `${p.name || "port"} #${p.id ?? i + 1}` }),
+      h("span", { class: "kind", text: p.type + (p.type === "lumped" ? ` · ${short(d.ports?.[i]?.impedance_ohm ?? 50)}Ω` : "") }))));
   const matRows = doc.materials.map((m, i) => h("li", { class: "tree-row" + (isSel("material", i) ? " active" : "") },
-    h("span", { class: "vis", style: "display:inline-flex;justify-content:center" }, h("span", { class: "swatch", style: `background:${swatch(m)}` })),
+    h("span", { class: "vis" }, h("span", { class: "swatch", style: `background:${swatch(m)}` })),
     h("button", { type: "button", class: "tree-name", onclick: () => select({ kind: "material", index: i }) },
-      h("span", { class: "nm", text: m.name }), h("span", { class: "kind", text: m.type }))));
-  const simRow = h("li", { class: "tree-row" + (state.sel?.kind === "sim" ? " active" : "") },
-    h("span", { class: "vis", style: "display:inline-flex;justify-content:center" }, "⚙"),
-    h("button", { type: "button", class: "tree-name", onclick: () => select({ kind: "sim" }) },
-      h("span", { class: "nm", text: "Domain, mesh & outputs" })));
+      h("span", { class: "nm", text: m.name }),
+      h("span", { class: "kind", text: m.type === "dielectric" ? `εr ${short(d.resolved.materials?.[i]?.epsilon)}` : m.type }))));
   tree.append(
     section(`Geometry (${doc.geometry.length})`, "geometry", geomRows, "geometry"),
     section(`Ports (${doc.ports.length})`, "port", portRows, "port"),
-    section(`Materials (${doc.materials.length})`, "material", matRows, "material"),
-    section("Simulation", "sim", [simRow]));
+    section(`Materials (${doc.materials.length})`, "material", matRows, "material"));
 }
 function swatch(m) {
   return { pec: "#d9a54a", conductive: "#c77b4a", conducting_sheet: "#e8884a", dielectric: "#4fb38a" }[m?.type] || "#8aa0b8";
 }
 
 function select(ref, { fromView = false } = {}) {
+  if (ref?.kind === "sim") return openSheet("sim");
+  const changed = JSON.stringify(ref) !== JSON.stringify(state.sel);
   state.sel = ref;
+  if (changed) state.handle = null;
   refresh({ params: false, json: false, viewport: false });
-  viewport?.setSelection(ref && (ref.kind === "geometry" || ref.kind === "port") ? ref : null);
+  const shown = ref && (ref.kind === "geometry" || ref.kind === "port") ? ref : null;
+  viewport?.setSelection(shown);
+  // Focus after any phone sheet has opened, so the framing accounts for the space it covers.
+  if (shown && changed) setTimeout(() => viewport?.focus(shown), 60);
   if (mobile()) {
-    if (fromView) showChip();
-    else openSheet("inspect");
+    if (fromView && !ref) { if (document.body.dataset.sheet === "inspect") closeSheet(); }
+    else openSheet("inspect", { peek: true });
   }
 }
 function showChip() {
@@ -411,25 +614,424 @@ function showChip() {
   chip.hidden = false;
 }
 
+// ---------------------------------------------------------------- position handles
+// Every position-like vec3 of the selected object (start/stop/center/origin, wire
+// points, port corners) gets a point in the 3D view; the active one gets a gizmo.
+const handleKey = path => path.join(".");
+let currentHandles = new Map();
+let dragFrame = 0;
+
+const V = {
+  add: (a, b) => a.map((x, i) => x + b[i]), sub: (a, b) => a.map((x, i) => x - b[i]), mul: (a, k) => a.map(x => x * k),
+  dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], len: a => Math.hypot(...a),
+  unit: a => { const l = Math.hypot(...a) || 1; return a.map(x => x / l); },
+  perp: a => { const t = Math.abs(a[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]; const d = V.dot(t, a) / (V.dot(a, a) || 1); return V.unit(V.sub(t, V.mul(a, d))); },
+};
+const nums3 = v => Array.isArray(v) && v.length === 3 && v.every(x => typeof x === "number" && Number.isFinite(x));
+const fmtLen = v => `${+v.toPrecision(5)} mm`;
+
+// Handles for the selected object. Points move with the 3-axis gizmo; scalar handles
+// (amber diamonds) slide along one line and edit a single dimension of the primitive.
+function computeHandles() {
+  const out = new Map();
+  const s = state.sel, d = state.derived;
+  if (!s || !d) return out;
+  const identity = { fwd: p => p, inv: p => p, dir: p => p, rotated: false };
+  const point = (path, local, raw, xf) => {
+    if (!nums3(local)) return;
+    const numeric = Array.isArray(raw) && raw.length === 3 ? raw.map(v => typeof v === "number") : [false, false, false];
+    // A rotated part moves along world axes, which mixes local coordinates: all three must be plain numbers.
+    const axes = xf.rotated ? (numeric.every(Boolean) ? [true, true, true] : [false, false, false]) : numeric;
+    const key = handleKey(path);
+    out.set(key, { key, kind: "point", path, pos: xf.fwd(local), axes, xf });
+  };
+  // scalar: dimension `field` = set(t) where t is the distance from baseLocal along dirLocal.
+  // set(t) returns a number for `field`, or [[path, value], …] to write several fields, or null to refuse.
+  const scalar = (name, field, raw, xf, baseLocal, dirLocal, dist, set, label, enabled = typeof raw === "number") => {
+    if (!nums3(baseLocal) || !Number.isFinite(dist)) return;
+    const key = `dim:${handleKey(field)}:${name}`;
+    out.set(key, { key, kind: "scalar", field, base: xf.fwd(baseLocal), dir: xf.dir(V.unit(dirLocal)), dist, enabled, set, label });
+  };
+  if (s.kind === "geometry" && isScriptInstance(state.doc.geometry[s.index])) {
+    // Point arguments of a script instance get the same 3-axis handles as primitive positions.
+    const g = state.doc.geometry[s.index], rg = d.geometry[s.index];
+    const sp = specFor(g.script);
+    if (!sp.spec || state.hidden.has(s.index)) return out;
+    const val = k => rg?.args?.[k] ?? sp.spec[k]?.default;
+    for (const [key, dd] of Object.entries(sp.spec)) {
+      const path = ["geometry", s.index, "args", key];
+      const raw = g.args?.[key];
+      if (dd.type === "point") {
+        point(path, val(key), raw === undefined ? [0, 0, 0] : raw, identity);
+        const hd = out.get(handleKey(path));
+        if (hd && raw === undefined) hd.init = dd.default;
+        if (hd && dd.step) hd.snap = dd.step;
+      } else if (dd.handle && typeof val(key) === "number") {
+        const from = val(dd.handle.from);
+        const dirArg = typeof dd.handle.dir === "string" ? sp.spec[dd.handle.dir] : null;
+        // dir: a vector argument, a literal [x,y,z], or a point argument (towards that point).
+        const dir0 = !dirArg ? dd.handle.dir : dirArg.type === "point" ? (nums3(val(dd.handle.dir)) && nums3(from) ? V.sub(val(dd.handle.dir), from) : null) : val(dd.handle.dir);
+        if (!nums3(from) || !nums3(dir0) || !V.len(dir0)) continue;
+        const dir = dd.handle.perp ? V.perp(dir0) : V.unit(dir0), k = dd.handle.scale;
+        const snapV = t => dd.step ? Math.round(t * k / dd.step) * dd.step : t * k;
+        const fmtV = t => dd.type === "length" ? fmtLen(snapV(t)) : String(+snapV(t).toPrecision(5));
+        scalar(key, path, raw === undefined ? 0 : raw, identity, from, dir, val(key) / k,
+          t => { const v = snapV(t); return (dd.min === undefined ? v > 0 : v >= dd.min) && (dd.max === undefined || v <= dd.max) ? v : null; },
+          t => `${dd.label} ${fmtV(t)}`);
+      }
+    }
+    return out;
+  }
+  if (s.kind === "geometry") {
+    const g = state.doc.geometry[s.index], rg = d.geometry[s.index];
+    const def = SHAPES[g?.shape];
+    if (!rg || !def || state.hidden.has(s.index)) return out;
+    let xf;
+    try {
+      const fwd = transformer(rg);
+      const m = rotationMatrix(rg.transform?.rotate_deg || [0, 0, 0]);
+      const t = rg.transform?.translate || [0, 0, 0];
+      const inv = w => { const q = V.sub(w, t); return [0, 1, 2].map(c => m[0][c] * q[0] + m[1][c] * q[1] + m[2][c] * q[2]); };
+      const dir = v => [0, 1, 2].map(r => m[r][0] * v[0] + m[r][1] * v[1] + m[r][2] * v[2]);
+      xf = { fwd, inv, dir, rotated: (rg.transform?.rotate_deg || []).some(v => v) };
+    } catch { return out; }
+    const base = ["geometry", s.index];
+    for (const f of def.fields) {
+      if (f.type === "vec3" && f.key !== "axis") point([...base, f.key], rg[f.key], g[f.key], xf);
+      if (f.type === "points" && Array.isArray(rg[f.key]) && rg[f.key].length <= 64) {
+        rg[f.key].forEach((pt, k) => point([...base, f.key, k], pt, Array.isArray(g[f.key]) ? g[f.key][k] : null, xf));
+      }
+    }
+    const pos = v => v > 0;
+    switch (g.shape) {
+      case "box": {
+        if (!nums3(rg.start) || !nums3(rg.stop)) break;
+        // The simulator needs start <= stop per axis, so faces never cross. A zero-thickness
+        // axis (sheet) gets one two-way handle; conducting sheets must stay zero-thickness.
+        const c = V.mul(V.add(rg.start, rg.stop), 0.5);
+        const sheetMat = state.doc.materials.find(m => m.name === g.material)?.type === "conducting_sheet";
+        for (let k = 0; k < 3; k++) {
+          const lo = Math.min(rg.start[k], rg.stop[k]), hi = Math.max(rg.start[k], rg.stop[k]);
+          const loF = rg.start[k] <= rg.stop[k] ? "start" : "stop", hiF = loF === "start" ? "stop" : "start";
+          const loPath = [...base, loF, k], hiPath = [...base, hiF, k];
+          const free = typeof g[loF]?.[k] === "number" && typeof g[hiF]?.[k] === "number";
+          const at = v => { const q = [...c]; q[k] = v; return q; };
+          const ax = d => { const q = [0, 0, 0]; q[k] = d; return q; };
+          if (hi === lo) {
+            scalar(`face${k}`, hiPath, g[hiF]?.[k], xf, at(lo), ax(1), 0,
+              t => t >= 0 ? [[hiPath, lo + t], [loPath, lo]] : [[loPath, lo + t], [hiPath, lo]],
+              t => `${"xyz"[k]} thickness ${fmtLen(Math.abs(t))}`, free && !sheetMat);
+          } else {
+            // Opposite faces of a thin box would overlap on screen: shift the pair apart across the face.
+            const size = [0, 1, 2].map(j => Math.abs(rg.stop[j] - rg.start[j]));
+            const side = size[(k + 1) % 3] > 0 ? (k + 1) % 3 : (k + 2) % 3;
+            const off = [0, 0, 0]; off[side] = size[side] / 4;
+            scalar(`face${k}`, hiPath, g[hiF]?.[k], xf, V.add(at(lo), off), ax(1), hi - lo,
+              t => t >= 0 ? lo + t : null, t => `${"xyz"[k]} size ${fmtLen(t)}`);
+            scalar(`face${k}lo`, loPath, g[loF]?.[k], xf, V.sub(at(hi), off), ax(-1), hi - lo,
+              t => t >= 0 ? hi - t : null, t => `${"xyz"[k]} size ${fmtLen(t)}`);
+          }
+        }
+        break;
+      }
+      case "cylinder": case "cylindrical_shell": {
+        if (!nums3(rg.start) || !nums3(rg.stop)) break;
+        const mid = V.mul(V.add(rg.start, rg.stop), 0.5), p = V.perp(V.sub(rg.stop, rg.start));
+        scalar("r", [...base, "radius"], g.radius, xf, mid, p, rg.radius,
+          t => pos(t) && (g.shape === "cylinder" || rg.thickness < 2 * t) ? t : null, t => `r ${fmtLen(t)}`);
+        if (g.shape === "cylindrical_shell") {
+          scalar("t", [...base, "thickness"], g.thickness, xf, mid, V.mul(p, -1), rg.radius + rg.thickness / 2,
+            t => { const w = 2 * (t - rg.radius); return pos(w) && w < 2 * rg.radius ? w : null; }, t => `wall ${fmtLen(2 * (t - rg.radius))}`);
+        }
+        break;
+      }
+      case "sphere": case "spherical_shell": {
+        scalar("r", [...base, "radius"], g.radius, xf, rg.center, [1, 0, 0], rg.radius,
+          t => pos(t) && (g.shape === "sphere" || rg.thickness < t) ? t : null, t => `r ${fmtLen(t)}`);
+        if (g.shape === "spherical_shell") {
+          scalar("t", [...base, "thickness"], g.thickness, xf, rg.center, [-1, 0, 0], rg.radius + rg.thickness / 2,
+            t => { const w = 2 * (t - rg.radius); return pos(w) && w < rg.radius ? w : null; }, t => `wall ${fmtLen(2 * (t - rg.radius))}`);
+        }
+        break;
+      }
+      case "hemisphere": case "hemispherical_shell": {
+        scalar("r", [...base, "radius"], g.radius, xf, rg.center, [0, 0, 1], rg.radius,
+          t => pos(t) && (g.shape === "hemisphere" || rg.thickness < t) ? t : null, t => `r ${fmtLen(t)}`);
+        if (g.shape === "hemispherical_shell") {
+          scalar("t", [...base, "thickness"], g.thickness, xf, rg.center, [1, 0, 0], rg.radius - rg.thickness,
+            t => { const w = rg.radius - t; return pos(w) && w < rg.radius ? w : null; }, t => `wall ${fmtLen(rg.radius - t)}`);
+        }
+        break;
+      }
+      case "helix": {
+        if (!nums3(rg.origin)) break;
+        const axis = V.unit(nums3(rg.axis) ? rg.axis : [0, 0, 1]);
+        scalar("d", [...base, "diameter"], g.diameter, xf, rg.origin, V.perp(axis), rg.diameter / 2,
+          t => pos(t) ? 2 * t : null, t => `Ø ${fmtLen(2 * t)}`);
+        scalar("h", [...base, "height"], g.height, xf, rg.origin, axis, rg.height,
+          t => pos(t) ? t : null, t => `height ${fmtLen(t)} · pitch ${fmtLen(t / rg.turns)}`);
+        break;
+      }
+      case "wire": {
+        const pts = rg.points, raw = g.points;
+        const plain = Array.isArray(raw) && raw.every(q => Array.isArray(q) && q.every(v => typeof v === "number"));
+        if (!plain || !Array.isArray(pts) || pts.length > 64 || pts.length >= 8001) break;
+        for (let k = 0; k + 1 < pts.length; k++) {
+          const key = `insert:${handleKey([...base, "points", k])}`;
+          out.set(key, { key, kind: "action", pos: xf.fwd(V.mul(V.add(pts[k], pts[k + 1]), 0.5)), path: [...base, "points"], index: k + 1 });
+        }
+        break;
+      }
+    }
+  } else if (s.kind === "port") {
+    const p = state.doc.ports[s.index], rp = d.ports?.[s.index];
+    if (!rp) return out;
+    for (const k of ["start", "stop"]) point(["ports", s.index, k], rp[k], p[k], identity);
+  }
+  return out;
+}
+let dragDef = null; // handle definition frozen at drag start (geometry changes while dragging)
+function onScalarMove(key, t) {
+  const hd = dragDef?.key === key ? dragDef : currentHandles.get(key);
+  if (!hd || !hd.enabled) return null;
+  const v = hd.set(t);
+  if (v === null || v === undefined) return null;
+  const writes = Array.isArray(v) ? v : [[hd.field, v]];
+  if (writes.some(([, x]) => !Number.isFinite(x))) return null;
+  for (const [path, x] of writes) {
+    const parent = getPath(state.doc, path.slice(0, -1));
+    if (!parent) return null;
+    parent[path[path.length - 1]] = +x.toFixed(6);
+  }
+  cancelAnimationFrame(dragFrame);
+  dragFrame = requestAnimationFrame(() => refresh({ inspector: false, params: false, json: false }));
+  return hd.label(t);
+}
+function onHandleTap(key) {
+  const hd = currentHandles.get(key);
+  if (hd?.kind === "action") {
+    // Insert a wire vertex at the segment midpoint and grab it.
+    const pts = getPath(state.doc, hd.path);
+    const mid = pts[hd.index - 1].map((v, i) => +((v + pts[hd.index][i]) / 2).toFixed(6));
+    edit(doc => getPath(doc, hd.path).splice(hd.index, 0, mid));
+    state.handle = handleKey([...hd.path, hd.index]);
+    syncHandles();
+    return;
+  }
+  state.handle = key;
+  syncHandles();
+}
+
+function syncHandles() {
+  currentHandles = computeHandles();
+  if (state.handle && !currentHandles.has(state.handle)) state.handle = null;
+  for (const el of document.querySelectorAll("[data-handle]")) el.classList.toggle("handle-active", el.dataset.handle === state.handle);
+  if (!viewport) return;
+  const dom = state.derived?.resolved?.domain;
+  const span = dom && Array.isArray(dom.start) && Array.isArray(dom.stop) ? Math.max(...[0, 1, 2].map(k => Math.abs(dom.stop[k] - dom.start[k]))) : 100;
+  viewport.setHandles([...currentHandles.values()], state.handle, Number.isFinite(span) && span > 0 ? niceStep(span / 1000) : 0.1);
+}
+function onHandleMove(key, world) {
+  const hd = currentHandles.get(key);
+  if (!hd) return;
+  const local = hd.xf.inv(world);
+  if (!Array.isArray(getPath(state.doc, hd.path)) && hd.init) setPath(state.doc, hd.path, clone(hd.init));
+  const target = getPath(state.doc, hd.path);
+  if (!Array.isArray(target)) return;
+  hd.axes.forEach((ok, k) => { if (ok) target[k] = +local[k].toFixed(6); });
+  cancelAnimationFrame(dragFrame);
+  dragFrame = requestAnimationFrame(() => refresh({ inspector: false, params: false, json: false }));
+}
+function onHandleDrag(on, key) {
+  if (on) { dragDef = currentHandles.get(key) || null; beginLive(); }
+  else { dragDef = null; cancelAnimationFrame(dragFrame); endLive(); refresh({ params: false }); } // e.g. sheet ↔ box label
+}
+
 // ---------------------------------------------------------------- inspector
 function renderInspector() {
   const box = $("inspector");
-  fieldRefreshers = [];
+  fieldRefreshers = inspectorRefreshers = [];
   box.replaceChildren();
+  $("inspectActions").replaceChildren();
   const s = state.sel;
   const title = $("inspectTitle");
   if (!s) {
     title.textContent = "Inspector";
     add(box, h("p", { class: "hint", text: "Select a component in the tree or tap it in the 3D view." }),
       h("div", { class: "actions" },
-        h("button", { type: "button", onclick: () => select({ kind: "sim" }) }, "Simulation settings"),
+        h("button", { type: "button", onclick: () => openSheet("sim") }, "Simulation settings"),
         h("button", { type: "button", onclick: e => openAddMenu(e.currentTarget, "geometry") }, "+ Add geometry")));
     return;
   }
+  if (s.kind === "geometry" && isScriptInstance(state.doc.geometry[s.index])) return inspectScriptInstance(box, title, s.index);
   if (s.kind === "geometry") return inspectGeometry(box, title, s.index);
   if (s.kind === "port") return inspectPort(box, title, s.index);
   if (s.kind === "material") return inspectMaterial(box, title, s.index);
-  if (s.kind === "sim") return inspectSim(box, title);
+}
+
+// Simulation panel: the sweep first (it decides how many runs), then the run settings.
+function renderSim() {
+  const box = $("sim");
+  const scroll = box.scrollTop;
+  fieldRefreshers = simRefreshers = [];
+  box.replaceChildren();
+  const d = state.derived;
+  const settings = h("div", { class: "sim-settings" });
+  inspectSim(settings, h("span"));
+  add(box, h("div", { class: "sim-layout" }, renderSweep(d, new Set(Object.keys(state.doc.sweep?.parameters || {}))), ...settings.children));
+  box.scrollTop = scroll;
+}
+
+// Scripts: JavaScript generators generate(args) → [primitives]; each use is one Model object
+// whose editor is generated from the script's `args` declaration.
+let scriptStatusEl = null, scriptCommitTimer = 0, scriptEditor = null;
+// Maximize: the Scripts panel fills the window (desktop) or the full-height sheet (phone).
+function setScriptMax(on) {
+  state.scriptMax = on;
+  document.body.classList.toggle("script-max", on);
+  if (on) {
+    if (mobile()) { if (document.body.dataset.sheet !== "scripts") openSheet("scripts"); document.body.classList.add("sheet-tall"); }
+    else setDock("scripts");
+  } else if (mobile()) document.body.classList.remove("sheet-tall");
+  for (const b of document.querySelectorAll(".script-max-btn")) b.replaceChildren(icon(on ? "minimize" : "maximize"));
+  requestAnimationFrame(() => { scriptEditor?.refresh(); syncViewInset(); });
+}
+const maxButton = () => h("button", { type: "button", class: "icon head-btn script-max-btn", title: "Maximize editor (Esc to restore)",
+  "aria-label": "Maximize editor", onclick: () => setScriptMax(!state.scriptMax) }, icon(state.scriptMax ? "minimize" : "maximize"));
+function renderScripts() {
+  const box = $("scripts");
+  if (!box || !state.doc) return;
+  box.replaceChildren();
+  const defs = state.doc.scripts || {};
+  const names = Object.keys(defs);
+  if (state.scriptSel && !(state.scriptSel in defs) && !isBuiltinScript(state.scriptSel)) state.scriptSel = null;
+  if (!state.scriptSel && names.length) state.scriptSel = names[0];
+  const pill = (n, builtin) => h("button", { type: "button", class: "script-pill" + (builtin ? " builtin" : "") + (n === state.scriptSel ? " active" : ""),
+    title: builtin ? BUILTIN_SCRIPTS[n].description : "", onclick: () => { state.scriptSel = n; renderScripts(); } }, n);
+  add(box, h("div", { class: "script-bar" },
+    names.map(n => pill(n, false)),
+    h("button", { type: "button", class: "small", onclick: newScript }, "+ New script"),
+    h("span", { class: "script-bar-sep", text: "Built-in" }),
+    Object.keys(BUILTIN_SCRIPTS).map(n => pill(n, true))));
+  if (state.scriptSel && isBuiltinScript(state.scriptSel)) { renderBuiltinScript(box, state.scriptSel); return; }
+  if (!names.length) {
+    add(box, h("div", { class: "empty-state" }, icon("scripts", "empty-ico"), h("h3", { text: "Geometry scripts" }),
+      h("p", { class: "hint", text: "A script is a JavaScript function, generate(a) → [primitives], for geometry that is tedious to place by hand: element arrays, radials, tapered directors, meander lines. It declares its arguments (point, length, material…); each use is one object in Model with those arguments as its editor fields, and they can be parameters or expressions." }),
+      h("button", { type: "button", class: "primary", onclick: newScript }, "+ New script")));
+    scriptStatusEl = null;
+    return;
+  }
+  const name = state.scriptSel;
+  const uses = state.doc.geometry.filter(g => g.script === name).length;
+  const nameIn = h("input", { type: "text", class: "pname", value: name, spellcheck: "false", autocapitalize: "off", "aria-label": "Script name" });
+  nameIn.addEventListener("change", () => renameScript(name, nameIn.value.trim(), nameIn));
+  const ta = h("textarea", { class: "code", spellcheck: "false", autocapitalize: "off", autocomplete: "off", "aria-label": `Source of script ${name}` });
+  ta.value = defs[name]?.source ?? "";
+  let text = () => ta.value;
+  const commit = () => {
+    clearTimeout(scriptCommitTimer);
+    const v = text();
+    if (state.doc.scripts?.[name] && state.doc.scripts[name].source !== v) {
+      edit(doc => { doc.scripts[name].source = v; }, { scripts: false, inspector: false });
+    }
+  };
+  upgradeTextarea(ta, { onChange: (v, now) => {
+    text = () => v;
+    clearTimeout(scriptCommitTimer);
+    if (now) commit(); else scriptCommitTimer = setTimeout(commit, 500);
+  } }).then(ed => { scriptEditor = ed; });
+  ta.addEventListener("input", () => { clearTimeout(scriptCommitTimer); scriptCommitTimer = setTimeout(commit, 500); });
+  ta.addEventListener("blur", commit);
+  ta.addEventListener("keydown", e => {
+    if (e.key !== "Tab" || e.shiftKey) return;
+    e.preventDefault();
+    ta.setRangeText("  ", ta.selectionStart, ta.selectionEnd, "end");
+    ta.dispatchEvent(new Event("input"));
+  });
+  scriptStatusEl = h("div", { class: "script-status" });
+  add(box, h("div", { class: "script-editor" },
+    h("div", { class: "script-code" },
+      h("div", { class: "script-head" }, h("label", { class: "lbl", text: "Name" }), nameIn,
+        h("span", { class: "unit", text: `${uses} use${uses === 1 ? "" : "s"}` }), maxButton()),
+      ta),
+    h("div", { class: "script-side" }, scriptStatusEl,
+      h("div", { class: "actions" },
+        h("button", { type: "button", class: "primary", onclick: () => addScriptInstance(name) }, "Add to model"),
+        h("button", { type: "button", class: "danger", disabled: uses > 0, title: uses ? "Used by objects in Model" : "",
+          onclick: () => edit(doc => { delete doc.scripts[name]; if (!Object.keys(doc.scripts).length) delete doc.scripts; }) }, "Delete")))));
+  updateScriptStatus();
+}
+// Built-in scripts are read-only; copy one to make an editable variant.
+function renderBuiltinScript(box, name) {
+  const b = BUILTIN_SCRIPTS[name];
+  const uses = state.doc.geometry.filter(g => g.script === name).length;
+  const ta = h("textarea", { class: "code", readonly: true, spellcheck: "false", "aria-label": `Source of built-in script ${name}` });
+  ta.value = b.source;
+  upgradeTextarea(ta, { readOnly: true }).then(ed => { scriptEditor = ed; });
+  scriptStatusEl = h("div", { class: "script-status" });
+  add(box, h("div", { class: "script-editor" },
+    h("div", { class: "script-code" },
+      h("div", { class: "script-head" }, h("span", { class: "prim-chip", text: `Built-in · ${name}` }),
+        h("span", { class: "unit", text: `${b.description} ${uses} use${uses === 1 ? "" : "s"}.` }), maxButton()),
+      ta),
+    h("div", { class: "script-side" }, scriptStatusEl,
+      h("div", { class: "actions" },
+        h("button", { type: "button", class: "primary", onclick: () => addScriptInstance(name) }, "Add to model"),
+        h("button", { type: "button", onclick: () => newScript(b.source, `my_${name}`) }, "Copy as new script")))));
+  updateScriptStatus();
+}
+function updateScriptStatus() {
+  const el = scriptStatusEl;
+  if (!el?.isConnected || !state.scriptSel) return;
+  const sp = specFor(state.scriptSel);
+  if (sp.pending) return el.replaceChildren(h("p", { class: "hint", text: "Checking script…" }));
+  if (sp.error) return el.replaceChildren(h("div", { class: "note warn", text: sp.error }));
+  const rows = Object.entries(sp.spec).map(([k, d]) => h("tr", {},
+    h("td", { class: "pname", text: k }), h("td", { text: d.type }),
+    h("td", { class: "uses", text: d.default === undefined ? "first material" : JSON.stringify(d.default) })));
+  el.replaceChildren(h("h3", { class: "side-title", text: "Arguments" }),
+    rows.length ? h("table", { class: "ptable" }, h("tbody", {}, rows)) : h("p", { class: "hint", text: "No arguments declared (const args = {…})." }),
+    h("p", { class: "hint", text: "generate(a) returns primitives written like geometry entries; a missing material uses the first material argument." }));
+}
+function newScript(source = SCRIPT_TEMPLATE, base = "script") {
+  if (typeof source !== "string") source = SCRIPT_TEMPLATE; // called as a click handler
+  const used = new Set([...Object.keys(state.doc.scripts || {}), ...Object.keys(BUILTIN_SCRIPTS)]);
+  let n = base, k = 1;
+  if (base === "script") n = "script1";
+  while (used.has(n)) n = `${base}${++k}`; // identifiers only (no "-")
+  edit(doc => { doc.scripts ??= {}; doc.scripts[n] = { source }; });
+  state.scriptSel = n;
+  renderScripts();
+}
+function renameScript(from, to, input) {
+  if (to === from) return;
+  if (!SCRIPT_NAME.test(to)) { input.value = from; return setStatus("Script names are identifiers (letters, digits, _)", true); }
+  if (to in (state.doc.scripts || {}) || isBuiltinScript(to)) { input.value = from; return setStatus(`Script name ${to} is taken`, true); }
+  edit(doc => {
+    doc.scripts = Object.fromEntries(Object.entries(doc.scripts).map(([k, v]) => [k === from ? to : k, v]));
+    doc.geometry.forEach(g => { if (g.script === from) g.script = to; });
+  });
+  state.scriptSel = to;
+  renderScripts();
+}
+async function addScriptInstance(name) {
+  closeMenus();
+  let sp = specFor(name);
+  // Wait (briefly) for the script's argument list so the new object gets explicit defaults.
+  for (let k = 0; sp.pending && k < 60; k++) { await new Promise(r => setTimeout(r, 100)); sp = specFor(name); }
+  const args = {};
+  for (const [k, d] of Object.entries(sp.spec || {})) {
+    if (d.default !== undefined) args[k] = clone(d.default);
+    else if (d.type === "material" && state.doc.materials[0]) args[k] = state.doc.materials[0].name;
+  }
+  edit(doc => {
+    if (!doc.materials.length) doc.materials.push({ name: "pec-metal", type: "pec" });
+    doc.geometry.push({ name: uniqueName(doc.geometry.map(g => g.name), name), script: name, args });
+    state.sel = { kind: "geometry", index: doc.geometry.length - 1 };
+  });
+  closeMenus();
+  setStatus(`Added ${name}; its arguments are in the object editor`);
+  if (mobile()) openSheet("inspect", { peek: true });
 }
 
 function knownKeysNote(obj, known) {
@@ -440,56 +1042,166 @@ function knownKeysNote(obj, known) {
 function inspectGeometry(box, title, i) {
   const g = state.doc.geometry[i];
   const def = SHAPES[g.shape];
-  title.textContent = g.name || g.shape;
+  title.replaceChildren(g.name || g.shape);
+  $("inspectActions").append(
+    iconBtn("copy", "Duplicate (Ctrl+D)", () => duplicate("geometry", i)),
+    iconBtn("array", "Array…", () => arrayDialog(i)),
+    iconBtn("up", "Move up", () => move("geometry", i, -1), { disabled: i === 0 }),
+    iconBtn("down", "Move down", () => move("geometry", i, 1), { disabled: i === state.doc.geometry.length - 1 }),
+    iconBtn("trash", "Delete", () => remove("geometry", i), { danger: true }));
   const base = ["geometry", i];
   const err = state.derived.errors.geometry[i];
-  add(box, 
+  add(box,
     err ? h("div", { class: "note warn", text: err }) : null,
-    h("div", { class: "form-section" },
-      row("Name", textField([...base, "name"], { aria: "Component name", onCommit: (v, input) => {
-        if (!v) { input.value = g.name || ""; return setStatus("Name is required", true); }
-        if (state.doc.geometry.some((o, k) => k !== i && o.name === v)) { input.value = g.name || ""; return setStatus("Component names must be unique", true); }
-        edit(doc => { doc.geometry[i].name = v; });
-      } })),
-      row("Material", selectField([...base, "material"], state.doc.materials.map(m => [m.name, `${m.name} (${m.type})`]), { aria: "Material" })),
-      row("Shape", h("div", { class: "lbl", style: "padding-top:7px", text: def ? def.label : `${g.shape} (unsupported)` })),
-      def?.hint ? h("p", { class: "hint", text: def.hint }) : null),
-  );
+    row("Name", textField([...base, "name"], { aria: "Component name", onCommit: (v, input) => {
+      if (!v) { input.value = g.name || ""; return setStatus("Name is required", true); }
+      if (state.doc.geometry.some((o, k) => k !== i && o.name === v)) { input.value = g.name || ""; return setStatus("Component names must be unique", true); }
+      edit(doc => { doc.geometry[i].name = v; });
+    } })),
+    row("Material", selectField([...base, "material"], state.doc.materials.map(m => [m.name, `${m.name} (${m.type})`]), { aria: "Material" })),
+    h("div", { class: "row" }, h("span", { class: "lbl", text: "Primitive" }),
+      h("div", { class: "prim-row" }, h("span", { class: "prim-chip", text: primitiveLabel(g, state.derived.geometry[i]) }),
+        def?.hint ? h("span", { class: "unit", text: def.hint }) : null)));
   if (!def) { add(box, h("div", { class: "note warn", text: "This shape is not part of schema v2; edit it in JSON." })); return; }
-  const shapeSec = h("div", { class: "form-section" }, h("h3", { text: "Dimensions · mm" }));
-  for (const f of def.fields) shapeSec.append(row(f.label, fieldFor(f, [...base, f.key]), f.type === "points" ? "wide" : ""));
-  add(box, shapeSec);
-
-  const tf = h("details", { class: "form-section", open: !!g.transform || undefined },
-    h("summary", { text: "Transform · rotate X→Y→Z, then translate" }),
-    row("Rotate (°)", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })),
-    row("Translate", vec3Field([...base, "transform", "translate"], { optional: true, label: "translate" })),
-    h("div", { class: "actions" }, h("button", { type: "button", class: "small", onclick: () => edit(doc => { delete doc.geometry[i].transform; }) }, "Clear transform")));
-  const adv = h("details", { class: "form-section", open: g.priority !== undefined || undefined },
-    h("summary", { text: "Advanced" }),
-    row("Priority", numField([...base, "priority"], { optional: true, def: 10, int: true, aria: "Priority" })),
-    h("p", { class: "hint", text: "Higher priority wins where primitives overlap (CSXCAD). Default 10; ports default 5." }),
-    knownKeysNote(g, ["name", "material", "shape", "transform", "priority", "editor_id", ...def.fields.map(f => f.key)]));
-  add(box, tf, adv, h("div", { class: "actions" },
-    h("button", { type: "button", onclick: () => duplicate("geometry", i) }, "Duplicate"),
-    h("button", { type: "button", onclick: () => arrayDialog(i) }, "Array…"),
-    h("button", { type: "button", disabled: i === 0, onclick: () => move("geometry", i, -1), "aria-label": "Move up" }, "↑"),
-    h("button", { type: "button", disabled: i === state.doc.geometry.length - 1, onclick: () => move("geometry", i, 1), "aria-label": "Move down" }, "↓"),
-    h("button", { type: "button", class: "danger", onclick: () => remove("geometry", i) }, "Delete")));
-  // Bounds read-out for the current case
+  if (g.shape === "helix") {
+    add(box, h("div", { class: "note" }, "Helix is not a CSXCAD primitive; it is now the built-in helix script (one Wire). ",
+      h("button", { type: "button", class: "small", onclick: () => convertHelix(i) }, "Convert to built-in script")));
+  }
+  if (/^hemispher/.test(g.shape)) {
+    add(box, h("div", { class: "note" }, "Hemisphere is not a CSXCAD primitive; it is now the built-in hemisphere script (one Polyhedron). ",
+      h("button", { type: "button", class: "small", onclick: () => convertHemisphere(i) }, "Convert to built-in script")));
+  }
+  if (g.shape === "polyhedron") {
+    const n = Array.isArray(g.vertices) ? g.vertices.length : "?", m = Array.isArray(g.faces) ? g.faces.length : "?";
+    add(box, h("p", { class: "hint", text: `${n} vertices, ${m} faces. Edit the lists in the JSON view.` }));
+  }
+  for (const f of def.fields.filter(f => isMainField(f, g))) add(box, row(f.label, fieldFor(f, [...base, f.key]), f.type === "points" ? "wide" : ""));
+  if (g.transform) {
+    if (g.transform.rotate_deg) add(box, row("Rotate (°)", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })));
+    if (g.transform.translate) add(box, row("Translate", vec3Field([...base, "transform", "translate"], { optional: true, label: "translate" })));
+  }
   const rg = state.derived.geometry[i];
+  let bounds = null;
   if (rg) {
     try {
       const [lo, hi] = solverBounds(rg);
-      add(box, h("p", { class: "hint", text: `Bounds (${state.derived.case.id}): [${lo.map(fmt).join(", ")}] → [${hi.map(fmt).join(", ")}] mm` }));
+      bounds = h("p", { class: "hint", text: `Bounds (${state.derived.case.id}): [${lo.map(fmt).join(", ")}] → [${hi.map(fmt).join(", ")}] mm` });
     } catch { /* reported in checks */ }
   }
+  add(box, moreSection(
+    ...def.fields.filter(f => !isMainField(f, g)).map(f => row(f.label, fieldFor(f, [...base, f.key]))),
+    !g.transform?.rotate_deg ? row("Rotate (°)", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })) : null,
+    !g.transform?.translate ? row("Translate", vec3Field([...base, "transform", "translate"], { optional: true, label: "translate" })) : null,
+    row("Priority", numField([...base, "priority"], { optional: true, def: 10, int: true, aria: "Priority" })),
+    bounds,
+    h("p", { class: "hint", text: (def.hint ? def.hint + " " : "") + "Transform: rotate X→Y→Z, then translate. Higher priority wins where primitives overlap (default 10; ports 5)." }),
+    g.transform ? h("div", { class: "actions" }, h("button", { type: "button", class: "small", onclick: () => edit(doc => { delete doc.geometry[i].transform; }) }, "Clear transform")) : null,
+    knownKeysNote(g, ["name", "material", "shape", "transform", "priority", "editor_id", ...def.fields.map(f => f.key)])));
+}
+
+const LEGACY_SHAPES = new Set(["helix", "hemisphere", "hemispherical_shell"]);
+function convertHemisphere(i) {
+  const rg = state.derived.geometry[i];
+  edit(doc => {
+    const g = doc.geometry[i];
+    const args = { radius: g.radius, material: g.material };
+    if (g.shape === "hemispherical_shell") args.thickness = g.thickness;
+    const t = g.transform;
+    if (t && (t.rotate_deg || t.translate)) {
+      // The script has no transform: carry orientation and position into center/axis (resolved values).
+      const fwd = transformer(rg), m = rotationMatrix(rg.transform?.rotate_deg || [0, 0, 0]);
+      args.center = fwd(rg.center).map(v => +v.toFixed(9));
+      args.axis = [m[0][2], m[1][2], m[2][2]].map(v => +v.toFixed(12));
+      setStatus("Transform folded into center and axis (resolved values)");
+    } else args.center = g.center;
+    const out = { name: g.name, script: "hemisphere", args };
+    if (g.priority !== undefined) out.priority = g.priority;
+    doc.geometry[i] = out;
+  });
+}
+function convertHelix(i) {
+  edit(doc => {
+    const g = doc.geometry[i];
+    const args = { origin: g.origin, diameter: g.diameter, height: g.height, turns: g.turns, wire_diameter: g.wire_diameter, material: g.material };
+    if (g.axis !== undefined) args.axis = g.axis;
+    if (g.phase_deg !== undefined) args.phase = g.phase_deg;
+    if (g.segments_per_turn !== undefined) args.segments_per_turn = g.segments_per_turn;
+    const out = { name: g.name, script: "helix", args };
+    if (g.priority !== undefined) out.priority = g.priority;
+    if (g.transform) setStatus("Note: the helix transform was dropped; place the coil with origin and axis", true);
+    doc.geometry[i] = out;
+  });
+}
+
+// Script instance: the object editor is generated from the script's argument declarations.
+function inspectScriptInstance(box, title, i) {
+  const g = state.doc.geometry[i];
+  const base = ["geometry", i];
+  title.replaceChildren(g.name || g.script);
+  $("inspectActions").append(
+    iconBtn("copy", "Duplicate (Ctrl+D)", () => duplicate("geometry", i)),
+    iconBtn("up", "Move up", () => move("geometry", i, -1), { disabled: i === 0 }),
+    iconBtn("down", "Move down", () => move("geometry", i, 1), { disabled: i === state.doc.geometry.length - 1 }),
+    iconBtn("trash", "Delete", () => remove("geometry", i), { danger: true }));
+  const err = state.derived.errors.geometry[i];
+  const sp = specFor(g.script);
+  const ex = state.derived.expanded[i];
+  add(box,
+    err ? h("div", { class: "note warn", text: err }) : null,
+    row("Name", textField([...base, "name"], { aria: "Object name", onCommit: (v, input) => {
+      if (!v) { input.value = g.name || ""; return setStatus("Name is required", true); }
+      if (state.doc.geometry.some((o, k) => k !== i && o.name === v)) { input.value = g.name || ""; return setStatus("Names must be unique", true); }
+      edit(doc => { doc.geometry[i].name = v; });
+    } })),
+    h("div", { class: "row" }, h("span", { class: "lbl", text: "Primitive" }),
+      h("div", { class: "prim-row" }, h("span", { class: "prim-chip", text: `Script · ${g.script}` }),
+        h("button", { type: "button", class: "small", onclick: () => { state.scriptSel = g.script; renderScripts(); openSheet("scripts"); } }, "Edit script"))));
+  if (sp.pending) { add(box, h("p", { class: "hint", text: "Loading script…" })); return; }
+  if (sp.error) { add(box, h("div", { class: "note warn", text: `Script ${g.script}: ${sp.error}` })); return; }
+  // `more: true` arguments sit under "More" unless the object sets a non-default value.
+  const isMainArg = (key, d) => !d.more || (g.args?.[key] !== undefined && JSON.stringify(g.args[key]) !== JSON.stringify(d.default));
+  const entries = Object.entries(sp.spec);
+  for (const [key, d] of entries.filter(([k, d]) => isMainArg(k, d))) add(box, argRow(i, key, d));
+  const extra = Object.keys(g.args || {}).filter(k => !(k in sp.spec));
+  add(box, moreSection(
+    ...entries.filter(([k, d]) => !isMainArg(k, d)).map(([k, d]) => argRow(i, k, d)),
+    row("Priority", numField([...base, "priority"], { optional: true, def: 10, int: true, aria: "Priority" })),
+    ex?.objects ? h("p", { class: "hint", text: `Generates ${ex.objects.length} object${ex.objects.length === 1 ? "" : "s"}: ` +
+      ex.objects.slice(0, 16).map(o => `${o.name.slice(o.name.indexOf("/") + 1)} (${o.shape})`).join(", ") + (ex.objects.length > 16 ? " …" : "") }) : null,
+    extra.length ? h("div", { class: "note warn" }, `Not declared by the script: ${extra.join(", ")} `,
+      h("button", { type: "button", class: "small", onclick: () => edit(doc => { for (const k of extra) delete doc.geometry[i].args[k]; }) }, "Remove")) : null,
+    h("p", { class: "hint", text: "Script objects act as one part: clicking any piece selects this object. Values may be parameters or expressions." })));
+}
+function argRow(i, key, d) {
+  const control = argControl(i, key, d);
+  if (!d.hint) return row(d.label, control);
+  return h("div", { class: "row" }, h("label", { text: d.label }),
+    h("div", { class: "arg-field" }, control, h("div", { class: "field-hint", text: d.hint })));
+}
+// One input per declared argument, typed like the matching primitive field.
+function argControl(i, key, d) {
+  const path = ["geometry", i, "args", key];
+  const t = ARG_TYPES[d.type];
+  switch (t.control) {
+    case "vec3": return vec3Field(path, { label: d.label, optional: true, defaults: d.default, step: d.step,
+      prepare: doc => { if (!Array.isArray(getPath(doc, path))) setPath(doc, path, clone(d.default)); } });
+    case "num": return numField(path, { optional: true, def: d.default, unit: t.unit, aria: d.label, step: d.step });
+    case "int": return numField(path, { optional: true, def: d.default, int: true, aria: d.label, step: d.step ?? 1 });
+    case "material": return selectField(path, state.doc.materials.map(m => [m.name, `${m.name} (${m.type})`]),
+      { optional: true, aria: d.label, emptyLabel: state.doc.materials[0] ? `First material (${state.doc.materials[0].name})` : "—" });
+    case "select": return selectField(path, d.options, { optional: true, aria: d.label });
+    case "bool": return checkField(path, d.label, d.default);
+  }
+  return h("span", { text: "?" });
 }
 
 function inspectPort(box, title, i) {
   const p = state.doc.ports[i];
   const def = PORTS[p.type === "lumped_port" ? "lumped" : p.type];
-  title.textContent = `Port ${p.name || ""} #${p.id ?? i + 1}`;
+  title.replaceChildren(`${p.name || "Port"} #${p.id ?? i + 1}`, h("span", { class: "title-tag", text: def ? def.label : p.type }));
+  $("inspectActions").append(
+    iconBtn("copy", "Duplicate", () => duplicate("port", i)),
+    iconBtn("trash", "Delete", () => remove("port", i), { danger: true }));
   const base = ["ports", i];
   const excite = h("input", { type: "checkbox" });
   excite.checked = !!p.excite;
@@ -498,41 +1210,39 @@ function inspectPort(box, title, i) {
   }));
   const err = state.derived.errors.port[i];
   add(box, err ? h("div", { class: "note warn", text: err }) : null,
-    h("div", { class: "form-section" },
-      row("Name", textField([...base, "name"], { optional: true, aria: "Port name" })),
-      row("Port ID", numField([...base, "id"], { int: true, aria: "Port ID" })),
-      row("Type", selectField([...base, "type"], Object.entries(PORTS).map(([k, v]) => [k, v.label]), { aria: "Port type", onCommit: v => edit(doc => {
-        const old = doc.ports[i];
-        doc.ports[i] = { id: old.id, name: old.name, type: v, ...clone(PORTS[v].template), start: old.start, stop: old.stop, excite: old.excite };
-        const pec = doc.materials.find(m => m.type === "pec");
-        if (v !== "lumped" && pec) doc.ports[i].metal_material = pec.name;
-      }) })),
-      h("label", { class: "check-inline" }, excite, "Excited port (exactly one per run)")));
+    h("div", { class: "row" }, h("label", { text: "Name · ID" }),
+      h("div", { class: "pair" }, textField([...base, "name"], { optional: true, aria: "Port name" }), numField([...base, "id"], { int: true, aria: "Port ID" }))),
+    row("Type", selectField([...base, "type"], Object.entries(PORTS).map(([k, v]) => [k, v.label]), { aria: "Port type", onCommit: v => edit(doc => {
+      const old = doc.ports[i];
+      doc.ports[i] = { id: old.id, name: old.name, type: v, ...clone(PORTS[v].template), start: old.start, stop: old.stop, excite: old.excite };
+      const pec = doc.materials.find(m => m.type === "pec");
+      if (v !== "lumped" && pec) doc.ports[i].metal_material = pec.name;
+    }) })),
+    h("div", { class: "row" }, h("span", { class: "lbl" }), h("label", { class: "check-inline" }, excite, "Excited (one per run)")));
   if (def) {
-    const sec = h("div", { class: "form-section" }, h("h3", { text: "Feed geometry · mm" }));
-    for (const f of def.fields) sec.append(row(f.label, fieldFor(f, [...base, f.key])));
-    add(box, sec);
+    for (const f of def.fields.filter(f => isMainField(f, p))) add(box, row(f.label, fieldFor(f, [...base, f.key])));
     if (p.type !== "lumped" && !state.doc.materials.some(m => m.type === "pec")) {
       add(box, h("div", { class: "note warn", text: "This port type needs a PEC material." }));
     }
   }
-  add(box, h("details", { class: "form-section" }, h("summary", { text: "Advanced" }),
+  add(box, moreSection(
+    ...(def?.fields.filter(f => !isMainField(f, p)) || []).map(f => row(f.label, fieldFor(f, [...base, f.key]))),
     row("Priority", numField([...base, "priority"], { optional: true, def: 5, int: true, aria: "Port priority" })),
-    knownKeysNote(p, ["id", "name", "type", "excite", "priority", ...(def?.fields.map(f => f.key) || [])])),
-  h("div", { class: "actions" },
-    h("button", { type: "button", onclick: () => duplicate("port", i) }, "Duplicate"),
-    h("button", { type: "button", class: "danger", onclick: () => remove("port", i) }, "Delete")),
-  h("p", { class: "hint", text: "One excited port per FDTD run; the simulator exports S11 of that port only." }));
+    h("p", { class: "hint", text: "One excited port per FDTD run; the simulator exports S11 of that port only." }),
+    knownKeysNote(p, ["id", "name", "type", "excite", "priority", ...(def?.fields.map(f => f.key) || [])])));
 }
 
 function inspectMaterial(box, title, i) {
   const m = state.doc.materials[i];
-  title.textContent = "Material " + m.name;
+  title.replaceChildren(m.name, h("span", { class: "title-tag", text: "material" }));
   const base = ["materials", i];
   const uses = state.doc.geometry.filter(g => g.material === m.name).length +
     state.doc.ports.filter(p => p.metal_material === m.name || p.dielectric_material === m.name).length;
   const def = MATERIALS[m.type];
-  add(box, h("div", { class: "form-section" },
+  $("inspectActions").append(
+    iconBtn("copy", "Duplicate", () => duplicate("material", i)),
+    iconBtn("trash", uses ? "In use; cannot delete" : "Delete", () => remove("material", i), { disabled: uses > 0, danger: true }));
+  add(box, h("div", {},
     row("Name", textField([...base, "name"], { aria: "Material name", onCommit: (v, input) => {
       if (!v) { input.value = m.name; return setStatus("Name is required", true); }
       if (state.doc.materials.some((o, k) => k !== i && o.name === v)) { input.value = m.name; return setStatus("Duplicate material name", true); }
@@ -549,10 +1259,7 @@ function inspectMaterial(box, title, i) {
       doc.materials[i] = next;
     }) })),
     ...(def?.fields || []).map(f => row(f.label, numField([...base, f.key], { optional: f.optional, def: f.default, aria: f.label })))),
-  h("p", { class: "hint", text: `Used by ${uses} item${uses === 1 ? "" : "s"}.` + (m.type === "conducting_sheet" ? " Conducting sheets apply only to zero-thickness boxes; thickness is in metres." : "") }),
-  h("div", { class: "actions" },
-    h("button", { type: "button", onclick: () => duplicate("material", i) }, "Duplicate"),
-    h("button", { type: "button", class: "danger", disabled: uses > 0, title: uses ? "In use" : "", onclick: () => remove("material", i) }, "Delete")));
+  h("p", { class: "hint", text: `Used by ${uses} item${uses === 1 ? "" : "s"}.` + (m.type === "conducting_sheet" ? " Conducting sheets apply only to zero-thickness boxes; thickness is in metres." : "") }));
 }
 
 function inspectSim(box, title) {
@@ -617,7 +1324,7 @@ function inspectSim(box, title) {
       h("div", { class: "hint", text: "Far-field (NF2FF) frequencies, 1–12:" }),
       ...pats.map((_, k) => h("div", { class: "pt", style: "display:grid;grid-template-columns:1fr 34px;gap:4px;margin-bottom:4px" },
         numField(["outputs", "radiation_frequencies_hz", k], { unit: "Hz", aria: `Far-field frequency ${k + 1}` }),
-        h("button", { type: "button", class: "icon", "aria-label": "Remove frequency", onclick: () => edit(d => d.outputs.radiation_frequencies_hz.splice(k, 1)) }, "✕"))),
+        h("button", { type: "button", class: "icon", "aria-label": "Remove frequency", onclick: () => edit(d => d.outputs.radiation_frequencies_hz.splice(k, 1)) }, icon("x")))),
       h("div", { class: "actions" }, h("button", { type: "button", class: "small", disabled: pats.length >= 12, onclick: () => edit(d => {
         d.outputs ??= {}; d.outputs.radiation_frequencies_hz ??= [];
         d.outputs.radiation_frequencies_hz.push(state.derived.resolved.excitation?.center_hz || 2.45e9);
@@ -775,14 +1482,16 @@ function renderParams() {
   table.append(body);
   const unknown = [...usage.keys()].filter(n => !(n in params) && !swept.has(n));
   const left = h("div", {},
-    h("div", { class: "form-section" }, h("h3", { text: "Parameters" }),
+    h("div", { class: "form-section" }, h("h3", { text: "Variables" }),
       Object.keys(params).length ? table : h("p", { class: "hint", text: "No parameters yet. Add one, then type its name (or an expression like 2*gap + 1) into any numeric field." }),
       unknown.length ? h("div", { class: "note warn" }, "Referenced but undefined: ", unknown.join(", "), " ",
         h("button", { type: "button", class: "small", onclick: () => edit(dd => { dd.parameters ??= {}; unknown.forEach(n => { dd.parameters[n] = 1; }); }) }, "Define all = 1")) : null,
       h("div", { class: "actions" },
         h("button", { type: "button", onclick: () => edit(dd => { dd.parameters ??= {}; dd.parameters[uniqueParam(dd, "p")] = 1; }) }, "+ Parameter")),
       h("p", { class: "hint", text: "Fields accept numbers, a parameter name ({\"$param\"}) or an expression ({\"$expr\"}) with + − * / % **, abs min max sqrt sin cos tan floor ceil, pi, e — the same grammar the radiators sweep runner evaluates." })));
-  add(box, h("div", { class: "params-layout" }, left, renderSweep(d, swept)));
+  if (swept.size) add(left, h("p", { class: "hint" }, `Swept in Simulation: ${[...swept].join(", ")}. `,
+    h("button", { type: "button", class: "small", onclick: () => openSheet("sim") }, "Open sweep")));
+  add(box, left);
 }
 function uniqueParam(doc, base) {
   const used = new Set([...Object.keys(doc.parameters || {}), ...Object.keys(doc.sweep?.parameters || {})]);
@@ -835,7 +1544,7 @@ function paramRow(name, value, isSwept, uses) {
     h("td", {}, valIn),
     h("td", {}, isSwept ? h("span", { class: "tag swept", title: "The sweep overrides this default", text: "swept" }) : slider,
       h("div", { class: "uses", text: uses ? `${uses} use${uses > 1 ? "s" : ""}` : "unused" })),
-    h("td", {}, h("button", { type: "button", class: "icon", "aria-label": `Delete ${name}`, onclick: () => edit(doc => { delete doc.parameters[name]; if (!Object.keys(doc.parameters).length) delete doc.parameters; }) }, "✕")));
+    h("td", {}, h("button", { type: "button", class: "icon", "aria-label": `Delete ${name}`, onclick: () => edit(doc => { delete doc.parameters[name]; if (!Object.keys(doc.parameters).length) delete doc.parameters; }) }, icon("x"))));
 }
 const niceStep = x => { const p = Math.pow(10, Math.floor(Math.log10(x))); return [1, 2, 5, 10].map(m => m * p).find(s => s >= x); };
 
@@ -921,7 +1630,7 @@ function sweepAxis(name, spec) {
       delete dd.sweep.parameters[name];
       if (!Object.keys(dd.sweep.parameters).length) delete dd.sweep;
       state.caseIndex = 0;
-    }) }, "✕"));
+    }) }, icon("x")));
 }
 
 // ---------------------------------------------------------------- checks panel
@@ -969,7 +1678,10 @@ function renderJson(force = false) {
   ta.readOnly = state.jsonMode !== "source";
   if (state.jsonMode === "source") ta.value = JSON.stringify(state.doc, null, 2);
   else {
-    try { ta.value = JSON.stringify(resolveCase(state.doc, d.case.parameters), null, 2); }
+    try {
+      const ex = expandResolved(resolveCase(state.doc, d.case.parameters));
+      ta.value = ex.cfg ? JSON.stringify(ex.cfg, null, 2) : "// " + (ex.error || "Geometry scripts are still running…");
+    }
     catch (e) { ta.value = "// " + e.message; }
   }
   ta.dataset.dirty = "0";
@@ -982,6 +1694,7 @@ function refresh(opts = {}) {
   document.title = `${state.doc.name || "Untitled"} · CSXCAD Editor`;
   if (document.activeElement !== $("docName")) $("docName").value = state.doc.name || "";
   $("docMeta").textContent = `schema v2 · mm · ${state.doc.geometry.length} parts` + (d.cases.length > 1 ? ` · ${d.cases.length} cases` : "");
+  $("caseBadge").textContent = d.cases.length > 1 ? String(d.cases.length) : "";
   $("undo").disabled = !history.undo.length;
   $("redo").disabled = !history.redo.length;
   const caseSel = $("caseSelect");
@@ -992,21 +1705,27 @@ function refresh(opts = {}) {
   }
   if (o.tree) renderTree();
   if (o.inspector) renderInspector();
-  else fieldRefreshers.forEach(f => f());
+  else inspectorRefreshers.forEach(f => f());
+  if (o.sim ?? o.inspector) renderSim();
+  else simRefreshers.forEach(f => f());
   if (o.params) renderParams();
+  if (o.scripts ?? true) renderScripts();
+  else updateScriptStatus();
   renderChecks();
   if (o.json) renderJson();
   if (o.viewport && viewport) {
-    const errs = viewport.update({ geometry: d.geometry, ports: d.ports, materials: d.resolved.materials || [],
+    const geometry = d.geometry.map((g, i) => d.expanded[i] ? (d.expanded[i].objects ? { __parts: d.expanded[i].objects } : null) : g);
+    const errs = viewport.update({ geometry, ports: d.ports, materials: d.resolved.materials || [],
       domain: d.resolved.domain, mesh: d.resolved.mesh, hidden: state.hidden });
     const ve = $("viewError");
-    const unresolved = Object.keys(d.errors.geometry).length;
+    const unresolved = Object.keys(d.errors.geometry).filter(i => !d.expanded[i]).length;
     const msgs = [...errs.map(e => `${state.doc.geometry[e.index]?.name || "#" + (e.index + 1)}: ${e.message}`),
       ...(unresolved ? [`${unresolved} part(s) not shown: unresolved parameters`] : [])];
     ve.hidden = !msgs.length;
     ve.textContent = msgs.slice(0, 3).join(" · ") + (msgs.length > 3 ? ` (+${msgs.length - 3})` : "");
   }
   showChip();
+  syncHandles();
   const errors = d.checks.list.filter(c => c.level === "error").length;
   setStatus(`${state.doc.geometry.length} parts · ${state.doc.ports.length} ports · ${d.case.id}` +
     (errors ? ` · ${errors} check error${errors > 1 ? "s" : ""}` : " · checks pass"));
@@ -1024,7 +1743,14 @@ function openAddMenu(anchor, only) {
   const heading = t => h("div", { class: "menu-heading", text: t });
   if (!only || only === "geometry") {
     menu.append(heading("Geometry"));
-    for (const [k, v] of Object.entries(SHAPES)) menu.append(h("button", { role: "menuitem", onclick: () => addItem("geometry", k) }, v.label));
+    // Helix and hemisphere are not CSXCAD primitives: they are offered as built-in scripts below.
+    for (const [k, v] of Object.entries(SHAPES)) if (!LEGACY_SHAPES.has(k)) menu.append(h("button", { role: "menuitem", onclick: () => addItem("geometry", k) }, v.label));
+  }
+  const scriptNames = [...Object.keys(BUILTIN_SCRIPTS), ...Object.keys(state.doc.scripts || {})];
+  if (!only || only === "geometry") {
+    menu.append(heading("Scripts"));
+    for (const n of scriptNames) menu.append(h("button", { role: "menuitem", onclick: () => addScriptInstance(n) },
+      isBuiltinScript(n) ? `${BUILTIN_SCRIPTS[n].label} (built-in script)` : `Script · ${n}`));
   }
   if (!only || only === "port") {
     menu.append(heading("Ports"));
@@ -1099,9 +1825,12 @@ async function menuAction(action) {
   switch (action) {
     case "new": loadDoc(STARTER, "New parametric starter"); break;
     case "examples": showExamples(); break;
+    case "json": openSheet("json"); break;
     case "export-case":
       try {
-        const cfg = resolveCase(state.doc, d.case.parameters);
+        const ex = expandResolved(resolveCase(state.doc, d.case.parameters));
+        if (!ex.cfg) throw Error(ex.error || "Geometry scripts are still running; try again");
+        const cfg = ex.cfg;
         setStatus(await saveFile(`${slug()}${d.cases.length > 1 ? "__" + d.case.id : ""}.resolved.json`, JSON.stringify(cfg, null, 2) + "\n"));
       } catch (e) { setStatus(e.message, true); }
       break;
@@ -1136,17 +1865,20 @@ async function menuAction(action) {
 }
 
 // ---------------------------------------------------------------- mobile sheets
-function openSheet(name) {
+function openSheet(name, { peek = false } = {}) {
   if (!mobile()) {
-    if (["params", "checks", "json"].includes(name)) setDock(name);
+    if (["params", "scripts", "checks", "sim", "json"].includes(name)) setDock(name);
     return;
   }
   const cur = document.body.dataset.sheet;
+  if (cur === name && peek) { document.body.classList.add("sheet-peek"); syncViewInset(); return; }
   if (cur === name) return closeSheet();
   if (!cur) window.history.pushState({ sheet: name }, "");
   else window.history.replaceState({ sheet: name }, "");
   document.body.dataset.sheet = name;
   document.body.classList.remove("sheet-tall");
+  document.body.classList.toggle("sheet-peek", peek);
+  if (name === "scripts") setTimeout(() => scriptEditor?.refresh(), 280); // after the sheet slides in
   if (name === "json") renderJson(true);
   for (const b of document.querySelectorAll(".mobile-nav button")) b.classList.toggle("active", b.dataset.sheet === name);
   for (const p of document.querySelectorAll(".dock-panel")) p.hidden = false;
@@ -1162,18 +1894,21 @@ function syncViewInset() {
 }
 function closeSheet(fromPop = false) {
   if (!document.body.dataset.sheet) return;
+  if (state.scriptMax) { state.scriptMax = false; document.body.classList.remove("script-max"); }
   document.body.dataset.sheet = "";
-  document.body.classList.remove("sheet-tall");
+  document.body.classList.remove("sheet-tall", "sheet-peek");
   for (const b of document.querySelectorAll(".mobile-nav button")) b.classList.remove("active");
   if (!fromPop && window.history.state?.sheet) window.history.back();
   showChip();
   syncViewInset();
 }
 function setDock(name) {
+  if (name !== "scripts" && state.scriptMax) setScriptMax(false);
   state.dock = name;
   document.body.classList.remove("dock-collapsed");
   for (const t of document.querySelectorAll(".dock-tabs [role=tab]")) t.setAttribute("aria-selected", String(t.dataset.dock === name));
   for (const p of document.querySelectorAll(".dock-panel")) p.hidden = p.dataset.dockName !== name;
+  if (name === "scripts") requestAnimationFrame(() => scriptEditor?.refresh()); // CodeMirror measures 0 while hidden
   if (name === "json") renderJson(true);
 }
 function installSheetDrag() {
@@ -1184,8 +1919,10 @@ function installSheetDrag() {
       if (y0 === null) return;
       const dy = e.clientY - y0;
       y0 = null;
-      if (dy < -30) document.body.classList.add("sheet-tall");
-      else if (dy > 50) {
+      if (dy < -30) {
+        if (document.body.classList.contains("sheet-peek")) document.body.classList.remove("sheet-peek");
+        else document.body.classList.add("sheet-tall");
+      } else if (dy > 50) {
         if (document.body.classList.contains("sheet-tall")) document.body.classList.remove("sheet-tall");
         else closeSheet();
       }
@@ -1262,7 +1999,9 @@ async function boot() {
     } catch (e) { setStatus("Invalid JSON: " + e.message, true); }
   });
   document.addEventListener("keydown", e => {
-    const typing = e.target.closest("input, textarea, select");
+    const typing = e.target.closest("input, textarea, select, [contenteditable], .CodeMirror");
+    // Esc leaves the maximized editor, unless the editor used it (e.g. to close the autocomplete list).
+    if (e.key === "Escape" && state.scriptMax && !e.defaultPrevented) { setScriptMax(false); return; }
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); return; }
     if (typing) return;
@@ -1270,7 +2009,7 @@ async function boot() {
     else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); }
     else if (mod && e.key.toLowerCase() === "d" && state.sel && state.sel.kind !== "sim") { e.preventDefault(); duplicate(state.sel.kind, state.sel.index); }
     else if ((e.key === "Delete" || e.key === "Backspace") && state.sel && state.sel.kind !== "sim") { e.preventDefault(); remove(state.sel.kind, state.sel.index); }
-    else if (e.key === "Escape") { closeMenus(); closeSheet(); }
+    else if (e.key === "Escape") { if (state.handle) { state.handle = null; syncHandles(); } else { closeMenus(); closeSheet(); } }
     else if (e.key === "f" || e.key === "F") viewport?.view("iso");
   });
   // Drag & drop a JSON file anywhere.
@@ -1296,17 +2035,25 @@ async function boot() {
     message = `Restored local draft (${new Date(draft.savedAt).toLocaleString()})`;
   }
   try { state.doc = normalizeDoc(initial); } catch { state.doc = normalizeDoc(STARTER); }
-  state.sel = state.doc.geometry.length ? { kind: "geometry", index: 0 } : { kind: "sim" };
+  state.sel = null; // open showing the whole model; selecting a part fades the rest
 
   // 3D (WebGL may be unavailable in some WebViews; the editor still works).
   try {
     const { Viewport } = await import("./viewport.js");
-    viewport = new Viewport($("viewport"), { onPick: ref => select(ref, { fromView: true }) });
+    viewport = new Viewport($("viewport"), {
+      onPick: ref => select(ref, { fromView: true }),
+      onHandle: onHandleTap,
+      onHandleMove, onHandleDrag, onScalarMove,
+    });
+    // ?debug exposes internals for automated UI tests.
+    if (new URLSearchParams(location.search).has("debug")) window.__csxcad = { state, viewport, scriptRT };
     for (const b of document.querySelectorAll("[data-toggle]")) viewport.setOption(b.dataset.toggle, b.getAttribute("aria-pressed") === "true");
   } catch (e) {
     $("viewError").hidden = false;
     $("viewError").textContent = "3D view unavailable: " + e.message;
   }
+  for (const b of Object.values(BUILTIN_SCRIPTS)) scriptResult(b.source, null); // warm built-in argument lists
+  renderScripts();
   refresh();
   setStatus(message);
   matchMedia("(max-width: 760px)").addEventListener("change", () => { closeSheet(); setDock(state.dock); refresh({ params: false }); });

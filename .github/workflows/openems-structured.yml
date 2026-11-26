@@ -134,8 +134,6 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_missing_simulations.py' -v
           python3 -m unittest discover -s site -p 'test_result_quality.py' -v
           python3 -m py_compile antennas/simulate.py antennas/simulate_v2.py site/build_site.py
-          node --check site/editor.js
-          node site/check_editor.js
           node site/csxcad/check.mjs
           for f in site/openems/*.js site/openems/openems.mjs; do node --check "$f"; done
           node wasm/openems/test/smoke.mjs
@@ -167,7 +165,8 @@ jobs:
                 fi
               done > changed-antennas.txt
             git diff --name-only --diff-filter=ACMR "$BASE_SHA" HEAD -- \
-              'antennas/generators/*.py' 'scripts/sweep.py' > changed-sweep-code.txt
+              'antennas/generators/*.py' 'scripts/sweep.py' 'scripts/geometry_scripts.mjs' \
+              'site/csxcad/js/scriptcore.js' 'site/csxcad/js/schema.js' > changed-sweep-code.txt
             python3 scripts/select_sweep_dependents.py --changed changed-sweep-code.txt >> changed-antennas.txt
             sort -u changed-antennas.txt -o changed-antennas.txt
           fi
@@ -255,9 +254,6 @@ jobs:
           python3 site/build_site.py --results results --site site/dist "${args[@]}"
           node --check site/dist/simulation_selectors.js
           node --check site/dist/app.js
-          node --check site/dist/editor.js
-          node --check site/dist/jscad-modeling.min.js
-          node site/check_editor.js site/dist
           for f in index.html sw.js js/main.js vendor/three.module.min.js vendor/addons/controls/OrbitControls.js examples/index.json; do
             test -s "site/dist/csxcad/$f"
           done

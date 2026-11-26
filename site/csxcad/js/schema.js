@@ -75,6 +75,12 @@ export const SHAPES = {
     template: { points: [[0, 0, 0], [0, 0, 25]], wire_diameter: 1 },
     hint: "Native CSXCAD thin wire through the vertices (2–8001 points).",
   },
+  polyhedron: {
+    label: "Polyhedron (mesh)", icon: "mesh",
+    fields: [],
+    template: { vertices: [[0, 0, 0], [10, 0, 0], [0, 10, 0], [0, 0, 10]], faces: [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]] },
+    hint: "Native CSXCAD Polyhedron: a closed mesh of vertices and faces (index lists). Usually produced by a script; edit the lists in JSON.",
+  },
   helix: {
     label: "Helix", icon: "helix",
     fields: [
