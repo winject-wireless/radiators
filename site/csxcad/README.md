@@ -125,6 +125,28 @@ was computed.
 - Large models are slow on phones; the dipole example (`examples/dipole_2450.json`,
   ~130k cells) is a quick test.
 
+### Inspecting a radiation result
+
+After a successful run, select a far-field frequency in the viewport. **XY, YZ,
+XZ** show the exact intersections of the triangulated radiation surface with
+the three principal planes through the origin. Each plane can be toggled
+independently. **Follow point** moves all three enabled planes through the
+sampling point instead.
+
+The yellow sampling point reports its XYZ display coordinates, theta/phi,
+interpolated directivity, gain (including radiation efficiency), realized gain
+(including mismatch efficiency), and normalized E-field magnitude. Click the
+point or **Sampling point** to attach the same three-axis translation gizmo as
+the geometry editor. The readout follows the drag without editing the antenna
+or invalidating simulation results. **Reset** returns to the peak direction;
+**Point** hides or shows the probe.
+
+The pattern is an angular far-field representation, not a spatial field map.
+The displayed radius and point distance in millimetres are illustrative; only
+the direction from the origin determines the sampled gain. Directional values
+at the origin or when data is unavailable are undefined. Radiation and mismatch
+efficiencies are global metrics.
+
 ## Layout
 
 Desktop: model tree | 3D view | inspector, with a Parameters / Checks / JSON
