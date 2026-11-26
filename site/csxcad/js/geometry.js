@@ -105,12 +105,15 @@ function cylinderMesh(mesh, a, b, rOuter, rInner, n = 32) {
   const axis = unit(sub(b, a));
   const [u, v] = frame(axis);
   const A = ring(mesh, a, u, v, rOuter, n), B = ring(mesh, b, u, v, rOuter, n);
-  bridge(mesh, A, B);
+  // frame() makes u × v point along a -> b. With rings ordered
+  // along that axis, the outer wall needs circumferential-first winding.
+  // The inner wall and the two annular caps must face out of the material.
+  bridge(mesh, A, B, true);
   if (rInner) {
     const Ai = ring(mesh, a, u, v, rInner, n), Bi = ring(mesh, b, u, v, rInner, n);
-    bridge(mesh, Ai, Bi, true);
-    bridge(mesh, Ai, A, false); // annular end caps
-    bridge(mesh, B, Bi, false);
+    bridge(mesh, Ai, Bi, false);
+    bridge(mesh, Ai, A, true); // bottom annulus: -axis
+    bridge(mesh, B, Bi, true); // top annulus: +axis
   } else {
     cap(mesh, A, a, true);
     cap(mesh, B, b, false);
@@ -211,7 +214,7 @@ function tubeMesh(mesh, pts, r, sides = 10, maxRings = 1500) {
     else u = frame(t)[0];
     const v = cross(t, u);
     const R = ring(mesh, P[i], u, v, r, sides);
-    if (prevRing) bridge(mesh, prevRing, R);
+    if (prevRing) bridge(mesh, prevRing, R, true);
     else cap(mesh, R, P[i], true);
     prevU = u; prevRing = R;
   }

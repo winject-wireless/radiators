@@ -187,6 +187,42 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
   }
 }
 
+// Display primitive winding: closed surfaces must have opposite directed
+// edges across each shared boundary and positive signed volume. Test tilted,
+// reversed and transformed cylinders, annular walls/caps, and wire tubes.
+{
+  const sub=(a,b)=>a.map((v,i)=>v-b[i]);
+  const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
+  const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+  function closedOutward(g,expectedVolume) {
+    const {positions,indices}=tessellate(g);
+    const v=i=>Array.from(positions.slice(3*i,3*i+3));
+    const edges=new Map();
+    let volume=0;
+    for(let i=0;i<indices.length;i+=3){
+      const ids=Array.from(indices.slice(i,i+3)),[a,b,c]=ids.map(v);
+      assert.ok(Math.hypot(...cross(sub(b,a),sub(c,a)))>1e-8,g.shape+" degenerate triangle");
+      volume+=dot(a,cross(b,c))/6;
+      for(let j=0;j<3;j++){
+        const a=ids[j],b=ids[(j+1)%3],key=[Math.min(a,b),Math.max(a,b)].join(",");
+        const e=edges.get(key)||[0,0];e[0]++;e[1]+=a<b?1:-1;edges.set(key,e);
+      }
+    }
+    assert.ok([...edges.values()].every(([count,orientation])=>count===2&&orientation===0),g.shape+" inconsistent winding");
+    assert.ok(volume>0,g.shape+" inward winding");
+    assert.ok(Math.abs(volume-expectedVolume)/expectedVolume<1e-5,g.shape+" wrong signed volume "+volume);
+  }
+  const n=32,area=r=>n/2*r*r*Math.sin(2*Math.PI/n);
+  for(const [start,stop] of [[[0,0,0],[0,0,30]],[[0,0,30],[0,0,0]],[[1,2,3],[9,-5,20]]]){
+    const length=Math.hypot(...sub(stop,start));
+    const transform={rotate_deg:[17,35,-22],translate:[10,-3,7]};
+    closedOutward({shape:"cylinder",start,stop,radius:4,transform},area(4)*length);
+    closedOutward({shape:"cylindrical_shell",start,stop,radius:4,thickness:2,transform},(area(5)-area(3))*length);
+    const wireArea=5*Math.sin(2*Math.PI/10);
+    closedOutward({shape:"wire",points:[start,stop],wire_diameter:2,transform},wireArea*length);
+  }
+}
+
 // Built-in tapered cylinder: closed, outward-oriented mesh with the right volume
 {
   const vol = o => o.faces.reduce((V, [i, j, k]) => { const [A, B, C] = [o.vertices[i], o.vertices[j], o.vertices[k]];
