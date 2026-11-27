@@ -251,6 +251,7 @@ export function setupMesh(cfg, geometryBounds, sourceBounds, previews, ports, ds
     }
   }
   for (const r of m.refinements ?? []) {
+    if(r?.enabled===false)continue;
     require(r.stop.every((v, i) => v > r.start[i]), "mesh refinement stop <= start");
     addLocalMesh(grid, ds, de, r.start, r.stop, r.resolution_mm);
   }
