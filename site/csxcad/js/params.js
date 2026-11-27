@@ -328,7 +328,9 @@ export function resolveCase(config, parameters) {
   // Disabled editor objects remain in the source, but do not resolve parameters or scripts.
   if(Array.isArray(base.geometry))base.geometry=base.geometry.filter(g=>g?.enabled!==false);
   if(Array.isArray(base.probes))base.probes=base.probes.filter(p=>p?.enabled!==false);
+  if(Array.isArray(base.mesh?.refinements))base.mesh.refinements=base.mesh.refinements.filter(r=>r?.enabled!==false);
   const resolved=resolveTemplate(base, parameters);
+  if(Array.isArray(resolved.mesh?.refinements))resolved.mesh.refinements=resolved.mesh.refinements.filter(r=>r?.enabled!==false);
   if(Array.isArray(resolved.geometry))resolved.geometry=resolved.geometry.filter(g=>g?.enabled!==false);
   return resolved;
 }
@@ -466,6 +468,7 @@ export function sweepWarnings(config) {
   for(const k of ["geometry","probes"]){
     if(Array.isArray(inputs[k]))inputs[k]=inputs[k].filter(p=>p?.enabled!==false);
   }
+  if(Array.isArray(inputs.mesh?.refinements))inputs.mesh={...inputs.mesh,refinements:inputs.mesh.refinements.filter(r=>r?.enabled!==false)};
   const usage=parameterUsage(inputs),out=[];
   for(const axis of Object.keys(axes)){
     if(!Object.hasOwn(defaults,axis))out.push({axis,code:"undefined",level:"warn",where:"sweep "+axis,msg:"Parameter '"+axis+"' is not defined in Variables. The sweep supplies its value, but no default exists."});
