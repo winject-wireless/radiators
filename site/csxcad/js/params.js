@@ -453,3 +453,25 @@ export function parameterUsage(config) {
   walkTemplates(rest, t => { ("$param" in t ? [t.$param] : expressionNames(t.$expr)).forEach(add); return t; });
   return used;
 }
+
+
+// A sweep can introduce its own parameter, so missing defaults are advisory.
+// Only count references in active simulation inputs, not the sweep's own
+// declaration, display metadata, disabled objects or uninstantiated scripts.
+export function sweepWarnings(config) {
+  const axes=config.sweep?.parameters;
+  if(!axes||typeof axes!=="object"||Array.isArray(axes))return [];
+  const defaults=config.parameters??{};
+  const {parameters,sweep,workspace_units,simulation,name,description,generator,scripts,...inputs}=config;
+  for(const k of ["geometry","probes"]){
+    if(Array.isArray(inputs[k]))inputs[k]=inputs[k].filter(p=>p?.enabled!==false);
+  }
+  const usage=parameterUsage(inputs),out=[];
+  for(const axis of Object.keys(axes)){
+    if(!Object.hasOwn(defaults,axis))out.push({axis,code:"undefined",level:"warn",where:"sweep "+axis,msg:"Parameter '"+axis+"' is not defined in Variables. The sweep supplies its value, but no default exists."});
+    // Python generators receive the parameter map directly; references in
+    // arbitrary generator code cannot be determined by this static check.
+    if(!generator&&!usage.has(axis))out.push({axis,code:"unused",level:"warn",where:"sweep "+axis,msg:"Parameter '"+axis+"' is not referenced by active simulation inputs. Sweeping it may repeat identical simulations."});
+  }
+  return out;
+}
