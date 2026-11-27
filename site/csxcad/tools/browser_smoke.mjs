@@ -341,6 +341,20 @@ try {
   await page.locator('[data-dock="results"]').click();
   assert.ok(await page.locator("#resultCharts").getByText("Results · cached on this device",{exact:true}).isVisible());
   assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
+  // A different document must not delete the saved sweep or its results.
+  const savedName=await page.evaluate(()=>window.__csxcad.state.doc.name);
+  await page.locator("#menuButton").click();
+  await page.locator('[data-action="save-local"]').click();
+  await page.getByText("Saved to local projects",{exact:true}).waitFor();
+  await page.locator("#menuButton").click();
+  await page.locator('[data-action="new"]').click();
+  await page.waitForFunction(()=>document.querySelector("#resultCase").options.length===1);
+  await page.locator("#menuButton").click();
+  await page.locator('[data-action="local-projects"]').click();
+  await page.locator("#dialog .example-list button").filter({has:page.getByText(savedName,{exact:true})}).first().click();
+  await page.waitForFunction(()=>[...document.querySelector("#resultCase").options].length===2 && [...document.querySelector("#resultCase").options].every(o=>o.textContent.includes("done")),{}, {timeout:90000});
+  await page.locator('[data-dock="results"]').click();
+  assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
   // Mobile Results selector stays in the header and swipe navigates without
   // requiring a tap on the select. Vertical scrolling does not change cases.
   await page.setViewportSize({width:390,height:844});
