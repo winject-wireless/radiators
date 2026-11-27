@@ -189,15 +189,46 @@ export class Grid {
   set(axis, values) { this.lines[axis] = uniqueSorted(values); }
 }
 
-function addLocalMesh(grid, ds, de, lo, hi, step) {
-  step = positive(step, "mesh.local_min_cell_mm");
-  for (let i = 0; i < 3; i++) {
-    const left = Math.max(ds[i], lo[i]), right = Math.min(de[i], hi[i]);
-    if (right <= left) continue;
-    const n = Math.ceil((right - left) / step) + 1;
-    if (n > 1800) throw Error(`Local mesh region ${AXES[i]} has ${n} requested lines (> 1800)`);
-    grid.add(i, linspace(left, right, n));
+// A refinement is a spacing constraint on an existing base cell, never an
+// independent grid. Project regions onto the rectilinear Yee axes; the smallest
+// requested spacing wins for each cell intersected by any region.
+export function refineAxis(lines, regions, resolution, growth, maxIntervals=2500) {
+  const spans=diff(lines);
+  const ceilParts=x=>Math.max(1,Math.ceil(x*(1-1e-12)));
+  const parts=spans.map((width,i)=>{
+    let target=resolution;
+    for(const [lo,hi,step] of regions)
+      if(step<target&&hi>lo&&lo<lines[i+1]&&hi>lines[i])target=step;
+    return target<resolution?ceilParts(width/target):1;
+  });
+  let total=parts.reduce((a,b)=>a+b,0);
+  // Do not change an already acceptable base mesh, even if it has pre-existing
+  // feature-driven grading violations. Never worsen those ratios when grading.
+  if(parts.every(n=>n===1))return [...lines];
+  const limit=Math.max(spans.length,maxIntervals);
+  require(Number.isSafeInteger(total)&&total<=limit,"Refined mesh axis exceeds cell budget: "+total+" > "+limit);
+  function grade(a,b){
+    const ratio=Math.max(growth,spans[a]/spans[b]);
+    const n=ceilParts(spans[a]/(ratio*spans[b]/parts[b]));
+    if(n<=parts[a])return false;
+    total+=n-parts[a];
+    require(Number.isSafeInteger(total)&&total<=limit,"Refined mesh axis exceeds cell budget: "+total+" > "+limit);
+    parts[a]=n;
+    return true;
   }
+  let changed;
+  do{
+    changed=false;
+    for(let i=1;i<spans.length;i++)if(grade(i,i-1))changed=true;
+    for(let i=spans.length-2;i>=0;i--)if(grade(i,i+1))changed=true;
+  }while(changed);
+  const out=[lines[0]];
+  for(let i=0;i<parts.length;i++){
+    const width=spans[i]/parts[i];
+    for(let j=1;j<parts[i];j++)out.push(lines[i]+j*width);
+    out.push(lines[i+1]); // exact original feature/domain/PML grid lines
+  }
+  return out;
 }
 
 // Boundary: openEMS type (0 PEC, 1 PMC, 2 MUR, 3 PML) and CreateNF2FFBox size
@@ -243,17 +274,22 @@ export function setupMesh(cfg, geometryBounds, sourceBounds, previews, ports, ds
     else if (pv.points) { addPointPlanes(pv.points[0]); addPointPlanes(pv.points[pv.points.length - 1]); }
   }
   for (const p of ports) { addPointPlanes(p.start); addPointPlanes(p.stop); }
+  const regions=[];
+  const addRegion=(lo,hi,step)=>{
+    step=positive(step,"mesh refinement resolution_mm");
+    if(step<resolution)regions.push([lo,hi,step]);
+  };
   if (m.local_min_cell_mm != null) {
     const step = positive(m.local_min_cell_mm, "mesh.local_min_cell_mm");
     const maxSpan = Number(m.auto_refine_max_span_mm ?? 40);
     for (const [lo, hi] of [...geometryBounds, ...sourceBounds]) {
-      if (Math.max(...hi.map((v, i) => v - lo[i])) <= maxSpan) addLocalMesh(grid, ds, de, lo, hi, step);
+      if (Math.max(...hi.map((v, i) => v - lo[i])) <= maxSpan) addRegion(lo,hi,step);
     }
   }
   for (const r of m.refinements ?? []) {
     if(r?.enabled===false)continue;
     require(r.stop.every((v, i) => v > r.start[i]), "mesh refinement stop <= start");
-    addLocalMesh(grid, ds, de, r.start, r.stop, r.resolution_mm);
+    addRegion(r.start,r.stop,r.resolution_mm);
   }
   const boundary = cfg.domain.boundary ?? Array(6).fill("PML_8");
   const bounds = [...geometryBounds, ...sourceBounds];
@@ -284,6 +320,12 @@ export function setupMesh(cfg, geometryBounds, sourceBounds, previews, ports, ds
       parts.forEach((n, k) => seeds.push(...linspace(margin[k], margin[k + 1], n + 1).slice(1, -1)));
     }
     grid.set(i, seeds.length === grid.lines[i].length ? lines : SmoothMeshLines(seeds, resolution, growth));
+  }
+  // Apply all constraints once, after creating the feature-aligned base mesh.
+  // Refinement boundaries need not become mesh planes: cells touching a box
+  // are conservatively refined as a whole, avoiding sliver cells at its edge.
+  if(regions.length){
+    for(let i=0;i<3;i++)grid.set(i,refineAxis(grid.lines[i],regions.map(([lo,hi,step])=>[lo[i],hi[i],step]),resolution,growth,Math.min(2500,maxCells)));
   }
   const counts = grid.lines.map(l => l.length - 1);
   const cells = counts[0] * counts[1] * counts[2];
