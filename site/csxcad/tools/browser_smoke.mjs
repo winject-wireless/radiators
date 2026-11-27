@@ -200,8 +200,15 @@ try {
   await page.getByRole("spinbutton", { name: "CPU pool" }).press("Tab");
   await page.getByRole("spinbutton", { name: "Threads" }).fill("1");
   await page.getByRole("spinbutton", { name: "Threads" }).press("Tab");
-  await page.getByRole("button", { name: "Run all (2)", exact: true }).click();
-  if(hasParallelCPU)await page.getByText(/0\/2 finished · 2 running/).waitFor({timeout:10000});
+  const caseStarts=page.locator("#sim .sim-case-start");
+  assert.equal(await caseStarts.count(),2);
+  if(hasParallelCPU){
+    await caseStarts.nth(0).click();
+    await caseStarts.nth(1).click();
+    await page.getByText(/0\/2 finished · 2 running/).waitFor({timeout:10000});
+    assert.equal(await caseStarts.nth(0).isDisabled(),true);
+    assert.equal(await caseStarts.nth(1).isDisabled(),true);
+  }else await page.getByRole("button", { name: "Run all (2)", exact: true }).click();
   assert.equal(await page.locator("#sim .sim-case-track").count(),2);
   assert.equal(await page.locator("#sim .sim-log-box").count(),0);
   await page.locator('[data-dock="results"]').click();
