@@ -154,9 +154,13 @@ try {
   await page.locator("#openFile").setInputFiles({name:"sweep-smoke.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(doc))});
   await page.waitForFunction(()=>document.querySelector("#resultCase")?.options.length===2);
   await page.locator('[data-dock="sim"]').click();
-  await page.getByRole("spinbutton", { name: "Threads" }).fill("2");
+  const hasParallelCPU=await page.evaluate(()=>navigator.hardwareConcurrency>=2);
+  await page.getByRole("spinbutton", { name: "CPU pool" }).fill(hasParallelCPU?"2":"1");
+  await page.getByRole("spinbutton", { name: "CPU pool" }).press("Tab");
+  await page.getByRole("spinbutton", { name: "Threads" }).fill("1");
   await page.getByRole("spinbutton", { name: "Threads" }).press("Tab");
   await page.getByRole("button", { name: "Run all (2)", exact: true }).click();
+  if(hasParallelCPU)await page.getByText(/0\/2 finished · 2 active/).waitFor({timeout:10000});
   await page.locator('[data-dock="results"]').click();
   await page.waitForFunction(()=>document.querySelector("#resultCase")?.options[0].textContent.includes("done"),{}, {timeout:240000});
   assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());

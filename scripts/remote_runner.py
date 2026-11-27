@@ -195,6 +195,8 @@ class Runner:
         with self.lock:
             out = {k: j[k] for k in ("id", "state", "error")}
             out["seconds"] = j.get("seconds", time.monotonic()-j["created"])
+            if j["state"] in ("failed", "cancelled"):
+                j["delivered"] = True
         log = j["path"] / "runner.log"
         try:
             with log.open("rb") as f:

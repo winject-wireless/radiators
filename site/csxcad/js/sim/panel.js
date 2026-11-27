@@ -379,7 +379,7 @@ async function start(ctx, all = false) {
     if(remote){
       const info=await new RemoteRunner(endpoint,token).health();
       if(info.api_version!==1)throw Error("Incompatible runner API");
-      if(cpu.perJob>info.max_cpus)throw Error("ncpu_per_job exceeds remote CPU limit");
+      if(cpu.perJob>Math.min(info.max_cpus,info.ncpu_pool??info.max_cpus))throw Error("ncpu_per_job exceeds remote CPU limit");
       limit=Math.min(limit,info.ncpu_pool??info.max_cpus);
       if(!info.parallel_jobs)limit=cpu.perJob; // older single-job server
     }
@@ -388,7 +388,14 @@ async function start(ctx, all = false) {
     await Promise.all(Array.from({length:Math.min(slots,queue.length)},async()=>{
       while(!sim.aborting&&runs===runCases&&next<queue.length){const c=queue[next++];await runCase(c);}
     }));
-  } catch(e){sim.error=e.message;ctx.notify(sim.error,true);}
+  } catch(e){
+    sim.error=e.message;
+    for(const c of queue)if(states.get(c.id)?.status==="queued"){
+      states.set(c.id,{...states.get(c.id),status:sim.aborting?"cancelled":"failed",error:e.message});
+      if(!sim.aborting)failed++;
+    }
+    ctx.notify(sim.error,true);
+  }
   finally {
     clearTimeout(sim.stopTimer);clearInterval(tick);
     for(const c of queue)if(states.get(c.id)?.status==="queued")states.set(c.id,{...states.get(c.id),status:"cancelled"});

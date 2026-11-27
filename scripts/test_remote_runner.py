@@ -73,6 +73,33 @@ class RemoteTests(unittest.TestCase):
                 wait_for(lambda:len(entered)==3 and all(j["state"]=="done" for j in self.runner.jobs.values()))
             finally: gate.set()
 
+    def test_memory_budget_and_cancel_queued_job(self):
+        gate=threading.Event()
+        entered=[]
+        def fake(j, cpus, memory):
+            with self.runner.lock:
+                entered.append(j["id"])
+                j["state"]="running"
+            gate.wait(3)
+            with self.runner.lock:
+                j.update(state="done",seconds=.01)
+        cfg=copy.deepcopy(CONFIG)
+        cfg["solver"]["resources"]={"cpus":1,"memory_gib":3}
+        with patch.object(self.runner,"execute",side_effect=fake):
+            try:
+                self.runner.submit({"id":"1"*32,"config":cfg})
+                self.runner.submit({"id":"2"*32,"config":copy.deepcopy(cfg)})
+                self.assertEqual(self.runner.jobs["2"*32]["state"],"queued")
+                self.runner.cancel(self.runner.jobs["2"*32])
+                self.assertEqual(self.runner.jobs["2"*32]["state"],"cancelled")
+                gate.set()
+                for _ in range(200):
+                    if self.runner.jobs["1"*32]["state"]=="done":break
+                    time.sleep(.01)
+                self.assertEqual(entered,["1"*32])
+                self.assertEqual(self.runner.jobs["1"*32]["state"],"done")
+            finally:gate.set()
+
     def test_api(self):
         def fake(j, cpus, memory):
             path=j["path"]/"out"
