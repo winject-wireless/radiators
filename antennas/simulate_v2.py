@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from v2_geometry import add_local_mesh, install_geometry, positive, vec3
+from v2_diagnostics import prepare as prepare_probes, install as install_probes, collect as collect_probes
 
 
 def require(cond, message):
@@ -303,7 +304,9 @@ def output_data(config, resultdir):
         require(np.all(lo>=dstart) and np.all(hi<=dstop),"Port must fit within domain")
         port_bounds.append((lo,hi))
 
+    diagnostic_objects=prepare_probes(config,dstart,dstop)
     counts,cells=setup_mesh(mesh,config,geometry_bounds,port_bounds,previews,configured_ports,dstart,dstop)
+    install_probes(csx,diagnostic_objects)
     ports={int(s.get("id",s.get("port_number",1))):add_port(fdtd,props,material_defs,s)
            for s in configured_ports}
     driven=active[0]
@@ -418,6 +421,11 @@ def output_data(config, resultdir):
             "max_realized_gain_dbi":finite(dmax+10*np.log10(max(gain_factor,1e-30)))
                 if valid_radiation and gain_factor is not None and include_realized else None
         })
+    if diagnostic_objects:
+        result["diagnostic_probes"] = collect_probes(fdtd_path, diagnostic_objects)
+        for probe in result["diagnostic_probes"]:
+            if probe.get("warning"):
+                print("WARNING: diagnostic",probe["name"],probe["warning"])
     (resultdir/"result.json").write_text(json.dumps(json_safe(result),indent=2,allow_nan=False))
     print("Simulation result:",resultdir/"result.json")
 
