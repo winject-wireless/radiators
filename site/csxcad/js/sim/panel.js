@@ -43,7 +43,8 @@ const hc = () => Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 16));
 function workerPoolSize(model, engine, requested) {
   const threads = Math.min(requested, navigator.hardwareConcurrency || requested);
   const [a, b] = model.counts.map(n => n + 1).sort((x, y) => y - x);
-  const dumpHelpers = Math.max(0, Math.min(threads, Math.floor(a * b / 1024)) - 1);
+  const diagnosticNodes=Math.max(0,...(model.diagnosticObjects??[]).filter(p=>p.type==="field_dump").map(p=>model.counts.reduce((n,c,k)=>n*(p.stop[k]===p.start[k]?1:Math.ceil((c+1)/p.sub[k])),1)));
+  const dumpHelpers = Math.max(0, Math.min(threads, Math.floor(Math.max(a*b,diagnosticNodes) / 1024)) - 1);
   const runtime = threads + dumpHelpers + 2; // writer and abort watcher
   if (engine !== "cpu") return runtime;
   // CPU operator setup also builds six components concurrently on small teams.
@@ -411,7 +412,6 @@ async function start(ctx, all = false) {
           }});
           if(!hasValidS11(result))throw Error("Remote solver returned no valid S11");
         }else{
-        if(c.config.probes?.some(p=>p.enabled!==false))throw Error("Diagnostic probes require the Remote native runner");
         const model=buildModel(c.config);
         job.model=model;
         job.stage="starting openEMS";
