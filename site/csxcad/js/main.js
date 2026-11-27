@@ -2416,7 +2416,7 @@ async function boot() {
     else if (mod && e.key.toLowerCase() === "d" && state.sel && state.sel.kind !== "sim") { e.preventDefault(); duplicate(state.sel.kind, state.sel.index); }
     else if ((e.key === "Delete" || e.key === "Backspace") && state.sel && state.sel.kind !== "sim") { e.preventDefault(); remove(state.sel.kind, state.sel.index); }
     else if (e.key === "Escape") { if (state.handle) { state.handle = null; syncHandles(); } else { closeMenus(); closeSheet(); } }
-    else if (e.key === "f" || e.key === "F") viewport?.view("iso");
+    else if (e.key === "f" || e.key === "F") viewport?.view("fit");
   });
   // Drag & drop a JSON file anywhere.
   document.addEventListener("dragover", e => e.preventDefault());

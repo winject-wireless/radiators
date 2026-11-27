@@ -41,7 +41,9 @@ export class Viewport {
     this.renderer.toneMappingExposure = 1.05;
     container.appendChild(this.renderer.domElement);
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 1e6);
+    this.perspective = new THREE.PerspectiveCamera(40, 1, 0.1, 1e6);
+    this.orthographic = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1e6);
+    this.camera = this.perspective;
     this.camera.position.set(140, -180, 120);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -54,9 +56,9 @@ export class Viewport {
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.04).texture;
     pmrem.dispose();
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x404858, 0.9));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-    sun.position.set(1, -1.5, 2);
-    this.camera.add(sun);
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    this.keyLight.position.set(1, -1.5, 2);
+    this.camera.add(this.keyLight);
     this.scene.add(this.camera);
 
     this.parts = new THREE.Group();
@@ -126,13 +128,17 @@ export class Viewport {
         const projectionScale=Math.abs(this.camera.projectionMatrix.elements[5]);
         for (const hnd of this.handles.children) {
           if(hnd.userData.handleKey==="result-probe"){
-            // Perspective projection: world units / CSS pixel at the point's
-            // camera-space depth (not Euclidean distance). No DPR multiplier.
+            // In an orthographic view the pixel scale is independent of depth.
             cameraPoint.copy(hnd.position).applyMatrix4(this.camera.matrixWorldInverse);
-            const depth=Math.max(this.camera.near,-cameraPoint.z);
+            const depth=this.camera.isOrthographicCamera ? 1 : Math.max(this.camera.near,-cameraPoint.z);
             const px=(touch?7:5.5)*(hnd===this._hover?1.15:1);
             hnd.scale.setScalar(Math.max(1e-6,px*2*depth/(height*projectionScale)));
-          }else hnd.scale.setScalar(Math.max(1e-6,hnd.position.distanceTo(this.camera.position)*0.011*(touch?1.5:1)*(hnd===this._hover?1.35:1)));
+          } else {
+            const distance = this.camera.isOrthographicCamera
+              ? 1 / (projectionScale * this._tanHalfFov())
+              : hnd.position.distanceTo(this.camera.position);
+            hnd.scale.setScalar(Math.max(1e-6, distance * 0.011 * (touch ? 1.5 : 1) * (hnd === this._hover ? 1.35 : 1)));
+          }
         }
         this.renderer.render(this.scene, this.camera);
       }
@@ -170,7 +176,9 @@ export class Viewport {
     this._dirty = true;
     const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
+    this.perspective.aspect = w / h;
+    this.orthographic.left = -w / h;
+    this.orthographic.right = w / h;
     this.setBottomInset(this.bottomInset || 0);
   }
 
@@ -349,7 +357,7 @@ export class Viewport {
     // of the model's bounding box. Negative-Z geometry must not move it.
     this.grid.position.set(0, 0, 0);
     this.setSelection(this.selection);
-    if (first) { this._fitted = true; this.view("iso"); }
+    if (first) { this._fitted = true; this.view("perspective"); }
     return errors;
   }
 
@@ -492,9 +500,10 @@ export class Viewport {
     const r = Math.max(box.getSize(new THREE.Vector3()).length() / 2, this.bounds.getSize(new THREE.Vector3()).length() / 40, 0.5);
     const h = Math.max(1, this.container.clientHeight);
     const covered = h / Math.max(h * 0.3, h - Math.min(this.bottomInset || 0, h * 0.7)); // part hidden by a phone sheet
-    const dist = r / Math.sin((this.camera.fov * Math.PI / 180) / 2) * 1.8 * covered * (this.camera.aspect < 1 ? 1 / this.camera.aspect ** 0.5 : 1);
+    const dist = r / Math.sin((this.perspective.fov * Math.PI / 180) / 2) * 1.8 * covered * (this.perspective.aspect < 1 ? 1 / this.perspective.aspect ** 0.5 : 1);
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     this._focus = { t0: performance.now(), fromT: this.controls.target.clone(), toT: c,
+      fromZoom: this.camera.zoom, toZoom: 1 / (dist * this._tanHalfFov()),
       fromP: this.camera.position.clone(), toP: c.clone().add(dir.multiplyScalar(dist)) };
   }
   _stepFocus(now) {
@@ -503,6 +512,10 @@ export class Viewport {
     const k = Math.min(1, (now - f.t0) / 380), e = 1 - (1 - k) ** 3;
     this.controls.target.lerpVectors(f.fromT, f.toT, e);
     this.camera.position.lerpVectors(f.fromP, f.toP, e);
+    if (this.camera.isOrthographicCamera) {
+      this.camera.zoom = THREE.MathUtils.lerp(f.fromZoom, f.toZoom, e);
+      this.camera.updateProjectionMatrix();
+    }
     if (k >= 1) this._focus = null;
   }
 
@@ -630,19 +643,44 @@ export class Viewport {
     });
   }
 
+  _tanHalfFov() {
+    return Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
+  }
+
   view(name) {
     this._dirty = true;
     this._focus = null;
+    // Finish any pending damped orbit or pan before applying the exact preset pose.
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.controls.enableDamping = damping;
     const target = (this.bounds.isEmpty() ? new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) : this.bounds.clone());
     if (this.radiation.children.length) target.union(new THREE.Box3().setFromObject(this.radiation));
     const c = target.getCenter(new THREE.Vector3());
     const r = Math.max(target.getSize(new THREE.Vector3()).length() / 2, 1);
-    const dist = r / Math.sin((this.camera.fov * Math.PI / 180) / 2) * (this.camera.aspect < 1 ? 1.25 / this.camera.aspect ** 0.5 : 1.05);
+    const dist = r / Math.sin((this.perspective.fov * Math.PI / 180) / 2) * (this.perspective.aspect < 1 ? 1.25 / this.perspective.aspect ** 0.5 : 1.05);
+    const camera = name === "iso" ? this.orthographic : name === "perspective" ? this.perspective : this.camera;
+    if (camera !== this.camera) {
+      this.scene.remove(this.camera);
+      this.camera = camera;
+      this.scene.add(camera);
+      camera.add(this.keyLight);
+      this.controls.object = camera;
+      this.gizmo.camera = camera;
+      this.resize();
+    }
+    if (camera.isOrthographicCamera) {
+      const aspect = this.perspective.aspect;
+      const halfHeight = 1.05 * r / Math.min(1, aspect);
+      camera.zoom = 1 / halfHeight;
+      camera.updateProjectionMatrix();
+    }
     const dirs = {
-      iso: [1, -1.25, 0.9], top: [0, -0.0001, 1], bottom: [0, 0.0001, -1], front: [0, -1, 0],
+      perspective: [1, -1.25, 0.9], iso: [1, -1, 1], top: [0, -0.0001, 1], bottom: [0, 0.0001, -1], front: [0, -1, 0],
       back: [0, 1, 0], right: [1, 0, 0], left: [-1, 0, 0],
     };
-    const d = new THREE.Vector3(...(dirs[name] || dirs.iso)).normalize();
+    const d = new THREE.Vector3(...(dirs[name] || (camera.isOrthographicCamera ? dirs.iso : dirs.perspective))).normalize();
     this.camera.position.copy(c.clone().add(d.multiplyScalar(dist)));
     this.controls.target.copy(c);
     this._updateClipPlanes();
