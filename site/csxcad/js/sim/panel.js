@@ -4,6 +4,7 @@ import { OpenEMS } from "../../vendor/openems/openems.js";
 import { buildModel } from "./model.js";
 import { runSimulation, summarize, hasValidS11 } from "./run.js";
 import { lineChart, polarChart, smithChart } from "./plot.js";
+import { makeZip } from "./zip.js";
 import { diagnosticFrame } from "./probe-playback.js";
 import { updateSolverDiagnostics } from "./diagnostics.js";
 import { registerServiceWorker, isolationUnavailableReason, storage } from "../platform.js";
@@ -539,6 +540,60 @@ function stop() {
   if(!ems)return;
   if(sim.stage==="FDTD"){ems.abort();sim.stopTimer=setTimeout(()=>ems.terminate(),1000);}
   else ems.terminate();
+}
+
+
+// The current sweep may have more results than the selected case. Snapshot only
+// exact resolved-config matches; never export results from a prior edit.
+function sweepSnapshot(ctx){
+  return ctx.getCases().map(c=>{
+    const key=c.config?JSON.stringify(c.config):null;
+    const run=key&&runs.get(c.id)?.key===key?runs.get(c.id):null;
+    const state=caseStates.get(c.id);
+    const status=state?.key===key?state.status:"not-run";
+    const available=!!run?.result&&!run.result.postprocessing_pending&&
+      !["queued","running"].includes(status);
+    return {id:c.id,label:c.label||c.id,status,run:available?run:null};
+  });
+}
+let exportingSweep=false;
+export function syncSweepDownload(box,ctx){
+  let bar=box.querySelector("#sweepDownloadBar");
+  if(!bar){
+    bar=h("div",{id:"sweepDownloadBar",class:"result-summary-head"});
+    bar.append(h("span",{class:"hint"}),h("button",{type:"button",class:"small result-download"}));
+    bar.lastChild.addEventListener("click",async()=>{
+      if(exportingSweep)return;
+      const snapshot=sweepSnapshot(ctx),slug=ctx.slug();
+      const available=snapshot.filter(c=>c.run);
+      if(!available.length)return;
+      exportingSweep=true;syncSweepDownload(box,ctx);
+      try{
+        const manifest={schema_version:1,simulation:slug,exported_at_utc:new Date().toISOString(),
+          total_cases:snapshot.length,exported_cases:available.length,
+          cases:snapshot.map(c=>({id:c.id,label:c.label,status:c.status,
+            file:c.run?slug+"__"+c.id+".result.json":null}))};
+        // Serialize lazily per entry to avoid keeping all JSON strings in memory.
+        function* entries(){
+          yield {name:"manifest.json",text:JSON.stringify(manifest,null,1)};
+          for(const c of available)yield {name:slug+"__"+c.id+".result.json",text:JSON.stringify(c.run.result)};
+        }
+        const blob=await makeZip(entries(),available.length+1);
+        const url=URL.createObjectURL(blob);
+        const a=h("a",{href:url,download:slug+"__sweep.zip"});
+        document.body.append(a);a.click();a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url),30000);
+        ctx.notify("Exported "+available.length+"/"+snapshot.length+" sweep results");
+      }catch(e){ctx.notify("Sweep export failed: "+e.message,true);}
+      finally{exportingSweep=false;syncSweepDownload(box,ctx);}
+    });
+    box.prepend(bar);
+  }
+  const cases=sweepSnapshot(ctx),count=cases.filter(c=>c.run).length;
+  bar.hidden=cases.length<2;
+  bar.firstChild.textContent=count+"/"+cases.length+" results available";
+  bar.lastChild.disabled=exportingSweep||!count;
+  bar.lastChild.textContent=exportingSweep?"Preparing ZIP…":"Download sweep ZIP";
 }
 
 export function renderResults(box, ctx, run, caseId, stale) {
