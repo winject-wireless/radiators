@@ -382,7 +382,7 @@ export class Viewport {
     } else this.domainBox = null;
 
     (model.mesh?.refinements||[]).forEach((r,index)=>{
-      if (!nums(r?.start)||!nums(r?.stop))return;
+      if(r?.enabled===false||!nums(r?.start)||!nums(r?.stop))return;
       const a=new THREE.Vector3(...r.start),b=new THREE.Vector3(...r.stop);
       const helper=new THREE.Box3Helper(new THREE.Box3(a.clone().min(b),a.clone().max(b)),0x9d7bff);
       helper.userData.overlay="domain";
