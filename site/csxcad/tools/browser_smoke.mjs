@@ -40,6 +40,33 @@ try {
     await blockedPage.locator('[data-dock="sim"]').click();
     assert.ok(await blockedPage.getByRole("button", { name: "Run in browser", exact: true }).isDisabled());
     assert.ok(await blockedPage.getByRole("link", { name: "Open editor directly (new tab)" }).isVisible());
+    // Exercise the real Window.fetch receiver with intercepted HTTP responses.
+    // A JS stub alone does not detect WebIDL "Illegal invocation" errors.
+    const seen=[];
+    await blockedPage.route("**/remote-test/v1/**",async route=>{
+      const req=route.request(), path=new URL(req.url()).pathname, method=req.method();
+      seen.push({method,path,authorization:req.headers().authorization});
+      let data;
+      if(path.endsWith("/health"))data={api_version:1,max_cpus:8,max_memory_gib:16};
+      else if(method==="POST")data={id:req.postDataJSON().id};
+      else if(path.endsWith("/result"))data={s11:{logmag_db:[-12]}};
+      else data={state:"done"};
+      await route.fulfill({status:200,json:data});
+    });
+    const endpoint=new URL("remote-test",base).href;
+    await blockedPage.getByLabel("Simulation runner").selectOption("remote");
+    await blockedPage.getByLabel("Remote runner URL").fill(endpoint);
+    await blockedPage.getByLabel("Remote runner token").fill("test-token");
+    await blockedPage.getByRole("button",{name:"Test connection"}).click();
+    await blockedPage.getByText("Connected · 8 CPUs · 16 GiB max per job").waitFor();
+    const received=await blockedPage.evaluate(async endpoint=>{
+      const {RemoteRunner}=await import("./js/sim/remote.js");
+      return new RemoteRunner(endpoint,"test-token").run({schema_version:2});
+    },endpoint);
+    assert.deepEqual(received,{s11:{logmag_db:[-12]}});
+    assert.deepEqual(seen.map(x=>x.method),["GET","POST","GET","GET"]);
+    assert.ok(seen.every(x=>x.authorization==="Bearer test-token"));
+    console.log("Remote runner native fetch / health / submission / polling / result: PASS");
   } finally { await blocked.close(); }
 
   await page.goto(new URL("?example=examples__dipole_2450.json&debug=1", base).href);
