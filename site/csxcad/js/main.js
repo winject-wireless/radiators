@@ -10,7 +10,7 @@ import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { currentDirection, currentPlaneAxis, currentPlaneLinked, setCurrentPosition, setCurrentDirection, moveCurrentCorner } from "./current-plane.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
-import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults } from "./sim/panel.js";
+import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
@@ -1134,6 +1134,7 @@ function syncMeshView({resetSlice=false,jump=false}={}){
 
 function syncResults() {
   void restoreResults(simContext);
+  syncSweepDownload($("resultBody"),simContext);
   const caseId = state.derived.case.id;
   const run = resultFor(caseId);
   const stale = !!run && JSON.stringify(simContext.getCase().config) !== run.key;
