@@ -1489,7 +1489,7 @@ function inspectDiagnostic(box,title,i){
       const p=d.probes[i];p.frequency_domain??={enabled:true};p.frequency_domain.frequencies_hz??=[];
       if(p.frequency_domain.frequencies_hz.length<12)p.frequency_domain.frequencies_hz.push(state.derived.resolved.excitation?.center_hz??2.45e9);
     })},"+ Frequency"),
-    h("p",{class:"hint",text:"Passive measurement. Current requires a plane, voltage a line, point E/H a point, and dumps a plane or volume. Native runner required."}));
+    h("p",{class:"hint",text:"Passive measurement. Current requires a plane, voltage a line, point E/H a point, and dumps a plane or volume. Supported by browser and native runners."}));
 }
 
 function inspectMaterial(box, title, i) {
