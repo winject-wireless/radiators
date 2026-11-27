@@ -1,7 +1,7 @@
 // Result playback shared by probe graphs and spatial overlays.
 export function diagnosticVector(record, row) {
   if (record.components === 3) return row;
-  const v=[0,0,0]; v[record.axis]=row[0]; return v;
+  const v=[0,0,0]; v[record.axis]=row[0]*(record.sign??1); return v;
 }
 export function sampleTime(times, values, t) {
   if (!times?.length || !values?.length || t<times[0] || t>times[times.length-1]) return null;
@@ -41,6 +41,9 @@ function peak(r){
 export function diagnosticFrame(records,{mode="td",time=0,frequency=0,phase=0,visible=null,scale=1,density=1}={}) {
   const arrows=[];
   const ph=phase*Math.PI/180;
+  // Common physical-unit normalization preserves relative currents between elements.
+  const peaks=new Map();
+  for(const r of records){const m=r.type==="field_dump"?r[mode]?.peak??0:peak(r);peaks.set(r.unit,Math.max(peaks.get(r.unit)??0,m));}
   for(const r of records){
     if(visible&&!visible.has(r.id))continue;
     const color=r.type==="current"?"#39a9ff":r.type==="voltage"?"#4dd49b":r.field==="H"||r.type==="magnetic_field"?"#f9a23f":"#c28aff";
@@ -53,7 +56,7 @@ export function diagnosticFrame(records,{mode="td",time=0,frequency=0,phase=0,vi
       for(let i=0;i<n;i+=density){
         const j=(k*n+i)*3;
         const v=[0,1,2].map(q=>mode==="td"?f.td[j+q]:f.re[j+q]*Math.cos(ph)-f.im[j+q]*Math.sin(ph));
-        arrows.push({position:f.points[i],vector:v.map(x=>x/(d.peak||1)*scale),color});
+        arrows.push({position:f.points[i],vector:v.map(x=>x/(peaks.get(r.unit)||1)*scale),color});
       }
     }else{
       let row;
@@ -61,7 +64,7 @@ export function diagnosticFrame(records,{mode="td",time=0,frequency=0,phase=0,vi
       else {const k=r.frequency_hz?.indexOf(frequency)??-1;if(k>=0)row=r.real[k].map((v,j)=>v*Math.cos(ph)-r.imag[k][j]*Math.sin(ph));}
       if(!row)continue;
       const v=diagnosticVector(r,row), val=r.components===1?row[0]:Math.hypot(...row);
-      arrows.push({position:center(r),vector:v.map(x=>x/(peak(r)||1)*scale),color,
+      arrows.push({position:center(r),vector:v.map(x=>x/(peaks.get(r.unit)||1)*scale),color,
         label:r.name+" · "+val.toPrecision(4)+" "+r.unit});
     }
   }
