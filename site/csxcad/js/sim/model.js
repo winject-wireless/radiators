@@ -210,7 +210,9 @@ export function buildModel(config) {
   // properties in creation order (IDs as CSXCAD assigns them)
   let id = 0;
   const props = [];
-  for (const [, m] of mats) props.push(materialXml(m.def, id++, m.prims));
+  for (const m of mats.values()) {
+    if (m.prims.length) props.push(materialXml(m.def, id++, m.prims));
+  }
   const portInfo = [];
   for (const s of ports) {
     const n = pid(s);
