@@ -312,6 +312,9 @@ def output_data(config, resultdir):
     driven=active[0]
     driven_id=int(driven.get("id",driven.get("port_number",1)))
     nf2ff=fdtd.CreateNF2FFBox()
+    mesh_lines_mm=[list(map(float,mesh.GetLines(axis))) for axis in "xyz"]
+    counts=[len(a)-1 for a in mesh_lines_mm]
+    cells=math.prod(counts)
     resultdir.mkdir(parents=True,exist_ok=True)
     fdtd_path=resultdir/"fdtd"
     csx.Write2XML(str(resultdir/"geometry.xml"))
@@ -334,6 +337,7 @@ def output_data(config, resultdir):
         "geometry_preview":previews,
         "mesh_cells":counts,
         "mesh_total_cells":cells,
+        "mesh_lines_mm":mesh_lines_mm,
         "port_name":driven.get("name",f"port-{driven_id}"),
         "port_id":driven_id,
         "s11":{
