@@ -14,7 +14,7 @@ import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, r
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
-import { storage, saveFile, registerServiceWorker, isNative } from "./platform.js";
+import { storage, saveFile, registerServiceWorker, isNative, installAppViewport } from "./platform.js";
 import { sampleDirection, defaultProbe } from "./sim/radiation.js";
 import { buildModel } from "./sim/model.js";
 import { meshSegments, meshMinima, nearestLine, planeAxes, validMeshLines } from "./sim/mesh-view.js";
@@ -2482,6 +2482,7 @@ function installSheetDrag() {
 
 // ---------------------------------------------------------------- boot
 async function boot() {
+  installAppViewport();
   const prefs = storage.get(PREFS_KEY) || {};
   if (isNative()) {
     // Inside the Android app there is no ../ results viewer next to us.
