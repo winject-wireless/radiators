@@ -1973,7 +1973,7 @@ function installResultSwipe(){
   const area=$("resultBody");
   let start=null;
   area.addEventListener("touchstart",e=>{
-    if(!mobile()||e.touches.length!==1||e.target.closest("button,select,input,a")){start=null;return;}
+    if(!mobile()||e.touches.length!==1||e.target.closest("button,select,input,a,[data-smith-drag]")){start=null;return;}
     start={x:e.touches[0].clientX,y:e.touches[0].clientY};
   },{passive:true});
   area.addEventListener("touchcancel",()=>{start=null;},{passive:true});
