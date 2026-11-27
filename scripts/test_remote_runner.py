@@ -80,6 +80,26 @@ class RemoteTests(unittest.TestCase):
                 wait_for(lambda:len(entered)==3 and all(j["state"]=="done" for j in self.runner.jobs.values()))
             finally: gate.set()
 
+    def test_immediate_case_start_requires_free_cpu(self):
+        gate = threading.Event()
+        def fake(j, cpus):
+            gate.wait(3)
+            with self.runner.lock:
+                j.update(state="done", seconds=.01)
+        with patch.object(self.runner, "execute", side_effect=fake):
+            try:
+                for ident in ("1"*32, "2"*32):
+                    self.runner.submit({"id":ident,"config":copy.deepcopy(CONFIG),"require_capacity":True})
+                self.assertEqual(sum(j["cpus"] for j in self.runner.jobs.values() if j["state"]=="starting"),4)
+                with self.assertRaisesRegex(RuntimeError,"CPU capacity unavailable"):
+                    self.runner.submit({"id":"3"*32,"config":copy.deepcopy(CONFIG),"require_capacity":True})
+                self.assertNotIn("3"*32,self.runner.jobs)
+            finally:
+                gate.set()
+                for _ in range(200):
+                    if all(j["state"]=="done" for j in self.runner.jobs.values()):break
+                    time.sleep(.01)
+
     def test_cpu_budget_and_cancel_queued_job(self):
         gate=threading.Event()
         entered=[]
