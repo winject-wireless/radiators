@@ -902,3 +902,9 @@ dialog .example-list > button { padding:7px 9px; gap:3px; }
 .refinement-box .row:last-child {margin-bottom:0;}
 .refinement-box .row:has(>.vec3) {grid-template-columns:minmax(0,1fr);gap:3px;}
 .refinement-box .vec3 input {min-width:0;}
+
+/* Simulation inclusion is separate from the preview eye toggle. */
+.tree-row .object-enable { flex-shrink: 0; color: var(--accent); }
+.tree-row.tree-disabled .object-enable { color: var(--faint); }
+.tree-disabled .nm { opacity: .5; text-decoration: line-through; }
+.tree-disabled .kind { opacity: .7; }

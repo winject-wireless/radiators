@@ -325,7 +325,11 @@ export function resolveCase(config, parameters) {
   delete base.parameters;
   delete base.generator;
   delete base.workspace_units; // editor metadata, not a solver input
-  return resolveTemplate(base, parameters);
+  // Disabled editor objects remain in the source, but do not resolve parameters or scripts.
+  if(Array.isArray(base.geometry))base.geometry=base.geometry.filter(g=>g?.enabled!==false);
+  const resolved=resolveTemplate(base, parameters);
+  if(Array.isArray(resolved.geometry))resolved.geometry=resolved.geometry.filter(g=>g?.enabled!==false);
+  return resolved;
 }
 
 // Editor field text <-> JSON value.

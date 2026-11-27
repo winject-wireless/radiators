@@ -4,6 +4,7 @@
 // Input: a resolved, script-expanded schema v2 config (see editor expandResolved()).
 import { transformer, helixPoints, hemisphereMesh, polyhedronData, rotationMatrix } from "../geometry.js";
 import { setupMesh, boundaryInfo } from "./mesh.js";
+import { meshStatistics } from "./diagnostics.js";
 
 const require = (cond, msg) => { if (!cond) throw Error(msg); };
 const positive = (v, label) => { const x = Number(v); if (typeof v === "boolean" || !Number.isFinite(x) || x <= 0) throw Error(label + " must be positive"); return x; };
@@ -173,9 +174,10 @@ export function buildModel(config) {
     require(!mats.has(m.name), `Duplicate material ${m.name}`);
     mats.set(m.name, { def: m, prims: [] });
   }
-  require((config.geometry ?? []).length > 0, "At least one geometry object required");
+  const geometry=(config.geometry??[]).filter(g=>g.enabled!==false);
+  require(geometry.length > 0, "At least one enabled geometry object required");
   const geometryBounds = [], previews = [];
-  for (const g of config.geometry) {
+  for (const g of geometry) {
     require(!("script" in g), "Script instances must be expanded before building the model");
     require(mats.has(g.material), `Undefined material ${g.material}`);
     const md = mats.get(g.material).def;
@@ -287,6 +289,6 @@ ${props.join("\n")}
   return {
     xml, counts, cells, freq, patterns, theta, phi, ports: portInfo, driven,
     nf2ff: { e_file: "nf2ff_E", h_file: "nf2ff_H", start, stop, directions, mirror },
-    previews, deltaUnit: 1e-3,
+    previews, deltaUnit: 1e-3, meshStatistics: meshStatistics(grid.lines),
   };
 }

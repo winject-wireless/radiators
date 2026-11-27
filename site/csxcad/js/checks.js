@@ -245,9 +245,10 @@ export function checkCase(cfg) {
 
   // Geometry
   const geometry = cfg.geometry;
-  if (!Array.isArray(geometry) || !geometry.length) err("geometry", "At least one geometry object required");
+  if (!Array.isArray(geometry) || !geometry.some(g=>g?.enabled!==false)) err("geometry", "At least one enabled geometry object required");
   const conductors=[];
   (geometry || []).forEach((g, i) => {
+    if(g.enabled===false)return;
     const label = g.name || g.shape || `#${i + 1}`;
     const ref = { kind: "geometry", index: i };
     const m = mats.get(g.material);
@@ -300,7 +301,7 @@ export function checkCase(cfg) {
     attemptedGrid=true;
     try{
       if(!mesh||!ds||!de)return null;
-      const g=(geometry||[]).map(installGeometry);
+      const g=(geometry||[]).filter(x=>x.enabled!==false).map(installGeometry);
       const bounds=ports.map(p=>{
         const ext=p.type==="coaxial"?Number(p.outer_radius??0):0;
         return [p.start.map((v,i)=>Math.min(v,p.stop[i])-ext),p.start.map((v,i)=>Math.max(v,p.stop[i])+ext)];

@@ -437,6 +437,7 @@ export function expandScripts(config, run) {
   };
   const geometry = [];
   for (const g of config.geometry ?? []) {
+    if(g.enabled===false)continue;
     if (!isScriptInstance(g)) { geometry.push(g); continue; }
     const where = `geometry ${g.name || g.script}`;
     try {
