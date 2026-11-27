@@ -1726,7 +1726,7 @@ function inspectSim(box, title) {
       doc.mesh?.grid_mode==="uniform" ? h("p",{class:"note warn",text:"Uniform grid ignores local refinements. Select Feature grid in Mesh."}):null,
       h("div",{class:"refinement-actions"},h("button",{type:"button",onclick:()=>addRefinement(false)},"+ Box"),
         h("button",{type:"button",disabled:!feedRegion(),onclick:()=>addRefinement(true)},"+ Around feed")),
-      h("p",{class:"hint",text:"Enabled purple boxes add mesh lines along each axis. Disable a box to exclude it without deleting its settings. Select an enabled box to drag its corners. Around feed uses 5 mm padding and 0.25 mm spacing in the current case."}),
+      h("p",{class:"hint",text:"Enabled boxes override the global spacing where finer. The finest overlapping box wins; equal or coarser spacing adds no lines. Box boundaries snap outwards to existing mesh cells. Select an enabled box to drag its corners. Around feed uses 5 mm padding and 0.25 mm spacing in the current case."}),
       ...refinements.map((r,k)=>refinementFields(k))),
     h("details", { class: "form-section", open: true }, h("summary", { text: "Outputs" }),
       ...s11.map((s, k) => h("div", { class: "note" },
