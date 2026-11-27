@@ -1,8 +1,9 @@
 # Diagnostic probes and field playback
 
-The Diagnostics section in the CSXCAD model tree adds passive objects. Choose
-Remote (native openEMS) in Simulation. Browser/WASM execution rejects enabled
-diagnostics until its capture/export path is implemented.
+The Diagnostics section in the CSXCAD model tree adds passive objects. Both
+browser/WASM and remote native openEMS use the same diagnostic result format.
+WASM reads HDF5 through its existing exported API; no separate JS HDF5 library
+or solver rebuild is required.
 
 - Current: a plane, with the normal indicating positive current.
 - Voltage: an axis-aligned line, with the line direction as reference.
