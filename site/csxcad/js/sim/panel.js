@@ -4,6 +4,7 @@ import { OpenEMS } from "../../vendor/openems/openems.js";
 import { buildModel } from "./model.js";
 import { runSimulation, summarize, hasValidS11 } from "./run.js";
 import { lineChart, polarChart, smithChart } from "./plot.js";
+import { diagnosticFrame } from "./probe-playback.js";
 import { updateSolverDiagnostics } from "./diagnostics.js";
 import { registerServiceWorker, isolationUnavailableReason, storage } from "../platform.js";
 import { RemoteRunner, remoteEndpoint } from "./remote.js";
@@ -410,6 +411,7 @@ async function start(ctx, all = false) {
           }});
           if(!hasValidS11(result))throw Error("Remote solver returned no valid S11");
         }else{
+        if(c.config.probes?.some(p=>p.enabled!==false))throw Error("Diagnostic probes require the Remote native runner");
         const model=buildModel(c.config);
         job.model=model;
         job.stage="starting openEMS";
@@ -558,6 +560,7 @@ export function renderResults(box, ctx, run, caseId, stale) {
       chartCard("VSWR", lineChart({ series: [{ x: f, y: r.s11.vswr.map(v => v === null ? null : Math.min(v, 10)) }], xLabel: "GHz", yLabel: "VSWR", yMin: 1, hlines: [{ y: 2, label: "2:1" }], xFmt: v => String(+v.toFixed(3)) })),
       chartCard("Smith chart", smithChart({s11:r.s11,z0,frequencyHz:smithFrequency}))),
     diagnosticCards(r.diagnostics),
+    r.diagnostic_probes?.length ? playbackPanel(r.diagnostic_probes, ctx) : null,
     r.patterns.length?h("div",{class:"result-section-head"},h("h3",{text:"Radiation patterns"})):null,
     ...r.patterns.map(p => patternCards(p)),logBox);
   updateResultLog();
@@ -617,5 +620,81 @@ function diagnosticCards(d) {
   }
   if(plots.length)root.append(h("div",{class:"sim-charts"},...plots));
   root.append(h("p",{class:"hint",text:"Waveforms retain bucket extrema for plotting; peak and RMS use every finite probe sample. Spectral power is normalized to peak incident for display, not calibrated transmitter watts."}));
+  return root;
+}
+
+function playbackPanel(records,ctx){
+  const root=h("details",{class:"sim-pattern",open:true},h("summary",{text:"Diagnostic probes and fields"}));
+  const valid=records.filter(r=>r.time_s?.length||r.frequency_hz?.length||r.td||r.fd);
+  for(const r of records)if(r.warning)root.append(h("p",{class:"note warn",text:r.name+": "+r.warning}));
+  if(!valid.length)return root;
+  const times=valid.flatMap(r=>[r.time_s,r.td?.time_s].filter(a=>a?.length));
+  const frequencies=[...new Set(valid.flatMap(r=>[...(r.frequency_hz??[]),...(r.fd?.frequency_hz??[])]))].sort((a,b)=>a-b);
+  const lo=times.length?Math.min(...times.map(a=>a[0])):0,hi=times.length?Math.max(...times.map(a=>a.at(-1))):0;
+  let mode=times.length?"td":"fd",pos=0,playing=false,last=0,raf=0;
+  const visible=new Set(valid.map(r=>r.id));
+  const modeSelect=h("select",{"aria-label":"Playback mode"},times.length?h("option",{value:"td",text:"Recorded time domain"}):null,
+    frequencies.length?h("option",{value:"fd",text:"Frequency-domain phase"}):null);
+  const frequency=h("select",{"aria-label":"Frequency"},frequencies.map(f=>h("option",{value:f,text:ghz(f)})));
+  const slider=h("input",{type:"range",min:0,max:1000,step:1,value:0,"aria-label":"Playback position",style:"width:100%"});
+  const scale=h("input",{type:"range",min:1,max:50,value:10,step:1,"aria-label":"Arrow length (mm)"});
+  const density=h("input",{type:"range",min:1,max:16,value:1,step:1,"aria-label":"Spatial display stride"});
+  const speed=h("select",{"aria-label":"Playback speed"},[.25,.5,1,2,4].map(x=>h("option",{value:x,text:x+"×"})));speed.value="1";
+  const readout=h("span",{class:"hint"}),charts=h("div",{class:"sim-charts"}),cursors=[];
+  const play=h("button",{type:"button",class:"small"},"Play");
+  function stop(){playing=false;cancelAnimationFrame(raf);play.textContent="Play";}
+  function renderGraphs(){
+    charts.replaceChildren();cursors.length=0;
+    for(const r of valid.filter(r=>r.type!=="field_dump")){
+      let x,y,unit=r.unit,xLabel;
+      if(mode==="td"&&r.time_s?.length){x=r.time_s.map(t=>t*1e9);y=r.values;xLabel="ns";}
+      else if(mode==="fd"&&r.frequency_hz?.length){x=r.frequency_hz.map(f=>f/1e9);y=r.real.map((a,i)=>a.map((v,j)=>Math.hypot(v,r.imag[i][j])));xLabel="GHz";}
+      else continue;
+      // Limit plotted points (not playback data) to keep SVG and spread operations bounded.
+      const step=Math.max(1,Math.ceil(x.length/6000));
+      const indices=x.map((_,i)=>i).filter(i=>i%step===0||i===x.length-1);
+      const sx=indices.map(i=>x[i]);
+      const chart=lineChart({series:Array.from({length:r.components},(_,j)=>({x:sx,y:indices.map(i=>y[i][j]),label:r.components===1?r.name:"XYZ"[j]})),xLabel,yLabel:unit});
+      const cursor=document.createElementNS("http://www.w3.org/2000/svg","line");
+      cursor.setAttribute("y1","10");cursor.setAttribute("y2","160");cursor.setAttribute("stroke","#f59e0b");cursor.setAttribute("stroke-width","1");
+      chart.append(cursor);cursors.push({cursor,min:x[0],max:x.at(-1)});
+      charts.append(chartCard(r.name+" ("+unit+")",chart));
+      if(mode==="fd"){
+        const phaseChart=lineChart({series:Array.from({length:r.components},(_,j)=>({x:sx,y:indices.map(i=>Math.atan2(r.imag[i][j],r.real[i][j])*180/Math.PI),label:r.components===1?r.name:"XYZ"[j]})),xLabel,yLabel:"Degrees",yMin:-180,yMax:180});
+        charts.append(chartCard(r.name+" phase",phaseChart));
+      }
+    }
+  }
+  function update(){
+    if(!root.isConnected)return;
+    slider.value=String(Math.round(pos*1000));
+    const time=lo+(hi-lo)*pos,f=Number(frequency.value),phase=360*pos;
+    readout.textContent=mode==="td"?(time*1e9).toPrecision(5)+" ns":phase.toFixed(1)+"° · "+ghz(f);
+    for(const {cursor,min,max} of cursors){
+      const x=mode==="td"?time*1e9:f/1e9;
+      cursor.style.display=x<min||x>max?"none":"";
+      const p=46+(x-min)/(max-min||1)*504;cursor.setAttribute("x1",p);cursor.setAttribute("x2",p);
+    }
+    ctx.setDiagnosticFrame?.(diagnosticFrame(valid,{mode,time,frequency:f,phase,visible,scale:Number(scale.value),density:Number(density.value)}));
+  }
+  function tick(now){
+    if(!root.isConnected||!playing){stop();return;}
+    if(last)pos=(pos+(now-last)*Number(speed.value)/8000)%1;
+    last=now;update();raf=requestAnimationFrame(tick);
+  }
+  play.onclick=()=>{if(playing)stop();else{playing=true;last=0;play.textContent="Pause";raf=requestAnimationFrame(tick);}};
+  slider.oninput=()=>{pos=Number(slider.value)/1000;update();};
+  modeSelect.onchange=()=>{stop();mode=modeSelect.value;pos=0;frequency.hidden=mode!=="fd";renderGraphs();update();};
+  frequency.hidden=mode!=="fd";frequency.onchange=update;scale.oninput=update;density.oninput=update;
+  root.append(h("div",{class:"actions"},modeSelect,frequency,play,speed,readout),
+    slider,h("div",{class:"row"},h("label",{text:"Arrow length (mm)"}),scale),
+    h("div",{class:"row"},h("label",{text:"Spatial stride"}),density),
+    h("div",{class:"hint",text:"Arrows use fixed peak scaling per object. Recorded field frames use nearest recorded time; probe samples are interpolated. Phase playback is not recorded time."}));
+  for(const r of valid){
+    const check=h("input",{type:"checkbox",checked:true});
+    check.onchange=()=>{check.checked?visible.add(r.id):visible.delete(r.id);update();};
+    root.append(h("label",{class:"check-inline"},check,r.name+" · "+r.unit));
+  }
+  root.append(charts);renderGraphs();requestAnimationFrame(update);
   return root;
 }
