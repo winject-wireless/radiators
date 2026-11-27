@@ -48,6 +48,31 @@ class RemoteTests(unittest.TestCase):
         cfg["scripts"]={}
         with self.assertRaises(ValueError): validate({"id":ID,"config":cfg},self.args)
 
+    def test_parallel_cpu_and_memory_budget(self):
+        gate=threading.Event()
+        entered=[]
+        def fake(j, cpus, memory):
+            with self.runner.lock:
+                entered.append(j["id"])
+                j["state"]="running"
+            gate.wait(3)
+            with self.runner.lock:
+                j.update(state="done",seconds=.01)
+        def wait_for(predicate):
+            for _ in range(200):
+                if predicate(): return
+                time.sleep(.01)
+            self.fail("scheduler did not reach expected state")
+        with patch.object(self.runner,"execute",side_effect=fake):
+            try:
+                for ident in ("1"*32,"2"*32,"3"*32):
+                    self.runner.submit({"id":ident,"config":copy.deepcopy(CONFIG)})
+                wait_for(lambda:len(entered)==2)
+                self.assertEqual(self.runner.jobs["3"*32]["state"],"queued")
+                gate.set()
+                wait_for(lambda:len(entered)==3 and all(j["state"]=="done" for j in self.runner.jobs.values()))
+            finally: gate.set()
+
     def test_api(self):
         def fake(j, cpus, memory):
             path=j["path"]/"out"

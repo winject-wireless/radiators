@@ -38,7 +38,7 @@ Optional commands:
 Settings are independent of the checkout so git pull does not reset the
 token. Edit the JSON to change CPU/RAM caps, job timeout, port and origins.
 The default cap is up to 16 logical CPUs and 32 GiB, scaled down for smaller
-hosts. The UI case's solver.resources requests must fit these limits.
+hosts. The editor's ncpu_pool and ncpu_per_job control sweep parallelism; solver.resources.memory_gib controls memory per case. Server max_cpus and max_memory_gib are aggregate budgets across all active containers.
 Do not commit or share the token. The token gives access to all jobs.
 
 ## Connect from another machine or Android
@@ -102,8 +102,7 @@ A Ctrl+C or SIGTERM requests cancellation of active containers.
 
 ## Limits and verification
 
-This first version handles one active job at a time. Results are retained
-in temporary job storage until restart or eviction, not in a durable queue.
+Jobs are automatically dispatched within aggregate CPU and RAM budgets (up to 64 outstanding jobs and 256 retained records). Results are retained in temporary storage until restart or eviction, not in a durable queue. Unretrieved results are protected from eviction for at least one hour.
 Client disconnects do not cancel jobs. Native solver output is rendered
 in the existing viewer; remote diagnostic plots and PEC export are not yet
 implemented. Docker enforces CPU and RAM caps, but there is no separate

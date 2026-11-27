@@ -10,7 +10,7 @@ export class RemoteRunner {
   constructor(url,token,fetcher=(...args)=>globalThis.fetch(...args)) {
     this.url=remoteEndpoint(url);this.token=token;this.fetcher=fetcher;
     if(!token)throw Error("Enter runner token");
-    this.id=null;this.cancelled=false;this.cancelRequest=null;
+    this.id=null;this.cancelled=false;this.cancelRequest=null;this.submitted=false;
   }
   async request(path,method="GET",body) {
     const response=await this.fetcher(this.url+path,{method,headers:{Authorization:"Bearer "+this.token,...(body?{"Content-Type":"application/json"}:{})},
@@ -22,7 +22,7 @@ export class RemoteRunner {
   health(){return this.request("/v1/health");}
   abort(){
     this.cancelled=true;
-    if(this.id&&!this.cancelRequest)this.cancelRequest=this.request("/v1/jobs/"+this.id,"DELETE").catch(e=>{this.cancelRequest=null;throw e;});
+    if(this.id&&this.submitted&&!this.cancelRequest)this.cancelRequest=this.request("/v1/jobs/"+this.id,"DELETE").catch(e=>{this.cancelRequest=null;throw e;});
     return this.cancelRequest??Promise.resolve();
   }
   async run(config,{onStatus}={}) {
@@ -31,6 +31,7 @@ export class RemoteRunner {
     // Keep the ID on ambiguous network errors so the user can cancel on the host.
     try{
       await this.request("/v1/jobs","POST",{id:this.id,config});
+      this.submitted=true;
     }catch(e){throw Error("Remote submission failed ("+this.id+"): "+e.message);}
     let failures=0;
     for(;;){
