@@ -5,7 +5,7 @@ browser/WASM and remote native openEMS use the same diagnostic result format.
 WASM reads HDF5 through its existing exported API; no separate JS HDF5 library
 or solver rebuild is required.
 
-- Current: a plane, with the normal indicating positive current.
+- Current: a plane, with the normal indicating positive current. In the Model tree, use Edit to select the normal and a single shared plane position. The two in-plane corners define its area. Existing thick boxes can be repaired with Flatten to plane, which preserves the start coordinate on the selected normal. Changing a valid plane normal rotates its extent about the start corner. Dragging either corner moves the shared normal coordinate without introducing thickness.
 - Voltage: an axis-aligned line, with the line direction as reference.
 - E/H point: a single XYZ position, returns three components.
 - Field dump: a plane or volume, returns E/H/J/J_total/D/B vectors.
