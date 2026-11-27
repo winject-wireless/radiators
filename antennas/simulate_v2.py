@@ -185,6 +185,8 @@ def setup_mesh(mesh, cfg, geometry_bounds, source_bounds, geometry_previews, por
                 add_local_mesh(mesh,domain_start,domain_stop,lo,hi,step)
 
     for region in mesh_cfg.get("refinements",[]):
+        if region.get("enabled") is False:
+            continue
         a=vec3(region["start"],"mesh region start")
         b=vec3(region["stop"],"mesh region stop")
         require(np.all(b>a),"mesh refinement stop <= start")
