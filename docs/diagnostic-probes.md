@@ -1,8 +1,10 @@
 # Diagnostic probes and field playback
 
-The Diagnostics section in the CSXCAD model tree adds passive objects. Choose
-Remote (native openEMS) in Simulation. Browser/WASM execution rejects enabled
-diagnostics until its capture/export path is implemented.
+The Diagnostics section in the CSXCAD model tree adds passive objects. Both
+Browser/WASM and Remote/native runners support diagnostic capture and the same
+result format. The browser uses the existing WASM HDF5 API; no additional WASM
+build or HDF5 library is required. Raw field files are held in the browser solver
+memory, so start with small planes and modest sampling.
 
 - Current: a plane, with the normal indicating positive current.
 - Voltage: an axis-aligned line, with the line direction as reference.
@@ -69,6 +71,8 @@ applied. Use small planes and spatial subsampling first.
 
 ```sh
 node site/csxcad/tools/check_probe_playback.mjs
+node site/csxcad/tools/check_probe_capture.mjs
+node wasm/openems/test/diagnostic-probes.mjs
 python3 -m unittest discover -s scripts -p test_v2_diagnostics.py -v
 ```
 

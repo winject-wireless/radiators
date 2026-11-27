@@ -74,6 +74,7 @@ export class OpenEMSCore {
   }
 
   writeFile(path, data) {
+    this._h5Index = null;
     const full = this.resolve(path);
     this.mkdirs(full.slice(0, full.lastIndexOf('/')) || '/');
     this.FS.writeFile(full, data);
@@ -88,6 +89,7 @@ export class OpenEMSCore {
   }
 
   remove(path) {
+    this._h5Index = null;
     const full = this.resolve(path);
     const st = this.FS.stat(full);
     if (this.FS.isDir(st.mode)) {
@@ -132,6 +134,7 @@ export class OpenEMSCore {
 
   // openEMS <xmlPath> [args...] in SIM_DIR; returns the exit code (0 = ok).
   run(xmlPath, args = []) {
+    this._h5Index = null;
     this.FS.chdir(SIM_DIR);
     const xml = this.resolve(xmlPath);
     return this.callStrings((argc, argv) => this.module._oems_run(argc, argv), ['openEMS', xml, ...args]);
@@ -139,6 +142,7 @@ export class OpenEMSCore {
 
   // nf2ff <xmlPath>; returns the exit code (0 = ok).
   nf2ff(xmlPath) {
+    this._h5Index = null;
     this.FS.chdir(SIM_DIR);
     const M = this.module;
     const p = M.stringToNewUTF8(this.resolve(xmlPath));
@@ -164,7 +168,13 @@ export class OpenEMSCore {
   // a dataset as {dims, complex, data: Float64Array} (row major, dims as HDF5
   // stores them; complex data interleaved re, im)
   h5Read(file, path) {
-    const info = this.h5List(file).find((d) => d.path === path || d.path === '/' + path);
+    // HDF5 diagnostic playback reads many datasets from one immutable solver
+    // output. Cache only the most recent file's metadata; invalidate on writes,
+    // deletes and solver calls. This avoids a quadratic scan of TD datasets.
+    if (this._h5Index?.file !== file) {
+      this._h5Index = { file, datasets: new Map(this.h5List(file).map(d => [d.path,d])) };
+    }
+    const info = this._h5Index.datasets.get(path) ?? this._h5Index.datasets.get('/' + path);
     if (!info) throw new Error(`no dataset ${path} in ${file}`);
     const n = info.dims.reduce((a, b) => a * b, 1) * (info.complex ? 2 : 1);
     const M = this.module;
