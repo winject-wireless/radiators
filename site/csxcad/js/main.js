@@ -10,7 +10,7 @@ import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { currentDirection, currentPlaneAxis, currentPlaneLinked, setCurrentPosition, setCurrentDirection, moveCurrentCorner } from "./current-plane.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
-import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects } from "./sim/panel.js";
+import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects, importResultArchive, importResultFile } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
@@ -1056,6 +1056,7 @@ const simContext = {
   },
   getCases() { return state.derived.cases.map(c=>this.getCase(c)); },
   slug: () => slug(),
+  getTemplate: () => structuredClone(state.doc),
   archiveProject: () => { void archiveProject(); },
   onBadge(text) { for (const id of ["simBadge", "simBadgeMobile"]) { const b = $(id); if (b) b.textContent = text; } },
   notify: (msg, error = false) => setStatus(msg, error),
@@ -2457,7 +2458,7 @@ async function showLocalProjects() {
       $("dialog").close();
       loadDoc(project.doc,"Opened local project",project.caseIndex);
       void restoreResults(simContext);
-    }},h("strong",{text:project.doc.name||"Untitled antenna"}),h("small",{text:new Date(project.savedAt).toLocaleString()+" · "+(project.doc.geometry?.length??0)+" parts"}))));
+    }},h("strong",{text:project.label||project.doc.name||"Untitled antenna"}),h("small",{text:new Date(project.savedAt).toLocaleString()+" · "+(project.doc.geometry?.length??0)+" parts"}))));
     openDialog("Local projects",h("div",{},h("p",{class:"hint",text:"Saved project revisions and matching simulation results are stored on this device. Opening a project does not rerun it. Export important files for backup."}),projects.length?list:h("p",{class:"hint",text:"No saved projects yet. Use Save locally or run a simulation."})),[["Save current project",()=>void archiveProject({explicit:true})]]);
   }catch(e){setStatus("Local projects unavailable: "+e.message,true);}
 }
@@ -2468,6 +2469,27 @@ async function save() {
   catch (e) { setStatus("Save failed: " + e.message, true); }
 }
 
+async function openResultFile(file) {
+  try{
+    setStatus("Importing "+file.name+"…");
+    // Preserve existing results by default. Only an affirmative overwrite
+    // choice permits replacing a stored result for the same resolved input.
+    const overwrite=confirm("Replace existing matching results? Choose Cancel to keep existing results and import only missing ones.");
+    const out=/\.zip$/i.test(file.name)?await importResultArchive(file,{overwrite}):await importResultFile(JSON.parse(await file.text()),{overwrite});
+    loadDoc(out.doc,"Imported "+out.imported+" results · "+out.kept+" existing kept"+(out.errors.length?" · "+out.errors.length+" skipped":""));
+    openSheet("results");
+    if(out.errors.length)openDialog("Some ZIP entries could not be imported",h("div",{},...out.errors.map(error=>h("p",{class:"hint",text:error}))));
+    else if(!out.grouped&&/\.zip$/i.test(file.name))setStatus("Imported "+out.imported+" results · "+out.kept+" kept · remaining cases in Local projects");
+  }catch(e){setStatus("Result import failed: "+e.message,true);}
+}
+async function openFile(file){
+  if(/\.zip$|\.result\.json$/i.test(file.name))return openResultFile(file);
+  try{
+    const text=await file.text(), data=JSON.parse(text);
+    if(data?.input_config&&data?.s11)return openResultFile(file);
+    openFromText(text,file.name);
+  }catch(e){setStatus("Open failed: "+e.message,true);}
+}
 function openFromText(text, label) {
   try { loadDoc(JSON.parse(text), "Opened " + label); }
   catch (e) { setStatus("Open failed: " + e.message, true); }
@@ -2665,7 +2687,7 @@ async function boot() {
   $("save").addEventListener("click", save);
   $("openFile").addEventListener("change", async e => {
     const f = e.target.files?.[0];
-    if (f) openFromText(await f.text(), f.name);
+    if (f) await openFile(f);
     e.target.value = "";
   });
   $("docName").addEventListener("change", () => edit(doc => { doc.name = $("docName").value.trim() || "Untitled antenna"; }, { inspector: false }));
@@ -2833,7 +2855,7 @@ async function boot() {
     const f = e.dataTransfer?.files?.[0];
     if (!f) return; // Leave ordinary text/selection drag and drop to CodeMirror.
     e.preventDefault();
-    openFromText(await f.text(), f.name);
+    await openFile(f);
   });
 
   // Initial document: ?example=<file>, else local draft, else starter.
