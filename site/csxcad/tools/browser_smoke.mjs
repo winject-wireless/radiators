@@ -87,6 +87,18 @@ try {
   await openConfig(original);
   await page.waitForFunction(()=>!(window.__csxcad.state.doc.probes??[]).length);
   console.log("Current probe plane editor: PASS");
+  await page.locator("#meshToggle").click();
+  assert.match(await page.locator("#meshReadout").textContent(),/Generated mesh preview.*Min/);
+  assert.ok(await page.evaluate(()=>window.__csxcad.viewport.meshView.children.length>0));
+  await page.getByLabel("Mesh view plane").selectOption("XY");
+  assert.match(await page.locator("#meshReadout").textContent(),/Z =/);
+  await page.locator("#meshSmallest").click();
+  assert.ok(await page.evaluate(()=>window.__csxcad.viewport.meshView.children.some(o=>o.name==="mesh-smallest")));
+  await page.getByLabel("Mesh view plane").selectOption("3D");
+  assert.ok(await page.getByLabel("Mesh slice index").isDisabled());
+  await page.locator("#meshToggle").click();
+  assert.equal(await page.evaluate(()=>window.__csxcad.viewport.meshView.children.length),0);
+  console.log("Mesh canvas preview: PASS");
   // Clicking the already-active projection restores its home pose and framing.
   const cameraPose = () => page.evaluate(() => {
     const { camera, controls } = window.__csxcad.viewport;
@@ -191,6 +203,15 @@ try {
   assert.match(await caseLog.locator("summary").textContent(),/case-0002/);
   await caseLog.locator("summary").click();
   assert.match(await caseLog.locator("pre").textContent(),/openEMS|Timestep/i);
+  const logText=await caseLog.locator("pre").textContent();
+  await page.context().grantPermissions(["clipboard-read","clipboard-write"]);
+  await caseLog.getByRole("button",{name:"Copy openEMS log"}).click();
+  await caseLog.getByText("Copied",{exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),logText);
+  assert.equal(await caseLog.evaluate(el=>el.open),true);
+  await page.locator("#meshToggle").click();
+  assert.match(await page.locator("#meshReadout").textContent(),/Recorded solver mesh/);
+  await page.locator("#meshToggle").click();
   await page.locator("#resultCase").selectOption("0");
   assert.ok(await page.locator("#resultCharts").getByText("Best S11", { exact: true }).isVisible());
   assert.ok(await page.locator("#resultCharts svg").count() >= 4);
@@ -289,6 +310,7 @@ try {
   ]);
   const result = JSON.parse(await readFile(await download.path(), "utf8"));
   assert.equal(result.aborted, false);
+  assert.deepEqual(result.mesh_lines_mm.map(a=>a.length-1),result.mesh_cells);
   assert.ok(result.s11.logmag_db.some(Number.isFinite));
   assert.ok(result.impedance.real_ohm.some(Number.isFinite));
   assert.ok(result.patterns.some(p => p.record.radiation_valid && Number.isFinite(p.max_directivity_dbi)));
