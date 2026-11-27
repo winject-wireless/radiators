@@ -1,0 +1,47 @@
+// Remote runner API. Tokens are session-memory only; never stored in configs.
+export function remoteEndpoint(value, pageProtocol=globalThis.location?.protocol) {
+  const u=new URL(value);
+  if(!["http:","https:"].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error("Enter a runner HTTP(S) base URL without credentials, query or fragment.");
+  if(u.protocol==="http:"&&!["localhost","127.0.0.1","[::1]"].includes(u.hostname))throw Error("Use HTTPS for a remote host; HTTP is allowed only for localhost.");
+  return u.href.replace(/\/+$/,"");
+}
+export class RemoteRunner {
+  constructor(url,token,fetcher=fetch) {
+    this.url=remoteEndpoint(url);this.token=token;this.fetcher=fetcher;
+    if(!token)throw Error("Enter runner token");
+    this.id=null;this.cancelled=false;this.cancelRequest=null;
+  }
+  async request(path,method="GET",body) {
+    const response=await this.fetcher(this.url+path,{method,headers:{Authorization:"Bearer "+this.token,...(body?{"Content-Type":"application/json"}:{})},
+      ...(body?{body:JSON.stringify(body)}:{}),cache:"no-store",credentials:"omit",redirect:"error",signal:AbortSignal.timeout(30000)});
+    const data=await response.json();
+    if(!response.ok)throw Error(data.error||("Runner HTTP "+response.status));
+    return data;
+  }
+  health(){return this.request("/v1/health");}
+  abort(){
+    this.cancelled=true;
+    if(this.id&&!this.cancelRequest)this.cancelRequest=this.request("/v1/jobs/"+this.id,"DELETE").catch(e=>{this.cancelRequest=null;throw e;});
+    return this.cancelRequest??Promise.resolve();
+  }
+  async run(config,{onStatus}={}) {
+    this.id=crypto.randomUUID().replaceAll("-","");
+    const path="/v1/jobs/"+this.id;
+    // Keep the ID on ambiguous network errors so the user can cancel on the host.
+    try{
+      await this.request("/v1/jobs","POST",{id:this.id,config});
+    }catch(e){throw Error("Remote submission failed ("+this.id+"): "+e.message);}
+    let failures=0;
+    for(;;){
+      if(this.cancelled)await this.abort();
+      let state;
+      try{state=await this.request(path);failures=0;}
+      catch(e){if(++failures>=5)throw Error("Lost remote job "+this.id+": "+e.message);await new Promise(r=>setTimeout(r,1500));continue;}
+      onStatus?.(state);
+      if(state.state==="cancelled")throw Error("Remote job cancelled");
+      if(state.state==="failed")throw Error(state.error||"Remote solver failed");
+      if(state.state==="done")return await this.request(path+"/result");
+      await new Promise(r=>setTimeout(r,1000));
+    }
+  }
+}

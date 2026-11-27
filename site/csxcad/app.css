@@ -9,12 +9,14 @@
   --viewport-grad: radial-gradient(120% 90% at 50% 30%, #1b2230 0%, #11151c 55%, #0b0d12 100%);
   --grid-major: #3a4558; --grid-minor: #222a37; --domain: #6f86a6; --select-glow: #2f7cf6;
   --field: #0e1117; --glass: rgb(22 26 34 / .72); --shadow: 0 10px 30px rgb(0 0 0 / .45);
-  --radius: 12px; --r-sm: 7px; --dock-h: 270px; --tap: 35px; --gap: 8px; --field-h: 31px;
+  --radius: 10px; --r-sm: 6px; --dock-h: 270px; --tap: 34px; --gap: 6px; --field-h: 32px;
+  --ui-text: 13px; --ui-small: 12px; --ui-title: 14px; --ui-pad: 8px; --ui-space: 5px;
+  --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --safe-b: env(safe-area-inset-bottom, 0px); --safe-t: env(safe-area-inset-top, 0px);
   color-scheme: dark;
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 14.5px; -webkit-font-smoothing: antialiased;
+  font-size: var(--ui-text); -webkit-font-smoothing: antialiased;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
@@ -476,9 +478,23 @@ dialog[open] { animation: pop .16s ease-out; }
 dialog::backdrop { background: rgb(5 8 12 / .55); backdrop-filter: blur(3px); }
 dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-.example-list { display: flex; flex-direction: column; gap: 6px; max-height: 55dvh; overflow: auto; }
-.example-list button { justify-content: flex-start; text-align: left; white-space: normal; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 12px; }
-.example-list small { color: var(--muted); font-weight: 400; }
+.example-list {
+  display:flex; flex-direction:column; align-items:stretch; gap:5px;
+  max-height:min(65dvh, 520px); overflow-y:auto; overflow-x:hidden;
+  overscroll-behavior:contain; padding:2px 3px 2px 2px;
+}
+/* A scrollable flex column must not shrink its children to fit the viewport.
+   Each entry grows to its wrapped title and description. */
+.example-list > button {
+  flex:0 0 auto; width:100%; min-width:0; height:auto;
+  display:grid; grid-template-columns:minmax(0,1fr); align-content:center;
+  justify-items:start; text-align:left; white-space:normal; gap:3px;
+  padding:7px 9px; overflow-wrap:anywhere;
+}
+.example-list > button > strong,
+.example-list > button > small { display:block; min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; line-height:1.4; }
+.example-list > button > strong { font-size:var(--ui-text); font-weight:600; }
+.example-list > button > small { font-size:var(--ui-small); color:var(--muted); font-weight:400; }
 
 /* ---------- tablet ---------- */
 @media (max-width: 1100px) {
@@ -489,7 +505,7 @@ dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
 
 /* ---------- phone: full-screen viewport + bottom sheets ---------- */
 @media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
-  :root { --tap: 43px; font-size: 16px; }
+  :root { --tap: 38px; --field-h: 34px; --ui-pad: 8px; --ui-space: 4px; }
   body { grid-template-rows: auto 1fr auto auto; }
   .brand::after, .brand-text, .top-actions .label, #docMeta, .statusbar { display: none; }
   .topbar { gap: 6px; padding-inline: 10px; }
@@ -540,10 +556,10 @@ dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
   .mobile-nav .ico { width: 21px; height: 21px; flex-basis: 21px; }
   .mobile-nav button.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .mobile-nav .badge { position: absolute; top: 3px; right: calc(50% - 22px); }
-  :root { --field-h: 39px; }
+  :root { --field-h: 34px; }
   .row { grid-template-columns: minmax(80px, 32%) 1fr; margin-bottom: 5px; }
   .row > label, .row > .lbl { padding-top: 8px; font-size: 14px; }
-  input, select { min-height: var(--field-h); font-size: 17.5px; } /* 16px avoids Android/iOS zoom-on-focus */
+  input, select { min-height: var(--field-h); font-size: var(--ui-text); }
   body.sheet-peek .panel { height: auto; max-height: 46dvh; }
   body.script-max #panelScripts { position: absolute; top: 0; left: 0; right: 0; bottom: 0; height: auto; border-radius: 0; }
   body.sim-max #panelSim { position: absolute; top: 0; left: 0; right: 0; bottom: 0; height: auto; border-radius: 0; }
@@ -553,9 +569,7 @@ dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
   .script-code .CodeMirror { height: 240px; font-size: 13px; }
   body.sheet-peek .panel .panel-body { padding-bottom: 10px; }
   .head-btn { min-width: 34px !important; min-height: 34px !important; }
-  .field.expr input { font-size: 16px; }
-  .vec3 .field input { font-size: 16px; }
-  textarea { font-size: 14px; }
+  .field.expr input, .vec3 .field input, textarea { font-size: var(--ui-text); }
   .params-layout { grid-template-columns: 1fr; }
   .sweep-axis { grid-template-columns: minmax(0, 1fr) 96px var(--tap); grid-template-areas: "name kind rm" "vals vals vals"; }
   .sweep-axis > :nth-child(1) { grid-area: name; }
@@ -590,3 +604,307 @@ dialog h2 { margin: 0 0 12px; font-size: 17.5px; font-weight: 650; }
   .probe-metrics b { font-size: 12px; }
   .probe-readout small { display: none; }
 }
+
+/* Compact, touch-friendly run toolbar and fixed result navigation. */
+.sim-run { padding: 6px 8px 8px !important; margin-bottom: 8px; }
+.sim-run h3 { margin: 0 0 5px; }
+.sim-controls { gap: 5px; }
+.sim-controls button, .sim-controls select, .sim-controls input { min-height: 34px; font-size: 13px; padding: 3px 8px; }
+.sim-controls select { max-width: 156px; }
+.sim-engine, .sim-threads { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.sim-threads input { width: 56px; }
+.sim-case-hint { margin: 4px 0 0; font-size: 12px; }
+.sim-stats:empty { display: none; }
+.results-head { flex-shrink: 0; border-bottom: 1px solid var(--line); padding: 5px 10px; min-height: 40px; }
+.results-head h2 { flex: 0 1 auto; font-size: 13px; }
+.result-case { display: flex; align-items: center; flex: 1; min-width: 0; gap: 5px; }
+.result-case select { width: 100%; min-width: 0; min-height: 32px; font-size: 13px; }
+#resultCaseCount { font-size: 11px; white-space: nowrap; }
+#resultBody { touch-action: pan-y; }
+@media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
+  .sim-controls button,.sim-controls select,.sim-controls input { min-height: 40px; padding: 3px 8px; }
+  .sim-controls select,.sim-controls input { font-size: 16px; }
+  .sim-controls select { max-width: 138px; }
+  .sim-controls button { font-size: 13px; }
+  .sim-threads input { width: 54px; }
+  .results-head { padding: 16px 8px 4px 10px; gap: 6px; }
+  .results-head h2 { font-size: 13px; flex-shrink: 0; }
+  .result-case select { font-size: 16px; min-height: 39px; }
+  .results-head .sheet-close { flex-shrink: 0; }
+  #resultBody { padding-inline: 10px; }
+  .sim-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+  .kpi { padding: 6px 8px; }
+}
+
+/* Explicit text sizing avoids Android text autosizing on the narrow viewport. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.view-toolbar .case-select { min-width: 0; }
+.view-toolbar .case-select select { font-size: 13px; min-width: 0; }
+.probe-overlay { position:absolute; left:8px; bottom:10px; z-index:5; max-width:calc(100% - 76px); font-size:12px; padding:5px 7px; }
+.probe-overlay .probe-head { margin:0 0 2px; }
+.probe-overlay .probe-head button { font-size:12px; min-height:30px; padding:2px 9px; }
+.probe-overlay .probe-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px 10px; }
+.probe-overlay .probe-metrics span { display:flex; align-items:baseline; justify-content:space-between; gap:5px; white-space:nowrap; font-size:12px; color:var(--muted); }
+.probe-overlay .probe-metrics b { display:inline; font-size:12px; color:var(--text); }
+.probe-details { font-size:11px; line-height:1.35; }
+.probe-details summary { cursor:pointer; min-height:28px; padding:5px 0; color:var(--muted); }
+.probe-details > div { white-space:normal; }
+@media (max-width:760px), (max-height:520px) and (max-width:1000px) {
+  .view-toolbar.top-left { top:6px;left:6px;right:6px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px;align-items:start; }
+  .view-toolbar.top-left > * { min-width:0; }
+  .view-presets,.view-toolbar .toggles { padding:2px;gap:1px;border-radius:8px;display:flex; }
+  .view-presets > button,.view-toolbar .toggles > button { flex:1;min-width:0;min-height:34px;padding:2px 2px;font-size:11.5px; }
+  .view-toolbar .case-select { padding:0 2px 0 5px;gap:2px;font-size:11.5px;border-radius:8px; }
+  .view-toolbar .case-select select { max-width:none;width:100%;min-height:34px;font-size:12px;padding:2px; }
+  .view-toolbar .case-select span { flex-shrink:0; }
+  #radiationTools { grid-column:1/-1; }
+  #radiationTools .seg { padding:2px;gap:2px;border-radius:8px; }
+  #radiationTools .seg > button { font-size:12px;min-height:34px;padding:2px 8px; }
+  .probe-overlay { bottom:8px;left:6px;max-width:calc(100% - 64px); }
+  .probe-overlay .probe-head button { min-height:34px; }
+  .probe-overlay .probe-details summary { min-height:32px;padding:7px 0; }
+  body:not([data-sheet=""]) .probe-overlay { display:none; }
+  .bottom-right { bottom:8px;right:8px; }
+  .fab { width:42px;height:42px; }
+  .sim-controls { gap:4px; }
+  .sim-controls button,.sim-controls select,.sim-controls input { min-height:38px;font-size:13px;padding:3px 6px; }
+  .sim-controls input { font-size:16px; }
+}
+
+/* Shared compact editor density: consistent text and spacing across all panels,
+   toolbars, menus, dialogs and corners. Do not shrink the whole viewport with
+   CSS zoom; controls retain normal hit testing and browser zoom accessibility. */
+button,.button,input,select { font-size:var(--ui-text); }
+button,.button { padding:4px 9px; gap:4px; }
+input,select { padding:3px 6px; }
+textarea,.field.expr input,.vec3 .field input { font-size:var(--ui-text); }
+.panel-head h2 { font-size:var(--ui-title); }
+.panel-head { flex-shrink:0; }
+.panel-body { padding-inline:var(--ui-pad); padding-bottom:var(--ui-pad); }
+.form-section { margin-top:8px; padding-top:7px; }
+.form-section > h3,.form-section > summary { margin:2px 0 6px; font-size:var(--ui-text); }
+.hint,.note,.check-inline,.row > label,.row > .lbl { font-size:var(--ui-text); line-height:1.4; }
+.hint { margin:4px 0; }
+.note { padding:6px 8px; margin:5px 0; }
+.actions { margin-top:7px; gap:var(--ui-space); }
+.row { gap:3px 6px; margin-bottom:4px; }
+.ptable { table-layout:fixed; }
+.ptable th,.ptable td { padding:3px; }
+.ptable th:nth-child(1) { width:38%; }
+.ptable th:nth-child(2) { width:22%; }
+.ptable th:nth-child(4) { width:calc(var(--tap) + 6px); }
+.ptable .slider { min-width:0; }
+.ptable .uses { font-size:var(--ui-small); }
+.ptable td:last-child button { width:var(--tap); min-width:var(--tap); min-height:var(--tap); padding:3px; }
+.param-help { margin-top:6px; color:var(--muted); font-size:var(--ui-small); }
+.param-help summary { cursor:pointer; padding:5px 0; }
+.sim-layout { grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:8px 14px; }
+.sim-head .hint { font-size:var(--ui-small); }
+.case-list div { min-height:32px; padding:6px 7px; font-size:var(--ui-text); }
+#resultBody { overflow-anchor:none; }
+@media (max-width:760px), (max-height:520px) and (max-width:1000px) {
+  .topbar { padding:calc(4px + var(--safe-t)) calc(6px + var(--safe-r)) 4px calc(6px + var(--safe-l));gap:4px; }
+  .top-actions { gap:3px; }
+  .top-actions .button,.top-actions button { min-width:var(--tap); min-height:var(--tap); padding:3px 5px; }
+  .docname { gap:4px; }
+  .docname input { font-size:var(--ui-title); min-height:var(--field-h); }
+  .brand::before { width:18px;height:18px;flex-basis:18px;border-radius:5px; }
+  .panel,.dock-panel,.dock .panel { border-radius:12px 12px 0 0; }
+  .panel-head { min-height:40px;padding:12px calc(6px + var(--safe-r)) 3px calc(8px + var(--safe-l));gap:5px; }
+  .panel-head::before { top:4px;width:30px;height:3px;margin-left:-15px; }
+  .panel-head h2,.results-head h2 { font-size:var(--ui-title); }
+  .panel-body,#resultBody { padding-left:calc(var(--ui-pad) + var(--safe-l));padding-right:calc(var(--ui-pad) + var(--safe-r)); }
+  .sheet-close { min-width:34px!important;min-height:34px!important;padding:3px!important; }
+  .head-btn { min-width:34px!important;min-height:34px!important; }
+  .row { grid-template-columns:minmax(70px,30%) minmax(0,1fr); }
+  .row > label,.row > .lbl { padding-top:6px; }
+  .row.wide { grid-template-columns:minmax(0,1fr); }
+  .check-inline { gap:5px; min-height:34px; padding:0; }
+  .check-inline input { flex-shrink:0; }
+  .ptable th,.ptable td { padding:2px; }
+  .ptable th:nth-child(1) { width:39%; }
+  .ptable th:nth-child(2) { width:22%; }
+  .ptable th:nth-child(4) { width:calc(var(--tap) + 4px); }
+  .ptable input[type=text] { font-size:var(--ui-text); padding-inline:4px; }
+  .ptable .slider { height:25px;min-height:25px; }
+  .ptable .uses { font-size:11px; }
+  .sweep-axis { grid-template-columns:minmax(0,1.15fr) 78px minmax(0,1fr) 34px;grid-template-areas:"name kind vals rm";gap:3px;padding-bottom:4px;margin-bottom:5px;align-items:center; }
+  .sweep-axis:has(.range) { grid-template-columns:minmax(0,1fr) 88px 34px;grid-template-areas:"name kind rm" "vals vals vals"; }
+  .sweep-axis > input,.sweep-axis > select { width:100%;font-size:var(--ui-text);padding-inline:4px; }
+  .sweep-axis > button { min-width:34px;min-height:34px;padding:2px; }
+  .sim-controls button,.sim-controls select,.sim-controls input { min-height:36px;font-size:var(--ui-text);padding:3px 6px; }
+  .sim-threads input { width:52px; }
+  .result-case select { font-size:var(--ui-text);min-height:34px; }
+  .mobile-nav { grid-template-columns:repeat(6,minmax(0,1fr));padding:2px calc(3px + var(--safe-r)) calc(2px + var(--safe-b)) calc(3px + var(--safe-l)); }
+  .mobile-nav button { min-height:43px;padding:3px 0;gap:1px;border-radius:8px;font-size:10.5px;min-width:0; }
+  .mobile-nav .ico { width:18px;height:18px;flex-basis:18px; }
+  .mobile-nav .badge { top:1px;right:calc(50% - 18px); }
+  .menu { right:calc(6px + var(--safe-r));max-width:calc(100vw - 12px - var(--safe-l) - var(--safe-r));top:calc(46px + var(--safe-t));padding:4px; }
+  .menu > button,.menu > a { min-height:36px;padding:4px 7px;font-size:var(--ui-text); }
+  .add-menu { top:auto;right:0;bottom:calc(100% + 5px); }
+  dialog { max-width:calc(100vw - 16px - var(--safe-l) - var(--safe-r));padding:10px; }
+  dialog h2 { font-size:var(--ui-title); }
+  .view-toolbar.top-left { left:calc(5px + var(--safe-l));right:calc(5px + var(--safe-r));top:5px; }
+  .probe-overlay { left:calc(5px + var(--safe-l));bottom:5px; }
+  .bottom-right { right:calc(5px + var(--safe-r));bottom:5px; }
+  .selection-chip { bottom:50px; }
+  .fab { width:38px;height:38px;min-height:38px;border-radius:10px; }
+  .view-error { left:calc(5px + var(--safe-l));right:calc(48px + var(--safe-r));bottom:5px; }
+}
+@media (max-width:350px) {
+  .sweep-axis { grid-template-columns:minmax(0,1fr) 76px 34px;grid-template-areas:"name kind rm" "vals vals vals"; }
+}
+
+/* Desktop dock splitter and responsive Simulation/Results flow. */
+.dock-resize {
+  height:8px;flex:0 0 8px;cursor:ns-resize;touch-action:none;position:relative;
+  display:flex;align-items:center;justify-content:center;
+}
+.dock-resize::after {content:"";width:44px;height:3px;border-radius:3px;background:var(--line-2);}
+.dock-resize:hover,.dock-resize:focus-visible,body.dock-resizing .dock-resize {background:color-mix(in srgb,var(--accent) 14%,transparent);}
+.dock-resize:hover::after,.dock-resize:focus-visible::after,body.dock-resizing .dock-resize::after {background:var(--accent);}
+body.dock-resizing,body.dock-resizing * {cursor:ns-resize!important;user-select:none!important;}
+body.dock-collapsed .workspace {grid-template-rows:minmax(0,1fr) 48px;}
+.dock-tabs {padding:2px 5px 4px;gap:2px;}
+.dock-tabs [role=tab] {min-height:28px;padding:3px 9px;font-size:var(--ui-text);}
+#sim {container-type:inline-size;}
+.sim-run-area {margin-bottom:7px;}
+.sim-run {margin:0!important;padding:6px 8px!important;}
+.sim-run-head {display:flex;align-items:center;gap:6px;margin-bottom:4px;min-width:0;}
+.sim-run-head h3 {margin:0;flex-shrink:0;color:var(--text);font-size:var(--ui-title);font-weight:600;}
+.sim-run-head .sim-case-hint {flex:1;min-width:0;margin:0;overflow-wrap:anywhere;font-size:var(--ui-small);}
+.sim-run-head .sim-max-btn {margin-left:auto;flex-shrink:0;}
+.sim-controls {display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:5px 10px;}
+.sim-run-actions,.sim-run-options {display:flex;align-items:center;flex-wrap:wrap;gap:5px;}
+.sim-run-actions button[hidden] {display:none;}
+.sim-run-options select {max-width:148px;}
+.sim-stats {margin-top:4px;overflow-wrap:anywhere;}
+.sim-log-box summary {margin-top:4px;}
+.sim-layout {grid-template-columns:repeat(auto-fit,minmax(min(265px,100%),1fr));gap:6px;align-items:start;}
+.sim-layout > .sim-setup-card {padding:7px!important;margin:0;border:1px solid var(--line)!important;border-radius:var(--r-sm);background:var(--panel);}
+.sim-setup-card > h3,.sim-setup-card > summary {margin:0 0 5px;font-weight:600;color:var(--text);font-size:var(--ui-text);}
+.sim-setup-card > summary {cursor:pointer;min-height:25px;padding:3px 0;overflow-wrap:anywhere;}
+.sim-setup-card:not([open]):is(details) > summary {margin-bottom:0;}
+.sim-setup-notice {grid-column:1/-1;}
+.sim-setup-card .row:last-child {margin-bottom:0;}
+.sim-setup-card .hint {font-size:var(--ui-small);}
+.sim-sweep-card .case-list {max-height:106px;margin-top:3px;}
+.sim-sweep-card .case-list div {min-height:30px;}
+#resultBody {container-type:inline-size;}
+.result-summary-head,.result-section-head {display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;}
+.result-summary-head {margin:2px 0 5px;}
+.sim-results .result-summary-head h3,.sim-results .result-section-head h3 {margin:0;font-size:var(--ui-text);font-weight:600;}
+.result-download {flex-shrink:0;}
+.result-section-head {border-top:1px solid var(--line);padding-top:6px;margin:9px 0 5px;}
+.sim-kpis {grid-template-columns:repeat(auto-fit,minmax(min(120px,100%),1fr));gap:5px;}
+.kpi {min-width:0;padding:5px 7px;background:var(--panel-2);}
+.kpi-value {font-size:15px;overflow-wrap:anywhere;}
+.kpi-label,.kpi-sub {font-size:11px;line-height:1.3;}
+.sim-charts {grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr));gap:6px;margin:0;}
+@media (min-width:1101px) {
+  .sim-charts {grid-template-columns:repeat(3,minmax(0,1fr));}
+}
+.sim-polars {grid-template-columns:repeat(auto-fit,minmax(min(175px,100%),1fr));gap:6px;margin:0;}
+.chart-card {min-width:0;padding:4px 5px;}
+.chart-card figcaption {font-size:var(--ui-small);margin-bottom:1px;}
+.sim-pattern {margin-top:7px;}
+.sim-results .sim-pattern h4 {margin:0 0 4px;font-size:var(--ui-small);}
+@container (min-width:540px) {
+  .sim-layout {grid-template-columns:repeat(2,minmax(0,1fr));}
+  .sim-sweep-card {grid-column:1/-1;}
+}
+@container (min-width:850px) {
+  .sim-layout {grid-template-columns:repeat(3,minmax(0,1fr));}
+  .sim-sweep-card {grid-column:auto;}
+}
+@media (max-width:760px),(max-height:520px) and (max-width:1000px) {
+  .dock-resize {display:none;}
+  .sim-run-head h3 {font-size:var(--ui-text);}
+  .sim-run-head .sim-case-hint {font-size:11px;}
+  .sim-controls {gap:5px;}
+  .sim-run-options {gap:4px;}
+  .sim-run-options select {max-width:126px;}
+  .sim-setup-card > summary {min-height:32px;padding:7px 0;}
+  .sim-layout {grid-template-columns:minmax(0,1fr);}
+  .sim-kpis {grid-template-columns:repeat(2,minmax(0,1fr));}
+  .sim-charts {grid-template-columns:minmax(0,1fr);}
+  .sim-polars {grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));}
+  .result-download {min-height:34px;font-size:12px;}
+}
+
+/* Final typography contract: a form's labels, values, options and actions
+   have one text scale. Only titles, annotations and KPI values differ. */
+:root { --ui-line: 1.4; --ui-small-line: 1.4; }
+html { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+body { font-size:var(--ui-text); line-height:var(--ui-line); }
+button,.button,input,select,textarea { font-size:var(--ui-text); line-height:var(--ui-line); }
+input,select,textarea { font-family:inherit; }
+textarea.code,.script-code .CodeMirror,.pname,.ptable .pname,.field.expr input { font-family:var(--mono); font-size:var(--ui-text); }
+.panel-head h2, .results-head h2,.sim-run-head h3,dialog h2 { font-size:var(--ui-title);line-height:var(--ui-line);font-weight:650; }
+.form-section > h3,.form-section > summary,.sim-setup-card > h3,.sim-setup-card > summary,.tree-section h3,.side-title,.sim-results .result-section-head h3,.sim-results .result-summary-head h3 { font-size:var(--ui-text);line-height:var(--ui-line);font-weight:600;color:var(--text); }
+.row > label,.row > .lbl,.check-inline,.sim-engine,.sim-threads,.case-list div,.case-select,.case-select select,.result-case select,.sim-controls button,.sim-controls input,.sim-controls select,.dock-tabs [role=tab] { font-size:var(--ui-text);line-height:var(--ui-line); }
+.hint,.note,.field-hint,.field .value,.unit,.sim-case-hint,.sim-run-head .sim-case-hint,.sim-stats,.sim-log-box summary,.sim-setup-card .hint,.ptable .uses,.probe-details,.chart-card figcaption,.kpi-label,.kpi-sub,.sim-results .sim-pattern h4 { font-size:var(--ui-small);line-height:var(--ui-small-line); }
+.field .value { font-family:inherit; }
+.field.expr .value { font-family:var(--mono); }
+.row > label,.row > .lbl { align-self:center;padding-top:0; }
+.row.wide > label { align-self:start; }
+.row > .field:not(.invalid) > .value:not(:empty),.arg-field > .field:not(.invalid) > .value:not(:empty) { max-width:55%;overflow:hidden;text-overflow:ellipsis;display:block;line-height:calc(var(--field-h) - 2px);padding-inline:7px; }
+.row > .field:not(.expr):not(.invalid):has(> .value:not(:empty)) > input,.arg-field > .field:not(.expr):not(.invalid):has(> .value:not(:empty)) > input { padding-right:38px; }
+.row > .field:focus-within > input,.arg-field > .field:focus-within > input { padding-right:6px!important; }
+button[hidden],.button[hidden],input[hidden],.sim-run-actions [hidden] { display:none!important; }
+@media (max-width:760px),(max-height:520px) and (max-width:1000px) {
+  .panel-head { min-height:42px; }
+  .row { grid-template-columns:minmax(70px,30%) minmax(0,1fr);align-items:center; }
+  .row.wide { grid-template-columns:minmax(0,1fr); }
+  .row > label,.row > .lbl { padding:0; }
+  .sim-run-head h3 { font-size:var(--ui-text); }
+  .sim-run-head .sim-case-hint { font-size:var(--ui-small); }
+  .sim-setup-card .row:has(> .vec3) { grid-template-columns:minmax(0,1fr);gap:3px; }
+  .sim-setup-card .row:has(> .vec3) > .lbl:empty { display:none; }
+  .sim-setup-card .vec3 select { width:100%;min-width:0;font-size:var(--ui-text);padding-inline:4px; }
+  .view-toolbar .case-select,.view-toolbar .case-select select,.view-presets > button,.view-toolbar .toggles > button,#radiationTools .seg > button { font-size:var(--ui-small);line-height:var(--ui-small-line); }
+  .mobile-nav button { font-size:11px;line-height:1.25; }
+}
+@supports (-webkit-touch-callout:none) {
+  /* iOS zooms focused inputs below 16px; do not disable user zoom. */
+  @media (max-width:760px) { input:focus,select:focus,textarea:focus { font-size:16px; } }
+}
+.editor-build { font-size:var(--ui-small);color:var(--muted);padding:4px 7px; }
+
+/* Inline syntax examples use semantic code, not prose or oversized labels. */
+.param-help .hint {margin:3px 0;line-height:1.5;}
+.hint code {font-family:var(--mono);font-size:inherit;color:var(--text);background:var(--field);border-radius:3px;padding:1px 3px;overflow-wrap:anywhere;}
+.param-actions {align-items:center;}
+
+.workspace-unit-settings .row select {width:100%;min-width:0;}
+.workspace-unit-settings .row {grid-template-columns:minmax(90px,40%) minmax(0,1fr);}
+.unit-field input {font-variant-numeric:tabular-nums;}
+.vec3 .unit-field .value {font-size:var(--ui-small);text-align:right;padding:0 3px;}
+
+/* Keep picker rows compact without allowing global button padding/gap rules
+   to override the multiline list layout. */
+dialog .example-list > button { padding:7px 9px; gap:3px; }
+@media (max-width:760px),(max-height:520px) and (max-width:1000px) {
+  dialog .example-list { max-height:min(65dvh, 520px); }
+  dialog .example-list > button { min-height:40px; }
+  dialog:has(.example-list) { padding:12px; }
+  dialog:has(.example-list) h2 { margin-bottom:8px; }
+  dialog:has(.example-list) .dialog-actions { margin-top:8px; }
+}
+
+/* Explicit local mesh refinement editor. */
+.refinement-actions,.refinement-head {display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.refinement-head {margin-bottom:5px;}
+.refinement-name {display:flex;flex:1;min-width:60px;justify-content:flex-start;align-items:center;gap:5px;}
+.refinement-box {border:1px solid var(--line);border-radius:var(--r-sm);padding:6px;margin-top:5px;}
+.refinement-box.selected {border-color:#9d7bff;}
+.refinement-box .vec3 {min-width:0;}
+.refinement-box .row:last-child {margin-bottom:0;}
+.refinement-box .row:has(>.vec3) {grid-template-columns:minmax(0,1fr);gap:3px;}
+.refinement-box .vec3 input {min-width:0;}
+
+/* Simulation inclusion is separate from the preview eye toggle. */
+.tree-row .object-enable { flex-shrink: 0; color: var(--accent); }
+.tree-row.tree-disabled .object-enable { color: var(--faint); }
+.tree-disabled .nm { opacity: .5; text-decoration: line-through; }
+.tree-disabled .kind { opacity: .7; }

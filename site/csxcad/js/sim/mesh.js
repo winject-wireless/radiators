@@ -200,6 +200,16 @@ function addLocalMesh(grid, ds, de, lo, hi, step) {
   }
 }
 
+// Boundary: openEMS type (0 PEC, 1 PMC, 2 MUR, 3 PML) and CreateNF2FFBox size
+export function boundaryInfo(bc) {
+  if (bc === "PEC") return { type: 0, size: 0, mirror: 1 };
+  if (bc === "PMC") return { type: 1, size: 0, mirror: 2 };
+  if (bc === "MUR") return { type: 2, size: 2, mirror: 0 };
+  const m = /^PML_(\d+)$/.exec(String(bc));
+  require(m, `Unknown boundary condition ${bc}`);
+  return { type: 3, size: Number(m[1]) + 1, mirror: 0 };
+}
+
 // geometryBounds / sourceBounds: [[lo, hi]]; previews: [{start, stop} | {center} | {points}]
 export function setupMesh(cfg, geometryBounds, sourceBounds, previews, ports, ds, de) {
   const m = cfg.mesh;
@@ -244,7 +254,36 @@ export function setupMesh(cfg, geometryBounds, sourceBounds, previews, ports, ds
     require(r.stop.every((v, i) => v > r.start[i]), "mesh refinement stop <= start");
     addLocalMesh(grid, ds, de, r.start, r.stop, r.resolution_mm);
   }
-  for (let i = 0; i < 3; i++) grid.set(i, SmoothMeshLines(grid.lines[i], resolution, growth));
+  const boundary = cfg.domain.boundary ?? Array(6).fill("PML_8");
+  const bounds = [...geometryBounds, ...sourceBounds];
+  for (let i = 0; i < 3; i++) {
+    const seeds = [...grid.lines[i]];
+    const lines = SmoothMeshLines(seeds, resolution, growth);
+    // Keep the default NF2FF faces strictly outside all geometry and ports.
+    // Only subdivide a deficient outer margin, retaining existing feature planes.
+    for (const side of [0, 1]) {
+      const offset = boundaryInfo(boundary[2 * i + side]).size;
+      if (!offset) continue;
+      const edge = side ? Math.max(...bounds.map(b => b[1][i])) : Math.min(...bounds.map(b => b[0][i]));
+      const outside = v => side ? v > edge : v < edge;
+      if (lines.filter(outside).length > offset) continue;
+      const wall = side ? de[i] : ds[i];
+      require(wall !== edge, `NF2FF needs clearance on ${AXES[i]}${side ? "+" : "-"}. Extend the domain beyond the geometry and ports.`);
+      require(offset + 1 <= maxCells, "NF2FF boundary exceeds mesh cell budget");
+      const margin = seeds.filter(outside).concat(edge).sort((a, b) => a - b);
+      const spans = diff(margin);
+      const parts = spans.map(() => 1);
+      for (let count = spans.length; count < offset + 1; count++) {
+        let widest = 0;
+        for (let k = 1; k < spans.length; k++) {
+          if (spans[k] / parts[k] > spans[widest] / parts[widest]) widest = k;
+        }
+        parts[widest]++;
+      }
+      parts.forEach((n, k) => seeds.push(...linspace(margin[k], margin[k + 1], n + 1).slice(1, -1)));
+    }
+    grid.set(i, seeds.length === grid.lines[i].length ? lines : SmoothMeshLines(seeds, resolution, growth));
+  }
   const counts = grid.lines.map(l => l.length - 1);
   const cells = counts[0] * counts[1] * counts[2];
   require(cells <= maxCells, `Mesh exceeds cell budget: ${cells} > ${maxCells}`);

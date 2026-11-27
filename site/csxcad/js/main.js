@@ -4,14 +4,15 @@
 import {
   parameterSets, resolveTemplate, resolveCase, fieldToValue, valueToField, isTemplate,
   validParameterName, renameParameter, parameterUsage, MAX_CASES,
+  UNIT_GROUPS, normalizeWorkspaceUnits, unitGroup, displayUnit, parseUnitField, formatUnitField, displayedNumber,
 } from "./params.js";
 import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
-import { renderRunPanel, resultFor, clearResults, renderResults } from "./sim/panel.js";
+import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
-import { solverBounds, transformer, rotationMatrix } from "./geometry.js";
+import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
 import { storage, saveFile, registerServiceWorker, isNative } from "./platform.js";
 import { sampleDirection, defaultProbe } from "./sim/radiation.js";
 
@@ -31,6 +32,8 @@ const h = (tag, attrs = {}, ...kids) => {
 const clone = v => structuredClone(v);
 // Line icons (24x24, stroked) so every control shares one visual language.
 const ICONS = {
+  enableOn: "M4 4h16v16H4zM7 12l3 3 7-7",
+  enableOff: "M4 4h16v16H4z",
   eye: "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   eyeOff: "M3 3l18 18M10.6 5.6A9.7 9.7 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.9 3.7M6.5 7.2C3.9 8.9 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.3-1M9.9 9.9a3 3 0 0 0 4.2 4.2",
   bolt: "M13 2.5 4.5 13.5H12l-1 8 8.5-11H12z",
@@ -263,13 +266,19 @@ function loadDoc(cfg, message) {
   state.caseIndex = 0;
   history.undo = []; history.redo = [];
   if (viewport) viewport._fitted = false;
+  persist();
   refresh();
   if (message) setStatus(message);
 }
 
 function persist() {
-  storage.set(DRAFT_KEY, { doc: state.doc, savedAt: new Date().toISOString() });
+  // A loaded/edited example is now the user's draft. Do not let its original
+  // example query overwrite that draft on refresh; retain other query flags.
+  const url=new URL(location.href);
+  if(url.searchParams.has("example")){url.searchParams.delete("example");historyReplaceURL(url);}
+  storage.set(DRAFT_KEY, { doc: state.doc, caseIndex: state.caseIndex, savedAt: new Date().toISOString() });
 }
+function historyReplaceURL(url){ window.history.replaceState(window.history.state,"",url); }
 
 // Structural edit with undo. fn mutates state.doc.
 function edit(fn, opts = {}) {
@@ -317,7 +326,7 @@ function redo() {
 function fixSelection() {
   const s = state.sel;
   if (!s || s.kind === "sim") return;
-  const list = { geometry: state.doc.geometry, port: state.doc.ports, material: state.doc.materials }[s.kind] || [];
+  const list = { geometry: state.doc.geometry, port: state.doc.ports, material: state.doc.materials, refinement:state.doc.mesh?.refinements }[s.kind] || [];
   if (s.index >= list.length) state.sel = list.length ? { kind: s.kind, index: list.length - 1 } : null;
 }
 
@@ -333,7 +342,7 @@ function derive() {
   const lenient = (v, onErr) => { try { return resolveTemplate(v, d.params); } catch (e) { onErr(e.message); return undefined; } };
   for (const [k, v] of Object.entries(doc)) {
     if (k === "sweep" || k === "parameters" || k === "generator") continue;
-    if (k === "geometry") d.geometry = v.map((g, i) => lenient(g, m => { d.errors.geometry[i] = m; }));
+    if (k === "geometry") d.geometry = v.map((g, i) => g.enabled===false ? null : lenient(g, m => { d.errors.geometry[i] = m; }));
     else if (k === "ports") d.ports = (v || []).map((p, i) => lenient(p, m => { d.errors.port[i] = m; }));
     else d.resolved[k] = lenient(v, m => d.errors.other.push(`${k}: ${m}`));
   }
@@ -366,7 +375,15 @@ function runChecks(doc, d) {
     if (ex.pending) continue; // a script is still running; checks refresh when it finishes
     if (ex.error) { add({ level: "error", where: ex.where, msg: ex.error, ref: ex.ref }, c.id); continue; }
     cfg = ex.cfg;
-    for (const item of checkCase(cfg)) add(item, c.id);
+    for (const item of checkCase(cfg)) {
+      // Solver case indices can differ after disabling or expanding objects.
+      if(item.ref?.kind==="geometry"){
+        const name=cfg.geometry[item.ref.index]?.name;
+        const index=doc.geometry.findIndex(g=>typeof name==="string"&&(g.name===name||(isScriptInstance(g)&&name.startsWith(g.name+"/"))));
+        if(index>=0)item.ref={...item.ref,index};
+      }
+      add(item,c.id);
+    }
   }
   return { list: [...merged.values()].sort((a, b) => (a.level === "error" ? 0 : 1) - (b.level === "error" ? 0 : 1)), caseCount: cases.length };
 }
@@ -387,26 +404,31 @@ function setPath(obj, path, value) {
 // ---------------------------------------------------------------- fields
 // A numeric/expression field bound to a document path.
 function numField(path, { optional = false, def, int = false, unit, placeholder, onLive, aria, prepare, step } = {}) {
-  const wrap = h("div", { class: "field" });
+  const typed=unitGroup(unit);
+  const preferred=typed?displayUnit(unit,state.doc.workspace_units):unit;
+  const display=v=>typed?formatUnitField(v,unit,preferred):valueToField(v);
+  const displayNumber=v=>typed?displayedNumber(v,unit,preferred):v;
+  const parse=text=>typed?parseUnitField(text,unit,preferred):fieldToValue(text);
+  const wrap = h("div", { class: "field"+(typed?" unit-field":"") });
   const input = h("input", { type: "text", inputmode: "text", autocapitalize: "off", autocomplete: "off",
     autocorrect: "off", spellcheck: "false", enterkeyhint: "done", "aria-label": aria || path.join("."),
-    placeholder: placeholder ?? (optional && def !== undefined ? String(def) : "") });
+    placeholder: placeholder ?? (optional && def !== undefined ? display(def) : "") });
   const hint = h("div", { class: "value" });
   wrap.append(input, hint);
   const show = () => {
     const v = getPath(state.doc, path);
-    if (document.activeElement !== input) input.value = valueToField(v);
+    if (document.activeElement !== input) input.value = display(v);
     evaluateHint(v);
   };
   const evaluateHint = v => {
     wrap.classList.toggle("expr", isTemplate(v));
     wrap.classList.remove("invalid");
     hint.replaceChildren();
-    if (v === undefined) { if (unit) hint.textContent = unit; return; }
+    if (v === undefined) { if (preferred) hint.textContent = preferred; return; }
     if (isTemplate(v)) {
       try {
         const r = resolveTemplate(v, state.derived.params);
-        hint.textContent = "= " + fmt(r) + (unit ? " " + unit : "");
+        hint.textContent = "= " + fmt(displayNumber(r)) + (preferred ? " " + preferred : "");
       } catch (e) {
         wrap.classList.add("invalid");
         const missing = /Unknown (?:numeric )?parameter: ([A-Za-z_]\w*)/.exec(e.message);
@@ -418,32 +440,33 @@ function numField(path, { optional = false, def, int = false, unit, placeholder,
           } }));
         }
       }
-    } else if (unit) hint.textContent = unit;
+    } else if (preferred) hint.textContent = preferred;
   };
   const commit = () => {
     const text = input.value.trim();
     let value;
     if (text === "" && optional) value = undefined;
     else {
-      try { value = fieldToValue(text); }
+      try { value = parse(text); }
       catch (e) { wrap.classList.add("invalid"); hint.textContent = e.message; return; }
       if (int && typeof value === "number" && !Number.isInteger(value)) {
         wrap.classList.add("invalid"); hint.textContent = "Must be an integer"; return;
       }
     }
-    edit(doc => { prepare?.(doc); setPath(doc, path, value); }, { inspector: false });
+    if(edit(doc => { prepare?.(doc); setPath(doc, path, value); }, { inspector: false }))input.value=display(value);
   };
   input.addEventListener("change", commit);
   input.addEventListener("keydown", e => {
     if (e.key === "Enter") { e.preventDefault(); input.blur(); return; }
     // ↑ / ↓ nudge a plain number by `step` (Shift: ×10); parameters and expressions are left alone.
     if (step && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-      const cur = input.value.trim() === "" && def !== undefined ? def : Number(input.value);
+      const cur = input.value.trim() === "" && def !== undefined ? displayNumber(def) : Number(input.value);
       if (input.value.trim() !== "" && !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(input.value.trim())) return;
       if (!Number.isFinite(cur)) return;
       e.preventDefault();
-      const delta = (e.key === "ArrowUp" ? 1 : -1) * step * (e.shiftKey ? 10 : 1);
-      input.value = String(+(Math.round((cur + delta) / step) * step).toPrecision(12));
+      const displayStep=displayNumber(step);
+      const delta = (e.key === "ArrowUp" ? 1 : -1) * displayStep * (e.shiftKey ? 10 : 1);
+      input.value = String(+(Math.round((cur + delta) / displayStep) * displayStep).toPrecision(12));
       commit();
     }
   });
@@ -456,9 +479,11 @@ const fmt = v => typeof v === "number" ? String(+v.toPrecision(8)) : JSON.string
 
 function vec3Field(path, opts = {}) {
   const key = handleKey(path);
+  const unit=opts.unit??(path.at(-1)==="axis"?"":path.at(-1)==="rotate_deg"?"°":"mm");
+  const preferred=unitGroup(unit)?displayUnit(unit,state.doc.workspace_units):unit;
   const el = h("div", { class: "vec3", "data-handle": key }, ["x", "y", "z"].map((axis, i) =>
-    numField([...path, i], { ...opts, aria: `${opts.label || path.join(".")} ${axis}`,
-      placeholder: opts.defaults ? String(opts.defaults[i]) : axis })));
+    numField([...path, i], { ...opts, unit, aria: `${opts.label || path.join(".")} ${axis}`,
+      placeholder: opts.defaults ? (unitGroup(unit)?formatUnitField(opts.defaults[i],unit,preferred):String(opts.defaults[i])) : axis })));
   el.addEventListener("focusin", () => { if (state.handle !== key && currentHandles.has(key)) { state.handle = key; syncHandles(); } });
   return el;
 }
@@ -503,8 +528,8 @@ const row = (label, control, cls = "") => h("div", { class: "row " + cls }, h("l
 
 function fieldFor(def, path) {
   switch (def.type) {
-    case "vec3": return vec3Field(path, { label: def.label });
-    case "num": return numField(path, { optional: def.optional, def: def.default, aria: def.label });
+    case "vec3": return vec3Field(path, { label: def.label, unit: def.unit });
+    case "num": return numField(path, { optional: def.optional, def: def.default, unit: def.unit, aria: def.label });
     case "int": return numField(path, { optional: def.optional, def: def.default, int: true, aria: def.label });
     case "select": return selectField(path, def.options, { optional: def.optional, aria: def.label });
     case "material": {
@@ -545,6 +570,16 @@ function pointsField(path) {
 }
 
 // ---------------------------------------------------------------- tree
+function toggleGeometry(i) {
+  edit(doc=>{
+    const g=doc.geometry[i];
+    if(g.enabled===false)delete g.enabled;
+    else g.enabled=false;
+  });
+}
+function objectEnabledRow(g,i) {
+  return row("Simulation",h("button",{type:"button",class:"small","aria-pressed":String(g.enabled!==false),onclick:()=>toggleGeometry(i)},g.enabled===false?"Disabled · enable":"Enabled · disable"));
+}
 function renderTree() {
   const doc = state.doc, d = state.derived;
   const tree = $("tree");
@@ -560,19 +595,21 @@ function renderTree() {
       list);
   };
   const geomRows = doc.geometry.map((g, i) => {
+    const disabled = g.enabled === false;
     const hidden = state.hidden.has(i);
     const script = isScriptInstance(g);
     const ex = d.expanded[i];
     const m = mats.get(script ? (ex?.objects?.[0]?.material ?? "") : typeof g.material === "string" ? g.material : "");
-    return h("li", { class: "tree-row" + (isSel("geometry", i) ? " active" : "") + (d.errors.geometry[i] ? " invalid" : "") + (hidden ? " tree-hidden" : "") },
+    return h("li", { class: "tree-row" + (isSel("geometry", i) ? " active" : "") + (d.errors.geometry[i] ? " invalid" : "") + (hidden ? " tree-hidden" : "") + (disabled ? " tree-disabled" : "") },
       h("button", { type: "button", class: "vis", title: hidden ? "Show" : "Hide (preview only)", "aria-label": (hidden ? "Show " : "Hide ") + (g.name || g.shape),
         onclick: () => { hidden ? state.hidden.delete(i) : state.hidden.add(i); refresh({ inspector: false, params: false }); } }, icon(hidden ? "eyeOff" : "eye")),
+      h("button",{type:"button",class:"vis object-enable",title:disabled?"Enable in simulation":"Disable in simulation","aria-label":(disabled?"Enable ":"Disable ")+(g.name||g.shape),"aria-pressed":String(!disabled),onclick:()=>toggleGeometry(i)},icon(disabled?"enableOff":"enableOn")),
       h("button", { type: "button", class: "tree-name", onclick: () => select({ kind: "geometry", index: i }) },
         h("span", { class: "swatch", style: `background:${swatch(m)}` }),
         h("span", { class: "nm", text: g.name || g.shape }),
         h("span", { class: "kind", title: primitiveLabel(g, d.geometry[i]) },
           h("span", { class: "kind-prim", text: script ? "script" : primitiveLabel(g, d.geometry[i]).startsWith("Sheet") ? "sheet" : SHORT_SHAPE[g.shape] || g.shape }), " ",
-          script ? `${g.script} · ${ex?.objects ? ex.objects.length + " obj" : ex?.pending ? "…" : "error"}` : summarize(d.geometry[i]))));
+          disabled ? "disabled" : script ? `${g.script} · ${ex?.objects ? ex.objects.length + " obj" : ex?.pending ? "…" : "error"}` : summarize(d.geometry[i]))));
   });
   const portRows = doc.ports.map((p, i) => h("li", { class: "tree-row" + (isSel("port", i) ? " active" : "") + (d.errors.port[i] ? " invalid" : "") },
     h("span", { class: "vis" + (p.excite ? " excited" : ""), title: p.excite ? "Excited port" : "Passive port" }, icon(p.excite ? "bolt" : "dot")),
@@ -599,7 +636,7 @@ function select(ref, { fromView = false } = {}) {
   state.sel = ref;
   if (changed || state.handle === "result-probe") state.handle = null;
   refresh({ params: false, json: false, viewport: false });
-  const shown = ref && (ref.kind === "geometry" || ref.kind === "port") ? ref : null;
+  const shown = ref && ["geometry","port","refinement"].includes(ref.kind) ? ref : null;
   viewport?.setSelection(shown);
   // Focus after any phone sheet has opened, so the framing accounts for the space it covers.
   if (shown && changed) setTimeout(() => viewport?.focus(shown), 60);
@@ -612,9 +649,9 @@ function showChip() {
   const chip = $("selectionChip");
   const s = state.sel;
   if (!s || !mobile() || document.body.dataset.sheet) { chip.hidden = true; return; }
-  const item = s.kind === "geometry" ? state.doc.geometry[s.index] : s.kind === "port" ? state.doc.ports[s.index] : null;
+  const item = s.kind === "geometry" ? state.doc.geometry[s.index] : s.kind === "port" ? state.doc.ports[s.index] : s.kind==="refinement" ? state.doc.mesh?.refinements?.[s.index] : null;
   if (!item) { chip.hidden = true; return; }
-  $("chipText").textContent = `${item.name || item.shape || "port"} · ${item.shape || item.type}`;
+  $("chipText").textContent = s.kind==="refinement" ? "Refinement "+(s.index+1) : `${item.name || item.shape || "port"} · ${item.shape || item.type}`;
   chip.hidden = false;
 }
 
@@ -639,7 +676,7 @@ const fmtLen = v => `${+v.toPrecision(5)} mm`;
 function computeHandles() {
   const out = new Map();
   const s = state.sel, d = state.derived;
-  if (!s || !d) return out;
+  if (!s || !d || (s.kind==="geometry" && state.doc.geometry[s.index]?.enabled===false)) return out;
   const identity = { fwd: p => p, inv: p => p, dir: p => p, rotated: false };
   const point = (path, local, raw, xf) => {
     if (!nums3(local)) return;
@@ -656,17 +693,35 @@ function computeHandles() {
     const key = `dim:${handleKey(field)}:${name}`;
     out.set(key, { key, kind: "scalar", field, base: xf.fwd(baseLocal), dir: xf.dir(V.unit(dirLocal)), dist, enabled, set, label });
   };
+  if(s.kind==="refinement"){
+    const raw=state.doc.mesh?.refinements?.[s.index],resolved=d.resolved.mesh?.refinements?.[s.index];
+    if(raw&&resolved)for(const k of ["start","stop"])point(["mesh","refinements",s.index,k],resolved[k],raw[k],identity);
+    return out;
+  }
   if (s.kind === "geometry" && isScriptInstance(state.doc.geometry[s.index])) {
     // Point arguments of a script instance get the same 3-axis handles as primitive positions.
     const g = state.doc.geometry[s.index], rg = d.geometry[s.index];
     const sp = specFor(g.script);
-    if (!sp.spec || state.hidden.has(s.index)) return out;
+    if (!rg || state.hidden.has(s.index)) return out;
+    let xf;
+    try {
+      const fwd = transformer(rg);
+      const m = rotationMatrix(rg.transform?.rotate_deg || [0,0,0]);
+      const t = rg.transform?.translate || [0,0,0];
+      const inv = w => { const q=V.sub(w,t); return [0,1,2].map(c=>m[0][c]*q[0]+m[1][c]*q[1]+m[2][c]*q[2]); };
+      const dir = v => m.map(row=>V.dot(row,v));
+      xf = {fwd,inv,dir,rotated:(rg.transform?.rotate_deg || []).some(Boolean)};
+      const path = ["geometry",s.index,"transform","translate"];
+      point(path,t,g.transform?.translate ?? [0,0,0],identity);
+      if(!g.transform?.translate) out.get(handleKey(path)).init=[0,0,0];
+    } catch { return out; }
+    if (!sp.spec) return out;
     const val = k => rg?.args?.[k] ?? sp.spec[k]?.default;
     for (const [key, dd] of Object.entries(sp.spec)) {
       const path = ["geometry", s.index, "args", key];
       const raw = g.args?.[key];
       if (dd.type === "point") {
-        point(path, val(key), raw === undefined ? [0, 0, 0] : raw, identity);
+        point(path, val(key), raw === undefined ? [0, 0, 0] : raw, xf);
         const hd = out.get(handleKey(path));
         if (hd && raw === undefined) hd.init = dd.default;
         if (hd && dd.step) hd.snap = dd.step;
@@ -679,7 +734,7 @@ function computeHandles() {
         const dir = dd.handle.perp ? V.perp(dir0) : V.unit(dir0), k = dd.handle.scale;
         const snapV = t => dd.step ? Math.round(t * k / dd.step) * dd.step : t * k;
         const fmtV = t => dd.type === "length" ? fmtLen(snapV(t)) : String(+snapV(t).toPrecision(5));
-        scalar(key, path, raw === undefined ? 0 : raw, identity, from, dir, val(key) / k,
+        scalar(key, path, raw === undefined ? 0 : raw, xf, from, dir, val(key) / k,
           t => { const v = snapV(t); return (dd.min === undefined ? v > 0 : v >= dd.min) && (dd.max === undefined || v <= dd.max) ? v : null; },
           t => `${dd.label} ${fmtV(t)}`);
       }
@@ -847,6 +902,18 @@ function onHandleMove(key, world) {
   if (!Array.isArray(getPath(state.doc, hd.path)) && hd.init) setPath(state.doc, hd.path, clone(hd.init));
   const target = getPath(state.doc, hd.path);
   if (!Array.isArray(target)) return;
+  // Refinement corners must remain strictly ordered while dragging.
+  if(state.sel?.kind==="refinement"&&hd.path?.[0]==="mesh"){
+    const r=state.derived.resolved.mesh?.refinements?.[state.sel.index],dom=state.derived.resolved.domain;
+    if(r){
+      const start=hd.path.at(-1)==="start",other=start?r.stop:r.start;
+      for(let k=0;k<3;k++)if(hd.axes[k]){
+        const lo=start?(dom?.start?.[k]??-Infinity):other[k]+.001;
+        const hi=start?other[k]-.001:(dom?.stop?.[k]??Infinity);
+        if(lo<=hi)local[k]=Math.max(lo,Math.min(hi,local[k]));
+      }
+    }
+  }
   hd.axes.forEach((ok, k) => { if (ok) target[k] = +local[k].toFixed(6); });
   cancelAnimationFrame(dragFrame);
   dragFrame = requestAnimationFrame(() => refresh({ inspector: false, params: false, json: false }));
@@ -877,74 +944,108 @@ function renderInspector() {
   if (s.kind === "geometry") return inspectGeometry(box, title, s.index);
   if (s.kind === "port") return inspectPort(box, title, s.index);
   if (s.kind === "material") return inspectMaterial(box, title, s.index);
+  if (s.kind === "refinement") {
+    title.textContent="Refinement "+(s.index+1);
+    add(box,refinementFields(s.index),h("p",{class:"hint",text:"Select either corner to drag it in XYZ. Close this sheet for a full 3D view."}));
+  }
 }
 
-// Simulation panel: the sweep first (it decides how many runs), then the run settings.
+// Simulation controls are followed by the sweep and grouped setup cards.
+const simDisclosure = new Map();
 function renderSim() {
   const box = $("sim");
   const scroll = box.scrollTop;
+  for(const el of box.querySelectorAll("details[data-sim-section]"))simDisclosure.set(el.dataset.simSection,el.open);
   fieldRefreshers = simRefreshers = [];
   box.replaceChildren();
   const d = state.derived;
-  add(box, h("div", { class: "sim-head" }, h("span", { class: "hint", text: "Run the current case here, or save the JSON for the radiators simulator (CI)." }),
-    h("button", { type: "button", class: "icon head-btn sim-max-btn", title: "Maximize (Esc to restore)", "aria-label": "Maximize simulation panel",
-      onclick: () => setSimMax(!state.simMax) }, icon(state.simMax ? "minimize" : "maximize"))));
-  renderRunPanel(box, simContext);
-  const settings = h("div", { class: "sim-settings" });
-  inspectSim(settings, h("span"));
-  add(box, h("div", { class: "sim-layout" }, renderSweep(d, new Set(Object.keys(state.doc.sweep?.parameters || {}))), ...settings.children));
-  box.scrollTop = scroll;
+  const runArea=h("div",{class:"sim-run-area"});
+  renderRunPanel(runArea,simContext);
+  const max=h("button", {type:"button",class:"icon head-btn sim-max-btn",title:"Maximize (Esc to restore)","aria-label":"Maximize simulation panel",
+    onclick:()=>setSimMax(!state.simMax)},icon(state.simMax?"minimize":"maximize"));
+  runArea.querySelector(".sim-run-head")?.append(max);
+  const settings=h("div",{class:"sim-settings"});
+  inspectSim(settings,h("span"));
+  const grid=h("div",{class:"sim-layout"});
+  const sweep=renderSweep(d,new Set(Object.keys(state.doc.sweep?.parameters||{})));
+  sweep.classList.add("sim-setup-card","sim-sweep-card");
+  grid.append(sweep);
+  for(const el of [...settings.children]){
+    if(el.matches("details")){
+      const key=el.querySelector("summary").textContent;
+      el.dataset.simSection=key;
+      el.open=simDisclosure.get(key)??(key.startsWith("Excitation")||key.startsWith("Refinements"));
+      el.classList.add("sim-setup-card");
+      grid.append(el);
+    }else if(el.matches(".form-section")){
+      const description=h("details",{class:"form-section sim-setup-card", "data-sim-section":"Description"},h("summary",{text:"Description"}),...el.children);
+      description.open=simDisclosure.get("Description")??false;
+      grid.append(description);
+    }else {el.classList.add("sim-setup-notice");grid.prepend(el);}
+  }
+  add(box,runArea,grid);
+  box.scrollTop=scroll;
 }
 // What the run panel needs from the editor.
 const simContext = {
-  getCase() {
+  getCase(c = state.derived.case) {
     const d = state.derived;
-    const base = { id: d.case.id, name: d.case.name };
+    const base = { id: c.id, name: c.name, label: shortCaseLabel(c), index: d.cases.indexOf(c)+1 };
+    if (d.caseError) return { ...base, error: d.caseError };
     if (state.doc.generator) return { ...base, error: "configs with a Python generator can only run in the radiators scripts" };
     try {
-      const ex = expandResolved(resolveCase(state.doc, d.case.parameters));
+      const ex = expandResolved(resolveCase(state.doc, c.parameters));
       if (ex.pending) return { ...base, pending: true };
       if (ex.error) return { ...base, error: ex.error };
       return { ...base, config: ex.cfg };
     } catch (e) { return { ...base, error: e.message }; }
   },
+  getCases() { return state.derived.cases.map(c=>this.getCase(c)); },
   slug: () => slug(),
   onBadge(text) { for (const id of ["simBadge", "simBadgeMobile"]) { const b = $(id); if (b) b.textContent = text; } },
   notify: (msg, error = false) => setStatus(msg, error),
   refresh: () => { renderSim(); syncResults(); },
 };
-let displayedRun, displayedStale, activeProbe = null;
+let displayedRun, displayedStale, displayedCase, displayedCaseStatus, activeProbe = null;
 const sectionNames = ["XY", "YZ", "XZ"];
 const probeFmt = (v, n = 2) => Number.isFinite(v) ? v.toFixed(n) : "—";
 function updateProbe() {
   const controls = $("radiationTools");
   controls.hidden = !activeProbe;
+  $("probeReadout").hidden = !activeProbe || !activeProbe.run.probeVisible;
   if (!activeProbe) { viewport?.setSections([]); return; }
   const { run, record } = activeProbe;
   const pos = run.probePosition;
   for (const b of controls.querySelectorAll("[data-section]")) b.setAttribute("aria-pressed", String(run.sections.includes(b.dataset.section)));
   $("probeToggle").setAttribute("aria-pressed", String(run.probeVisible));
-  $("sectionFollow").setAttribute("aria-pressed", String(run.followProbe));
-  $("probeReadout").hidden = !run.probeVisible;
-  viewport?.setSections(run.sections, run.followProbe && pos ? pos : [0,0,0]);
+  // A hidden probe must never leave the principal planes offset.
+  const canFollow = !!run.probeVisible && Array.isArray(pos) && pos.length === 3 && pos.every(Number.isFinite);
+  if (!canFollow) run.followProbe = false;
+  $("sectionFollow").disabled = !canFollow;
+  $("sectionFollow").setAttribute("aria-pressed", String(!!run.followProbe));
+  viewport?.setSections(run.sections, canFollow && run.followProbe ? pos : [0,0,0]);
   if (!pos || !run.probeVisible) return;
   const s = sampleDirection(record, pos);
   if (!s) return;
-  $("probeFrequency").textContent = `Frequency ${probeFmt(record.frequency_hz / 1e9,4)} GHz`;
-  $("probePower").textContent = `Radiated power (global) ${Number.isFinite(s.radiatedPower) ? s.radiatedPower.toPrecision(3) + " W" : "—"}`;
   $("probePosition").textContent = pos.map((v,i) => `${"XYZ"[i]} ${probeFmt(v,1)}`).join(" · ") + " mm";
   $("probeAngles").textContent = `θ ${probeFmt(s.theta,1)}° · φ ${probeFmt(s.phi,1)}°`;
   $("probeDirectivity").textContent = `${probeFmt(s.directivity)} dBi`;
   $("probeGain").textContent = `${probeFmt(s.gain)} dBi`;
   $("probeRealized").textContent = `${probeFmt(s.realizedGain)} dBi`;
   $("probeField").textContent = probeFmt(s.relativeField === null ? null : s.relativeField * 100,1) + "%";
+  $("probeFrequency").textContent = `${probeFmt(record.frequency_hz / 1e9,4)} GHz · Radiated power (global) ${Number.isFinite(s.radiatedPower)?s.radiatedPower.toPrecision(3)+" W":"—"}`;
   $("probeEfficiency").textContent = `Radiation η ${probeFmt(s.radiationEfficiency === null ? null : s.radiationEfficiency * 100,1)}% · Mismatch η ${probeFmt(s.mismatchEfficiency === null ? null : s.mismatchEfficiency * 100,1)}%`;
 }
 function syncResults() {
+  void restoreResults(simContext);
   const caseId = state.derived.case.id;
   const run = resultFor(caseId);
   const stale = !!run && JSON.stringify(simContext.getCase().config) !== run.key;
-  if (run !== displayedRun || stale !== displayedStale) {
+  const caseStatus = caseRunState(caseId);
+  syncCaseSelectors();
+  if (run !== displayedRun || stale !== displayedStale || displayedCase !== caseId || displayedCaseStatus !== caseStatus) {
+    displayedCase = caseId;
+    displayedCaseStatus = caseStatus;
     displayedRun = run;
     displayedStale = stale;
     renderResults($("resultCharts"), simContext, run, caseId, stale);
@@ -1143,6 +1244,7 @@ function inspectGeometry(box, title, i) {
   const g = state.doc.geometry[i];
   const def = SHAPES[g.shape];
   title.replaceChildren(g.name || g.shape);
+  add(box,objectEnabledRow(g,i));
   $("inspectActions").append(
     iconBtn("copy", "Duplicate (Ctrl+D)", () => duplicate("geometry", i)),
     iconBtn("array", "Array…", () => arrayDialog(i)),
@@ -1177,45 +1279,36 @@ function inspectGeometry(box, title, i) {
   }
   for (const f of def.fields.filter(f => isMainField(f, g))) add(box, row(f.label, fieldFor(f, [...base, f.key]), f.type === "points" ? "wide" : ""));
   if (g.transform) {
-    if (g.transform.rotate_deg) add(box, row("Rotate (°)", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })));
+    if (g.transform.rotate_deg) add(box, row("Rotate", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })));
     if (g.transform.translate) add(box, row("Translate", vec3Field([...base, "transform", "translate"], { optional: true, label: "translate" })));
   }
   const rg = state.derived.geometry[i];
   let bounds = null;
   if (rg) {
     try {
-      const [lo, hi] = solverBounds(rg);
-      bounds = h("p", { class: "hint", text: `Bounds (${state.derived.case.id}): [${lo.map(fmt).join(", ")}] → [${hi.map(fmt).join(", ")}] mm` });
+      bounds = worldBoundsNote(rg);
     } catch { /* reported in checks */ }
   }
   add(box, moreSection(
     ...def.fields.filter(f => !isMainField(f, g)).map(f => row(f.label, fieldFor(f, [...base, f.key]))),
-    !g.transform?.rotate_deg ? row("Rotate (°)", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })) : null,
+    !g.transform?.rotate_deg ? row("Rotate", vec3Field([...base, "transform", "rotate_deg"], { optional: true, label: "rotate" })) : null,
     !g.transform?.translate ? row("Translate", vec3Field([...base, "transform", "translate"], { optional: true, label: "translate" })) : null,
     row("Priority", numField([...base, "priority"], { optional: true, def: 10, int: true, aria: "Priority" })),
     bounds,
     h("p", { class: "hint", text: (def.hint ? def.hint + " " : "") + "Transform: rotate X→Y→Z, then translate. Higher priority wins where primitives overlap (default 10; ports 5)." }),
     g.transform ? h("div", { class: "actions" }, h("button", { type: "button", class: "small", onclick: () => edit(doc => { delete doc.geometry[i].transform; }) }, "Clear transform")) : null,
-    knownKeysNote(g, ["name", "material", "shape", "transform", "priority", "editor_id", ...def.fields.map(f => f.key)])));
+    knownKeysNote(g, ["name", "material", "shape", "transform", "priority", "editor_id", "enabled", ...def.fields.map(f => f.key)])));
 }
 
 const LEGACY_SHAPES = new Set(["helix", "hemisphere", "hemispherical_shell"]);
 function convertHemisphere(i) {
-  const rg = state.derived.geometry[i];
   edit(doc => {
     const g = doc.geometry[i];
-    const args = { radius: g.radius, material: g.material };
+    const args = { center:g.center, radius: g.radius, material: g.material };
     if (g.shape === "hemispherical_shell") args.thickness = g.thickness;
-    const t = g.transform;
-    if (t && (t.rotate_deg || t.translate)) {
-      // The script has no transform: carry orientation and position into center/axis (resolved values).
-      const fwd = transformer(rg), m = rotationMatrix(rg.transform?.rotate_deg || [0, 0, 0]);
-      args.center = fwd(rg.center).map(v => +v.toFixed(9));
-      args.axis = [m[0][2], m[1][2], m[2][2]].map(v => +v.toFixed(12));
-      setStatus("Transform folded into center and axis (resolved values)");
-    } else args.center = g.center;
     const out = { name: g.name, script: "hemisphere", args };
     if (g.priority !== undefined) out.priority = g.priority;
+    if (g.transform) out.transform = clone(g.transform);
     doc.geometry[i] = out;
   });
 }
@@ -1228,9 +1321,16 @@ function convertHelix(i) {
     if (g.segments_per_turn !== undefined) args.segments_per_turn = g.segments_per_turn;
     const out = { name: g.name, script: "helix", args };
     if (g.priority !== undefined) out.priority = g.priority;
-    if (g.transform) setStatus("Note: the helix transform was dropped; place the coil with origin and axis", true);
+    if (g.transform) out.transform = clone(g.transform);
     doc.geometry[i] = out;
   });
+}
+
+function worldBoundsNote(parts) {
+  try {
+    const [lo,hi]=displayBounds(parts);
+    return h("p",{class:"hint world-bounds",text:`World bounds: [${lo.map(fmt).join(", ")}] → [${hi.map(fmt).join(", ")}] mm`});
+  }catch{return null;}
 }
 
 // Script instance: the object editor is generated from the script's argument declarations.
@@ -1238,8 +1338,10 @@ function inspectScriptInstance(box, title, i) {
   const g = state.doc.geometry[i];
   const base = ["geometry", i];
   title.replaceChildren(g.name || g.script);
+  add(box,objectEnabledRow(g,i));
   $("inspectActions").append(
     iconBtn("copy", "Duplicate (Ctrl+D)", () => duplicate("geometry", i)),
+    iconBtn("array", "Array…", () => arrayDialog(i)),
     iconBtn("up", "Move up", () => move("geometry", i, -1), { disabled: i === 0 }),
     iconBtn("down", "Move down", () => move("geometry", i, 1), { disabled: i === state.doc.geometry.length - 1 }),
     iconBtn("trash", "Delete", () => remove("geometry", i), { danger: true }));
@@ -1256,6 +1358,16 @@ function inspectScriptInstance(box, title, i) {
     h("div", { class: "row" }, h("span", { class: "lbl", text: "Primitive" }),
       h("div", { class: "prim-row" }, h("span", { class: "prim-chip", text: `Script · ${g.script}` }),
         h("button", { type: "button", class: "small", onclick: () => { state.scriptSel = g.script; renderScripts(); openSheet("scripts"); } }, "Edit script"))));
+  // Placement belongs to the instance, not to its script-defined arguments.
+  const transformField = (key,label,unit) => {
+    const path=[...base,"transform",key];
+    return row(label,vec3Field(path,{label,unit,defaults:[0,0,0],prepare:doc=>{
+      if(!Array.isArray(getPath(doc,path)))setPath(doc,path,[0,0,0]);
+    }}));
+  };
+  add(box,transformField("translate","Translate","mm"),transformField("rotate_deg","Rotate","°"),
+    h("p",{class:"hint",text:"Group transform: rotate X → Y → Z about the local origin, then translate."}),
+    g.transform ? h("div",{class:"actions"},h("button",{type:"button",class:"small",onclick:()=>edit(doc=>{delete doc.geometry[i].transform;})},"Clear transform")):null);
   if (sp.pending) { add(box, h("p", { class: "hint", text: "Loading script…" })); return; }
   if (sp.error) { add(box, h("div", { class: "note warn", text: `Script ${g.script}: ${sp.error}` })); return; }
   // `more: true` arguments sit under "More" unless the object sets a non-default value.
@@ -1266,6 +1378,7 @@ function inspectScriptInstance(box, title, i) {
   add(box, moreSection(
     ...entries.filter(([k, d]) => !isMainArg(k, d)).map(([k, d]) => argRow(i, k, d)),
     row("Priority", numField([...base, "priority"], { optional: true, def: 10, int: true, aria: "Priority" })),
+    ex?.objects?.length ? worldBoundsNote(ex.objects) : null,
     ex?.objects ? h("p", { class: "hint", text: `Generates ${ex.objects.length} object${ex.objects.length === 1 ? "" : "s"}: ` +
       ex.objects.slice(0, 16).map(o => `${o.name.slice(o.name.indexOf("/") + 1)} (${o.shape})`).join(", ") + (ex.objects.length > 16 ? " …" : "") }) : null,
     extra.length ? h("div", { class: "note warn" }, `Not declared by the script: ${extra.join(", ")} `,
@@ -1283,7 +1396,7 @@ function argControl(i, key, d) {
   const path = ["geometry", i, "args", key];
   const t = ARG_TYPES[d.type];
   switch (t.control) {
-    case "vec3": return vec3Field(path, { label: d.label, optional: true, defaults: d.default, step: d.step,
+    case "vec3": return vec3Field(path, { label: d.label, unit:d.type==="point"?"mm":"", optional: true, defaults: d.default, step: d.step,
       prepare: doc => { if (!Array.isArray(getPath(doc, path))) setPath(doc, path, clone(d.default)); } });
     case "num": return numField(path, { optional: true, def: d.default, unit: t.unit, aria: d.label, step: d.step });
     case "int": return numField(path, { optional: true, def: d.default, int: true, aria: d.label, step: d.step ?? 1 });
@@ -1358,10 +1471,68 @@ function inspectMaterial(box, title, i) {
       for (const f of MATERIALS[v].fields) if (!f.optional) next[f.key] = m[f.key] ?? f.default;
       doc.materials[i] = next;
     }) })),
-    ...(def?.fields || []).map(f => row(f.label, numField([...base, f.key], { optional: f.optional, def: f.default, aria: f.label })))),
+    ...(def?.fields || []).map(f => row(f.label, numField([...base, f.key], { optional: f.optional, def: f.default, unit:f.unit, aria: f.label })))),
   h("p", { class: "hint", text: `Used by ${uses} item${uses === 1 ? "" : "s"}.` + (m.type === "conducting_sheet" ? " Conducting sheets apply only to zero-thickness boxes; thickness is in metres." : "") }));
 }
 
+// Refinements are regular saved mesh entries. Presets use the currently
+// resolved case, leaving the coordinates editable and expression-capable.
+function feedRegion(){
+  const ports=state.derived?.ports||[],p=ports.find(p=>p&&(p.excite??p.enabled))||ports.find(p=>p);
+  if(!p||!nums3(p.start)||!nums3(p.stop))return null;
+  return {start:p.start.map((v,i)=>Math.min(v,p.stop[i])-5),stop:p.start.map((v,i)=>Math.max(v,p.stop[i])+5),resolution_mm:.25};
+}
+function addRefinement(aroundFeed){
+  const r=aroundFeed?feedRegion():{start:[-10,-10,-10],stop:[10,10,10],resolution_mm:.5};
+  if(!r)return;
+  const dom=state.derived?.resolved?.domain;
+  if(nums3(dom?.start)&&nums3(dom?.stop)){
+    r.start=r.start.map((v,i)=>Math.max(v,dom.start[i]));
+    r.stop=r.stop.map((v,i)=>Math.min(v,dom.stop[i]));
+    if(!r.stop.every((v,i)=>v>r.start[i])){
+      if(aroundFeed)return setStatus("Feed refinement is outside the domain",true);
+      r.start=dom.start.map((v,i)=>v+(dom.stop[i]-v)*.25);
+      r.stop=dom.start.map((v,i)=>v+(dom.stop[i]-v)*.75);
+    }
+  }
+  edit(doc=>{
+    doc.mesh??={};doc.mesh.refinements??=[];
+    doc.mesh.refinements.push(r);
+    state.sel={kind:"refinement",index:doc.mesh.refinements.length-1};
+    state.handle=null;
+  });
+}
+function selectRefinement(k,corner,view=false){
+  if(!state.doc.mesh?.refinements?.[k])return;
+  const changed=state.sel?.kind!=="refinement"||state.sel.index!==k;
+  state.sel={kind:"refinement",index:k};
+  state.handle=corner?handleKey(["mesh","refinements",k,corner]):null;
+  if(changed)renderInspector();
+  viewport?.setSelection(state.sel);
+  showChip();
+  syncHandles();
+  for(const el of document.querySelectorAll("[data-refinement]"))el.classList.toggle("selected",Number(el.dataset.refinement)===k);
+  if(view){
+    if(state.simMax)setSimMax(false);
+    if(mobile())closeSheet();
+    viewport?.focus(state.sel);
+  }
+}
+function refinementFields(k){
+  const r=state.doc.mesh?.refinements?.[k];
+  if(!r)return null;
+  return h("div",{class:"refinement-box"+(state.sel?.kind==="refinement"&&state.sel.index===k?" selected":""),"data-refinement":k},
+    h("div",{class:"refinement-head"},
+      h("button",{type:"button",class:"refinement-name",onclick:()=>selectRefinement(k)},h("span",{class:"swatch",style:"background:#9d7bff"}),"Box "+(k+1)),
+      h("button",{type:"button",class:"small",onclick:()=>selectRefinement(k,"start",true)},"Edit in 3D"),
+      h("button",{type:"button",class:"small danger","aria-label":"Remove refinement "+(k+1),onclick:()=>remove("refinement",k)},"×")),
+    ...["start","stop"].map(key=>{
+      const field=vec3Field(["mesh","refinements",k,key],{label:"refinement "+(k+1)+" "+key});
+      field.addEventListener("focusin",()=>selectRefinement(k,key));
+      return row(key==="start"?"Start":"Stop",field);
+    }),
+    row("Resolution",numField(["mesh","refinements",k,"resolution_mm"],{unit:"mm",aria:"Refinement "+(k+1)+" resolution"})));
+}
 function inspectSim(box, title) {
   title.textContent = "Simulation settings";
   const doc = state.doc;
@@ -1379,8 +1550,8 @@ function inspectSim(box, title) {
     h("details", { class: "form-section", open: true }, h("summary", { text: "Excitation · Gaussian pulse" }),
       row("Center", numField(["excitation", "center_hz"], { unit: "Hz", aria: "Center frequency" })),
       row("Bandwidth (fc)", numField(["excitation", "bandwidth_hz"], { unit: "Hz", aria: "Bandwidth" })),
-      h("p", { class: "hint", text: "Band = center ± fc. Expressions work here too, e.g. f_ghz * 1e9." })),
-    h("details", { class: "form-section", open: true }, h("summary", { text: "Domain · mm" }),
+      h("p", { class: "hint" }, "Band = center ± fc. Example: ", h("code", {text:"{f_ghz} GHz"}), ".")),
+    h("details", { class: "form-section", open: true }, h("summary", { text: "Domain · "+displayUnit("mm",doc.workspace_units) }),
       row("Start", vec3Field(["domain", "start"], { label: "domain start" })),
       row("Stop", vec3Field(["domain", "stop"], { label: "domain stop" })),
       h("div", { class: "row" }, h("span", { class: "lbl", text: "Boundaries" }),
@@ -1396,19 +1567,13 @@ function inspectSim(box, title) {
       row("Local min cell", numField(["mesh", "local_min_cell_mm"], { optional: true, unit: "mm", aria: "Local min cell" })),
       row("Auto-refine span", numField(["mesh", "auto_refine_max_span_mm"], { optional: true, def: 40, unit: "mm", aria: "Auto refine span" })),
       row("Grid mode", selectField(["mesh", "grid_mode"], ["feature", "uniform"], { optional: true, aria: "Grid mode" })),
-      doc.mesh?.grid_mode === "uniform" ? row("Uniform step", numField(["mesh", "uniform_step_mm"], { optional: true, unit: "mm", aria: "Uniform step" })) : null,
-      h("h3", { class: "muted", style: "font-size:11px;margin:10px 0 4px", text: `REFINEMENT BOXES (${refinements.length})` }),
-      ...refinements.map((r, k) => h("div", { class: "note" },
-        row("Start", vec3Field(["mesh", "refinements", k, "start"], { label: `refinement ${k + 1} start` })),
-        row("Stop", vec3Field(["mesh", "refinements", k, "stop"], { label: `refinement ${k + 1} stop` })),
-        row("Resolution", numField(["mesh", "refinements", k, "resolution_mm"], { unit: "mm", aria: "Refinement resolution" })),
-        h("button", { type: "button", class: "small danger", onclick: () => edit(d => d.mesh.refinements.splice(k, 1)) }, "Remove"))),
-      h("div", { class: "actions" }, h("button", { type: "button", class: "small", onclick: () => edit(d => {
-        d.mesh ??= {}; d.mesh.refinements ??= [];
-        const sel = state.sel?.kind === "geometry" ? state.derived.geometry[state.sel.index] : null;
-        d.mesh.refinements.push({ start: [-10, -10, -10], stop: [10, 10, 10], resolution_mm: 0.5 });
-        void sel;
-      }) }, "+ Refinement box"))),
+      doc.mesh?.grid_mode === "uniform" ? row("Uniform step", numField(["mesh", "uniform_step_mm"], { optional: true, unit: "mm", aria: "Uniform step" })) : null),
+    h("details", {class:"form-section refinement-section",open:true},h("summary",{text:"Refinements ("+refinements.length+")"}),
+      doc.mesh?.grid_mode==="uniform" ? h("p",{class:"note warn",text:"Uniform grid ignores local refinements. Select Feature grid in Mesh."}):null,
+      h("div",{class:"refinement-actions"},h("button",{type:"button",onclick:()=>addRefinement(false)},"+ Box"),
+        h("button",{type:"button",disabled:!feedRegion(),onclick:()=>addRefinement(true)},"+ Around feed")),
+      h("p",{class:"hint",text:"Purple boxes add mesh lines along each axis. Select a box to drag its start and stop corners. Around feed uses 5 mm padding and 0.25 mm spacing in the current case."}),
+      ...refinements.map((r,k)=>refinementFields(k))),
     h("details", { class: "form-section", open: true }, h("summary", { text: "Outputs" }),
       ...s11.map((s, k) => h("div", { class: "note" },
         h("div", { class: "hint", text: `S11 sweep ${k + 1}` }),
@@ -1434,9 +1599,11 @@ function inspectSim(box, title) {
       checkField(["outputs", "include_realized_gain"], "Realized gain"),
       checkField(["outputs", "include_polarization"], "E_θ / E_φ polarization"),
       checkField(["outputs", "include_impedance"], "Input impedance")),
-    h("details", { class: "form-section" }, h("summary", { text: "Solver & CI resources" }),
+    h("details", { class: "form-section" }, h("summary", { text: "Solver settings" }),
       row("Max timesteps", numField(["solver", "max_timesteps"], { optional: true, def: 20000, int: true, aria: "Max timesteps" })),
-      row("End criteria", numField(["solver", "end_criteria"], { optional: true, def: 0.0001, aria: "End criteria" })),
+      row("End criteria", numField(["solver", "end_criteria"], { optional: true, def: 0.0001, aria: "End criteria" }))),
+    h("details", { class: "form-section" }, h("summary", { text: "Advanced · native CI resources" }),
+      h("p", { class: "hint", text: "Exported JSON only. Browser execution uses the thread control above." }),
       row("CPUs", numField(["solver", "resources", "cpus"], { optional: true, aria: "CPUs" })),
       row("Memory", numField(["solver", "resources", "memory_gib"], { optional: true, unit: "GiB", aria: "Memory" }))));
 }
@@ -1462,7 +1629,7 @@ function fitDomain() {
 }
 
 // ---------------------------------------------------------------- structure ops
-const listOf = (doc, kind) => ({ geometry: doc.geometry, port: doc.ports, material: doc.materials })[kind];
+const listOf = (doc, kind) => ({ geometry: doc.geometry, port: doc.ports, material: doc.materials, refinement:doc.mesh?.refinements })[kind] || [];
 function uniqueName(names, base) {
   let n = base, k = 2;
   while (names.includes(n)) n = `${base}-${k++}`;
@@ -1474,7 +1641,7 @@ function duplicate(kind, i) {
     const item = clone(list[i]);
     delete item.editor_id;
     if (kind === "port") { item.id = Math.max(0, ...doc.ports.map(p => +p.id || 0)) + 1; item.excite = false; }
-    item.name = uniqueName(list.map(x => x.name), (item.name || item.shape || "item") + "-copy");
+    if(kind!=="refinement")item.name = uniqueName(list.map(x => x.name), (item.name || item.shape || "item") + "-copy");
     list.splice(i + 1, 0, item);
     state.sel = { kind, index: i + 1 };
   });
@@ -1484,6 +1651,8 @@ function remove(kind, i) {
   edit(doc => {
     listOf(doc, kind).splice(i, 1);
     if (kind === "geometry") state.hidden = new Set([...state.hidden].filter(k => k !== i).map(k => k > i ? k - 1 : k));
+    if(state.sel?.kind===kind&&state.sel.index>i)state.sel.index--;
+    state.handle=null;
     fixSelection();
     if (!listOf(doc, kind).length) state.sel = null;
   });
@@ -1532,15 +1701,16 @@ function addItem(kind, type) {
 function arrayDialog(i) {
   const g = state.doc.geometry[i];
   const count = h("input", { type: "text", value: "3", inputmode: "numeric", "aria-label": "Copies" });
-  const step = ["x", "y", "z"].map((a, k) => h("input", { type: "text", value: k === 0 ? "10" : "0", "aria-label": "Step " + a, spellcheck: "false", autocapitalize: "off" }));
+  const lengthUnit=displayUnit("mm",state.doc.workspace_units);
+  const step = ["x", "y", "z"].map((a, k) => h("input", { type: "text", value: formatUnitField(k===0?10:0,"mm",lengthUnit), "aria-label": "Step " + a, spellcheck: "false", autocapitalize: "off" }));
   openDialog("Linear array of " + (g.name || g.shape), h("div", {},
     h("p", { class: "hint", text: "Adds copies translated by k × step. Step components may be parameters or expressions (e.g. pitch, lambda/2)." }),
-    row("Copies", count), row("Step (mm)", h("div", { class: "vec3" }, step))), [
+    row("Copies", count), row("Step ("+lengthUnit+")", h("div", { class: "vec3" }, step))), [
     ["Create", () => {
       const n = Math.trunc(Number(count.value));
       if (!(n >= 1 && n <= 200)) return setStatus("Copies must be 1–200", true);
       let steps;
-      try { steps = step.map(s => fieldToValue(s.value)); } catch (e) { return setStatus(e.message, true); }
+      try { steps = step.map(s => parseUnitField(s.value,"mm",lengthUnit)); } catch (e) { return setStatus(e.message, true); }
       edit(doc => {
         const src = doc.geometry[i];
         const baseT = src.transform?.translate || [0, 0, 0];
@@ -1586,11 +1756,18 @@ function renderParams() {
       Object.keys(params).length ? table : h("p", { class: "hint", text: "No parameters yet. Add one, then type its name (or an expression like 2*gap + 1) into any numeric field." }),
       unknown.length ? h("div", { class: "note warn" }, "Referenced but undefined: ", unknown.join(", "), " ",
         h("button", { type: "button", class: "small", onclick: () => edit(dd => { dd.parameters ??= {}; unknown.forEach(n => { dd.parameters[n] = 1; }); }) }, "Define all = 1")) : null,
-      h("div", { class: "actions" },
-        h("button", { type: "button", onclick: () => edit(dd => { dd.parameters ??= {}; dd.parameters[uniqueParam(dd, "p")] = 1; }) }, "+ Parameter")),
-      h("p", { class: "hint", text: "Fields accept numbers, a parameter name ({\"$param\"}) or an expression ({\"$expr\"}) with + − * / % **, abs min max sqrt sin cos tan floor ceil, pi, e — the same grammar the radiators sweep runner evaluates." })));
-  if (swept.size) add(left, h("p", { class: "hint" }, `Swept in Simulation: ${[...swept].join(", ")}. `,
-    h("button", { type: "button", class: "small", onclick: () => openSheet("sim") }, "Open sweep")));
+      h("div", { class: "actions param-actions" },
+        h("button", { type: "button", onclick: () => edit(dd => { dd.parameters ??= {}; dd.parameters[uniqueParam(dd, "p")] = 1; }) }, "+ Parameter"),
+        swept.size ? h("button", { type: "button", title: "Edit swept parameters in Simulation", onclick: () => {
+          openSheet("sim");
+          requestAnimationFrame(() => document.querySelector("#sim .sim-sweep-card")?.scrollIntoView({block:"nearest"}));
+        } }, "Open sweep") : null),
+      h("details", { class: "param-help" }, h("summary", { text: "Expression syntax" }),
+        h("p", { class: "hint" }, "Enter a number ", h("code",{text:"2.45"}), ", parameter ", h("code",{text:"gap"}), ", or expression ", h("code",{text:"2*gap + 1"}), "."),
+        h("p", { class: "hint" }, "Operators: ", h("code",{text:"+ - * / % **"})),
+        h("p", { class: "hint" }, "Functions: ", ...["abs","min","max","sqrt","sin","cos","tan","floor","ceil"].flatMap((name,i)=>[i?" ":"",h("code",{text:name})])),
+        h("p", { class: "hint" }, "Constants: ", h("code",{text:"pi"}), ", ", h("code",{text:"e"})),
+        h("p", { class: "hint" }, "JSON: ", h("code",{text:'{"$param":"gap"}'}), " or ", h("code",{text:'{"$expr":"2*gap + 1"}'}), "."))));
   add(box, left);
 }
 function uniqueParam(doc, base) {
@@ -1662,10 +1839,10 @@ function renderSweep(d, swept) {
     } else delete dd.sweep;
     state.caseIndex = 0;
   }));
-  sec.append(h("label", { class: "check-inline" }, on, "Expand into independent simulation cases (max " + MAX_CASES + ")"));
+  sec.append(h("label", { class: "check-inline" }, on, "Enable sweep (max " + MAX_CASES + " cases)"));
   if (!doc.sweep) return sec;
   const mode = h("select", { "aria-label": "Sweep mode" },
-    h("option", { value: "product", text: "product — every combination" }), h("option", { value: "zip", text: "zip — pair equal-length axes" }));
+    h("option", { value: "product", text: "All combinations" }), h("option", { value: "zip", text: "Pair by index" }));
   mode.value = doc.sweep.mode || "product";
   mode.addEventListener("change", () => edit(dd => { dd.sweep.mode = mode.value; }));
   sec.append(row("Mode", mode));
@@ -1678,10 +1855,10 @@ function renderSweep(d, swept) {
   }) }, "+ Sweep axis")));
   if (d.caseError) sec.append(h("div", { class: "note warn", text: d.caseError }));
   else {
-    sec.append(h("div", { class: "hint", text: `${d.cases.length} case${d.cases.length > 1 ? "s" : ""} → results/${slug()}__case-0001 … each runs as its own FDTD job.` }));
+    sec.append(h("div", { class: "hint", text: `${d.cases.length} case${d.cases.length > 1 ? "s" : ""}` }));
     const list = h("div", { class: "case-list", role: "listbox", "aria-label": "Cases" });
     d.cases.forEach((c, k) => list.append(h("div", { role: "option", class: k === state.caseIndex ? "active" : "", "aria-selected": String(k === state.caseIndex),
-      onclick: () => { state.caseIndex = k; refresh(); }, text: `${c.id}  ${c.name}` })));
+      onclick: () => changeCase(k), title: c.name, text: shortCaseLabel(c) })));
     sec.append(list);
   }
   return sec;
@@ -1748,7 +1925,7 @@ function renderChecks() {
       h("strong", { text: errors ? `${errors} error${errors > 1 ? "s" : ""}` : "No blocking errors" }),
       warns ? h("span", { class: "muted", text: `${warns} warning${warns > 1 ? "s" : ""}` }) : null,
       h("span", { class: "muted", text: `· ${caseCount} case${caseCount > 1 ? "s" : ""} checked` })),
-    h("p", { class: "hint", text: "These mirror the input validation in antennas/simulate_v2.py. Passing them does not validate the feed model or mesh convergence." }));
+    h("p", { class: "hint", text: "Input validation and advisory feed-contact, mesh and boundary checks. Passing them does not prove electrical connectivity on the FDTD grid or mesh convergence." }));
   const ul = h("ul", { class: "checks-list" });
   for (const c of list) {
     const li = h("li", { "data-ref": c.ref ? "1" : undefined },
@@ -1787,6 +1964,66 @@ function renderJson(force = false) {
   ta.dataset.dirty = "0";
 }
 
+// Case names show only swept values; the full parameter set is available in
+// the option title and the exported configuration.
+function shortCaseLabel(c) {
+  if(c.id==="default")return "Default";
+  const n=Number(c.id.match(/\d+$/)?.[0]);
+  const values=Object.keys(state.doc.sweep?.parameters||{}).filter(k=>k in c.parameters).map(k=>k+"="+String(c.parameters[k]));
+  return (Number.isFinite(n)?"#"+n:c.id)+(values.length?" · "+values.join(", "):"");
+}
+// Keep the frozen Results selector and viewport selector in sync, without
+// rebuilding an unchanged select while the user is choosing a case.
+function syncCaseSelectors() {
+  const d=state.derived;
+  if(!d)return;
+  for(const id of ["caseSelect","resultCase"]){
+    const select=$(id);
+    const labels=d.cases.map(c=>{
+      const label=shortCaseLabel(c);
+      const s=caseRunState(c.id)?.status;
+      return id==="resultCase" && s ? `${s==="done"?"✓":s==="running"?"▶":s==="failed"?"!":s==="queued"?"…":s==="stopped"?"■":"–"} ${label} · ${s}` : label;
+    });
+    const key=JSON.stringify(labels);
+    if(select.dataset.optionsKey!==key){
+      select.replaceChildren(...labels.map((text,k)=>h("option",{value:k,text,title:d.cases[k].name})));
+      select.dataset.optionsKey=key;
+    }
+    select.value=state.caseIndex;
+  }
+  $("caseWrap").hidden=d.cases.length<=1;
+  $("resultCaseCount").textContent=`${state.caseIndex+1}/${d.cases.length}`;
+}
+// Preserve the relative vertical position when comparing cases. If a target
+// has no results yet, keep the prior fraction until a completed case returns.
+let resultScrollFraction=0;
+function changeCase(index) {
+  const next=Math.max(0,Math.min(state.derived.cases.length-1,index));
+  if(next===state.caseIndex)return;
+  const area=$("resultBody");
+  const before=area.scrollHeight-area.clientHeight;
+  if(area.clientHeight>0 && before>1)resultScrollFraction=area.scrollTop/before;
+  state.caseIndex=next;
+  persist();
+  refresh();
+  if(area.clientHeight>0)area.scrollTop=resultScrollFraction*Math.max(0,area.scrollHeight-area.clientHeight);
+}
+function stepResultCase(delta) { changeCase(state.caseIndex+delta); }
+function installResultSwipe(){
+  const area=$("resultBody");
+  let start=null;
+  area.addEventListener("touchstart",e=>{
+    if(!mobile()||e.touches.length!==1||e.target.closest("button,select,input,a,[data-smith-drag]")){start=null;return;}
+    start={x:e.touches[0].clientX,y:e.touches[0].clientY};
+  },{passive:true});
+  area.addEventListener("touchcancel",()=>{start=null;},{passive:true});
+  area.addEventListener("touchend",e=>{
+    if(!start)return;
+    const t=e.changedTouches[0], dx=t.clientX-start.x,dy=t.clientY-start.y;start=null;
+    if(Math.abs(dx)>45 && Math.abs(dx)>1.5*Math.abs(dy))stepResultCase(dx<0?1:-1);
+  },{passive:true});
+}
+
 // ---------------------------------------------------------------- refresh
 function refresh(opts = {}) {
   const o = { tree: true, inspector: true, params: true, json: true, viewport: true, ...opts };
@@ -1797,11 +2034,7 @@ function refresh(opts = {}) {
   $("caseBadge").textContent = d.cases.length > 1 ? String(d.cases.length) : "";
   $("undo").disabled = !history.undo.length;
   $("redo").disabled = !history.redo.length;
-  for (const id of ["caseSelect", "resultCase"]) {
-    const select = $(id);
-    select.replaceChildren(...d.cases.map((c, k) => h("option", { value: k, text: c.name === "Default" ? c.name : `${c.id} · ${c.name}` })));
-    select.value = state.caseIndex;
-  }
+  syncCaseSelectors();
   if (o.tree) renderTree();
   if (o.inspector) renderInspector();
   else inspectorRefreshers.forEach(f => f());
@@ -1814,6 +2047,7 @@ function refresh(opts = {}) {
   if (o.json) renderJson();
   if (o.viewport && viewport) {
     const geometry = d.geometry.map((g, i) => d.expanded[i] ? (d.expanded[i].objects ? { __parts: d.expanded[i].objects } : null) : g);
+    viewport.setSelection(state.sel);
     const errs = viewport.update({ geometry, ports: d.ports, materials: d.resolved.materials || [],
       domain: d.resolved.domain, mesh: d.resolved.mesh, hidden: state.hidden });
     const ve = $("viewError");
@@ -1919,6 +2153,20 @@ function openFromText(text, label) {
   catch (e) { setStatus("Open failed: " + e.message, true); }
 }
 
+function showWorkspaceUnits() {
+  const current=normalizeWorkspaceUnits(state.doc.workspace_units),fields={};
+  const labels={length:"Length",frequency:"Frequency",angle:"Angle",resistance:"Resistance",conductivity:"Conductivity",memory:"Memory"};
+  const content=h("div",{class:"workspace-unit-settings"},
+    h("p",{class:"hint",text:"Defaults for bare values and expressions in dimensional fields. Explicit units override them. Saved with this antenna; existing physical values do not change."}),
+    ...Object.entries(UNIT_GROUPS).map(([group,units])=>{
+      const select=h("select",{"aria-label":"Workspace "+labels[group]},...Object.keys(units).map(u=>h("option",{value:u,text:u})));
+      select.value=current[group];fields[group]=select;
+      return row(labels[group],select);
+    }),
+    h("p",{class:"hint"},"Examples: ",h("code",{text:"1 GHz"}),", ",h("code",{text:"1000 MHz"}),", ",h("code",{text:"{f_ghz * 1000} MHz"}),". Parameters remain scalar; units are applied in dimensional fields."));
+  openDialog("Workspace units",content,[["Apply",()=>edit(doc=>{doc.workspace_units=Object.fromEntries(Object.entries(fields).map(([k,el])=>[k,el.value]));})]]);
+}
+
 async function menuAction(action) {
   closeMenus();
   const d = state.derived;
@@ -1946,6 +2194,7 @@ async function menuAction(action) {
       try { setStatus(await saveFile(slug() + ".png", viewport.screenshot(), "image/png")); }
       catch (e) { setStatus(e.message, true); }
       break;
+    case "workspace-units": showWorkspaceUnits(); break;
     case "theme": {
       const root = document.documentElement;
       const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
@@ -2013,10 +2262,51 @@ function setDock(name) {
   if (name === "scripts") requestAnimationFrame(() => scriptEditor?.refresh()); // CodeMirror measures 0 while hidden
   if (name === "json") renderJson(true);
 }
+// Desktop-only splitter. Store requested height separately from the current
+// viewport clamp, so changing window size does not destroy the user's preference.
+function installDockResize(prefs) {
+  const el=$("dockResize"),dock=el.closest(".dock"),workspace=dock.closest(".workspace");
+  let preferred=Number.isFinite(prefs.dockHeight)?prefs.dockHeight:270, drag=null;
+  const bounds=()=>{const max=Math.max(150,workspace.clientHeight-140);return [Math.min(150,max),max];};
+  const apply=(value,save=false)=>{
+    if(!Number.isFinite(value))return;
+    const [min,max]=bounds();
+    preferred=Math.max(min,Math.min(1600,value));
+    const height=Math.round(Math.min(max,preferred));
+    document.documentElement.style.setProperty("--dock-h",height+"px");
+    el.setAttribute("aria-valuemin",String(min));
+    el.setAttribute("aria-valuemax",String(max));
+    el.setAttribute("aria-valuenow",String(height));
+    if(save)storage.set(PREFS_KEY,{...(storage.get(PREFS_KEY)||{}),dockHeight:preferred});
+  };
+  const expanded=()=>!document.body.classList.contains("dock-collapsed");
+  const expand=()=>{document.body.classList.remove("dock-collapsed");storage.set(PREFS_KEY,{...(storage.get(PREFS_KEY)||{}),dockCollapsed:false});};
+  const finish=()=>{if(!drag)return;drag=null;document.body.classList.remove("dock-resizing");apply(preferred,true);scriptEditor?.refresh();};
+  el.addEventListener("pointerdown",e=>{
+    if(mobile()||e.button!==0)return;
+    e.preventDefault();el.setPointerCapture(e.pointerId);
+    drag={y:e.clientY,height:dock.getBoundingClientRect().height,pointer:e.pointerId};
+    if(!expanded())expand();
+    document.body.classList.add("dock-resizing");
+  });
+  el.addEventListener("pointermove",e=>{if(drag?.pointer===e.pointerId){const [,max]=bounds();apply(Math.min(max,drag.height+drag.y-e.clientY));}});
+  el.addEventListener("pointerup",finish);el.addEventListener("pointercancel",finish);el.addEventListener("lostpointercapture",finish);
+  el.addEventListener("dblclick",()=>{expand();apply(270,true);scriptEditor?.refresh();});
+  el.addEventListener("keydown",e=>{
+    if(mobile()||!["ArrowUp","ArrowDown","Home","End"].includes(e.key))return;
+    e.preventDefault();expand();
+    const [min,max]=bounds(),current=Number(el.getAttribute("aria-valuenow"));
+    apply(e.key==="Home"?min:e.key==="End"?max:Math.min(max,current+(e.key==="ArrowUp"?24:-24)),true);
+    scriptEditor?.refresh();
+  });
+  const observer=new ResizeObserver(()=>{if(!mobile()&&!drag)apply(preferred);});
+  observer.observe(workspace);
+  if(!mobile())apply(preferred);
+}
 function installSheetDrag() {
   for (const head of document.querySelectorAll(".panel .panel-head")) {
     let y0 = null;
-    head.addEventListener("pointerdown", e => { if (!mobile() || e.target.closest("button")) return; y0 = e.clientY; head.setPointerCapture(e.pointerId); });
+    head.addEventListener("pointerdown", e => { if (!mobile() || e.target.closest("button,select,input,label")) return; y0 = e.clientY; head.setPointerCapture(e.pointerId); });
     head.addEventListener("pointerup", e => {
       if (y0 === null) return;
       const dy = e.clientY - y0;
@@ -2064,7 +2354,37 @@ async function boot() {
   $("menu").addEventListener("click", e => { const a = e.target.closest("[data-action]"); if (a) menuAction(a.dataset.action); });
   $("addButton").addEventListener("click", e => { e.stopPropagation(); const wasOpen = !$("addMenu").hidden; closeMenus(); if (!wasOpen) openAddMenu(e.currentTarget); });
   document.addEventListener("click", e => { if (!e.target.closest(".menu, .menu-wrap, .add-wrap")) closeMenus(); });
-  for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => viewport?.view(b.dataset.view));
+  const facePairs = {
+    top: ["top", "bottom", "z", 1],
+    front: ["front", "back", "y", -1],
+    right: ["right", "left", "x", 1],
+  };
+  const viewButtons = [...document.querySelectorAll("[data-view]")];
+  const label = face => face[0].toUpperCase() + face.slice(1);
+  let activeFace = null;
+  function syncFaceButtons() {
+    const direction = viewport.camera.position.clone().sub(viewport.controls.target).normalize();
+    let face = null;
+    for (const [first, opposite, axis, sign] of Object.values(facePairs)) {
+      const alignment = direction[axis] * sign;
+      if (Math.abs(alignment) > 0.999999) face = alignment > 0 ? first : opposite;
+    }
+    if (face === activeFace) return;
+    activeFace = face;
+    for (const button of viewButtons) {
+      const pair = facePairs[button.dataset.view];
+      if (!pair) continue;
+      const [first, opposite] = pair;
+      const selected = face === first || face === opposite;
+      button.setAttribute("aria-pressed", String(selected));
+      button.textContent = label(selected ? face : first);
+      button.title = "Show " + (face === first ? opposite : first) + " view";
+    }
+  }
+  for (const button of viewButtons) button.addEventListener("click", () => {
+    const preset = button.dataset.view;
+    viewport?.view(facePairs[preset] && activeFace === preset ? facePairs[preset][1] : preset);
+  });
   for (const b of document.querySelectorAll("[data-toggle]")) {
     const key = b.dataset.toggle;
     if (prefs.view && key in prefs.view) b.setAttribute("aria-pressed", String(prefs.view[key]));
@@ -2078,7 +2398,7 @@ async function boot() {
     });
   }
   for (const id of ["caseSelect", "resultCase"]) {
-    $(id).addEventListener("change", e => { state.caseIndex = Number(e.target.value); refresh(); });
+    $(id).addEventListener("change", e => changeCase(Number(e.target.value)));
   }
   $("patternSelect").addEventListener("change", e => {
     const run = resultFor(state.derived.case.id);
@@ -2093,11 +2413,15 @@ async function boot() {
   $("probeToggle").addEventListener("click", () => {
     if (!activeProbe) return;
     const run = activeProbe.run; run.probeVisible = !run.probeVisible;
-    if (!run.probeVisible && state.handle === "result-probe") state.handle = null;
+    if (!run.probeVisible) {
+      run.followProbe = false;
+      if (state.handle === "result-probe") state.handle = null;
+    }
     updateProbe(); syncHandles();
   });
   $("sectionFollow").addEventListener("click", () => {
-    if (!activeProbe) return; activeProbe.run.followProbe = !activeProbe.run.followProbe; updateProbe();
+    if (!activeProbe?.run.probeVisible) return;
+    activeProbe.run.followProbe = !activeProbe.run.followProbe; updateProbe();
   });
   $("probeSelect").addEventListener("click", () => {
     if (!activeProbe) return;
@@ -2118,7 +2442,9 @@ async function boot() {
   for (const b of document.querySelectorAll(".sheet-close")) b.addEventListener("click", () => closeSheet());
   $("chipEdit").addEventListener("click", () => openSheet("inspect"));
   window.addEventListener("popstate", () => closeSheet(true));
+  installDockResize(prefs);
   installSheetDrag();
+  installResultSwipe();
   $("jsonSource").addEventListener("click", () => { state.jsonMode = "source"; renderJson(true); });
   $("jsonResolved").addEventListener("click", () => { state.jsonMode = "resolved"; renderJson(true); });
   $("jsonText").addEventListener("input", () => { $("jsonText").dataset.dirty = "1"; });
@@ -2144,7 +2470,7 @@ async function boot() {
     else if (mod && e.key.toLowerCase() === "d" && state.sel && state.sel.kind !== "sim") { e.preventDefault(); duplicate(state.sel.kind, state.sel.index); }
     else if ((e.key === "Delete" || e.key === "Backspace") && state.sel && state.sel.kind !== "sim") { e.preventDefault(); remove(state.sel.kind, state.sel.index); }
     else if (e.key === "Escape") { if (state.handle) { state.handle = null; syncHandles(); } else { closeMenus(); closeSheet(); } }
-    else if (e.key === "f" || e.key === "F") viewport?.view("iso");
+    else if (e.key === "f" || e.key === "F") viewport?.view("fit");
   });
   // Drag & drop a JSON file anywhere.
   document.addEventListener("dragover", e => e.preventDefault());
@@ -2166,6 +2492,7 @@ async function boot() {
     } catch { message = "Example not found; starter loaded"; }
   } else if (draft?.doc) {
     initial = draft.doc;
+    state.caseIndex = Math.max(0,Math.trunc(Number(draft.caseIndex)||0));
     message = `Restored local draft (${new Date(draft.savedAt).toLocaleString()})`;
   }
   try { state.doc = normalizeDoc(initial); } catch { state.doc = normalizeDoc(STARTER); }
@@ -2179,6 +2506,7 @@ async function boot() {
       onHandle: onHandleTap,
       onHandleMove, onHandleDrag, onScalarMove,
     });
+    viewport.controls.addEventListener("change", syncFaceButtons);
     // ?debug exposes internals for automated UI tests.
     if (new URLSearchParams(location.search).has("debug")) window.__csxcad = { state, viewport, scriptRT };
     for (const b of document.querySelectorAll("[data-toggle]")) viewport.setOption(b.dataset.toggle, b.getAttribute("aria-pressed") === "true");

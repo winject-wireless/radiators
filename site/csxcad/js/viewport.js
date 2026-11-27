@@ -41,7 +41,9 @@ export class Viewport {
     this.renderer.toneMappingExposure = 1.05;
     container.appendChild(this.renderer.domElement);
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 1e6);
+    this.perspective = new THREE.PerspectiveCamera(40, 1, 0.1, 1e6);
+    this.orthographic = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1e6);
+    this.camera = this.perspective;
     this.camera.position.set(140, -180, 120);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -54,9 +56,9 @@ export class Viewport {
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.04).texture;
     pmrem.dispose();
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x404858, 0.9));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-    sun.position.set(1, -1.5, 2);
-    this.camera.add(sun);
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    this.keyLight.position.set(1, -1.5, 2);
+    this.camera.add(this.keyLight);
     this.scene.add(this.camera);
 
     this.parts = new THREE.Group();
@@ -118,9 +120,25 @@ export class Viewport {
       if (this._dirty || moved || focusing || this._scalar || this.gizmo.dragging) {
         this._dirty = false;
         // Handles keep a constant on-screen size.
-        const touch = matchMedia("(pointer: coarse)").matches ? 1.5 : 1;
+        const touch = matchMedia("(pointer: coarse)").matches;
+        this._updateClipPlanes();
+        this.camera.updateMatrixWorld();
+        const cameraPoint=new THREE.Vector3();
+        const height=Math.max(1,this.renderer.domElement.clientHeight);
+        const projectionScale=Math.abs(this.camera.projectionMatrix.elements[5]);
         for (const hnd of this.handles.children) {
-          hnd.scale.setScalar(Math.max(1e-6, hnd.position.distanceTo(this.camera.position) * 0.011 * touch * (hnd.userData.size || 1) * (hnd === this._hover ? 1.35 : 1)));
+          if(hnd.userData.handleKey==="result-probe"){
+            // In an orthographic view the pixel scale is independent of depth.
+            cameraPoint.copy(hnd.position).applyMatrix4(this.camera.matrixWorldInverse);
+            const depth=this.camera.isOrthographicCamera ? 1 : Math.max(this.camera.near,-cameraPoint.z);
+            const px=(touch?7:5.5)*(hnd===this._hover?1.15:1);
+            hnd.scale.setScalar(Math.max(1e-6,px*2*depth/(height*projectionScale)));
+          } else {
+            const distance = this.camera.isOrthographicCamera
+              ? 1 / (projectionScale * this._tanHalfFov())
+              : hnd.position.distanceTo(this.camera.position);
+            hnd.scale.setScalar(Math.max(1e-6, distance * 0.011 * (touch ? 1.5 : 1) * (hnd === this._hover ? 1.35 : 1)));
+          }
         }
         this.renderer.render(this.scene, this.camera);
       }
@@ -130,6 +148,23 @@ export class Viewport {
   }
 
   markDirty() { this._dirty = true; }
+
+  // Fit sets the pose, not a permanent near plane. At close feed inspection
+  // distances the original fit-dependent near plane can cut through conductors.
+  _updateClipPlanes() {
+    const distance=Math.max(1e-4,this.camera.position.distanceTo(this.controls.target));
+    const center=this.bounds.getCenter(new THREE.Vector3());
+    const diagonal=Math.max(1,this.bounds.getSize(new THREE.Vector3()).length());
+    const near=Math.max(1e-5,Math.min(distance/1000,diagonal/2000));
+    let far=Math.max(10,distance*4,this.camera.position.distanceTo(center)+diagonal*4);
+    if(this.domainBox&&this.options.domain){
+      far=Math.max(far,this.camera.position.distanceTo(this.domainBox.getCenter(new THREE.Vector3()))+this.domainBox.getSize(new THREE.Vector3()).length());
+    }
+    if(Math.abs(this.camera.near-near)>near*0.01||Math.abs(this.camera.far-far)>far*0.01){
+      this.camera.near=near;this.camera.far=far;
+      this.camera.updateProjectionMatrix();
+    }
+  }
 
   applyTheme() {
     this._dirty = true;
@@ -141,7 +176,9 @@ export class Viewport {
     this._dirty = true;
     const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
+    this.perspective.aspect = w / h;
+    this.orthographic.left = -w / h;
+    this.orthographic.right = w / h;
     this.setBottomInset(this.bottomInset || 0);
   }
 
@@ -222,14 +259,16 @@ export class Viewport {
         geo.computeVertexNormals();
         const m = mats.get(part.material);
         const dielectric = m?.type === "dielectric";
-        const shell = /shell/.test(part.shape);
+        // PEC and conductive shells are closed material volumes, not
+        // translucent skins. Draw their inner and outer surfaces using their
+        // actual winding, just like a solid conductor. Only sheets need both sides.
         const mat = new THREE.MeshStandardMaterial({
           // Matte, CAD-style shading: no mirror reflections, just soft form.
           color: materialColor(m), metalness: dielectric ? 0 : 0.15, roughness: 0.85, envMapIntensity: 0.6,
-          transparent: dielectric || shell || this.options.xray, opacity: this.options.xray ? 0.35 : dielectric ? 0.45 : shell ? 0.8 : 1,
-          side: t.flat || shell || dielectric ? THREE.DoubleSide : THREE.FrontSide,
+          transparent: dielectric || this.options.xray, opacity: this.options.xray ? 0.35 : dielectric ? 0.45 : 1,
+          side: t.flat || dielectric ? THREE.DoubleSide : THREE.FrontSide,
           depthWrite: !(dielectric || this.options.xray), flatShading: part.shape === "box",
-          polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+          polygonOffset: t.flat, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
         });
         mat.userData.base = { transparent: mat.transparent, opacity: mat.opacity, depthWrite: mat.depthWrite };
         const mesh = new THREE.Mesh(geo, mat);
@@ -255,13 +294,14 @@ export class Viewport {
       this.domainBox = new THREE.Box3(a.clone().min(b), a.clone().max(b));
     } else this.domainBox = null;
 
-    for (const r of model.mesh?.refinements || []) {
-      if (!nums(r?.start) || !nums(r?.stop)) continue;
-      const helper = new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(...r.start), new THREE.Vector3(...r.stop)), 0x9d7bff);
-      helper.visible = this.options.domain; // refinement boxes follow the Domain toggle
-      helper.userData.overlay = "domain";
+    (model.mesh?.refinements||[]).forEach((r,index)=>{
+      if (!nums(r?.start)||!nums(r?.stop))return;
+      const a=new THREE.Vector3(...r.start),b=new THREE.Vector3(...r.stop);
+      const helper=new THREE.Box3Helper(new THREE.Box3(a.clone().min(b),a.clone().max(b)),0x9d7bff);
+      helper.userData.overlay="domain";
+      helper.userData.ref={kind:"refinement",index};
       this.overlays.add(helper);
-    }
+    });
 
     (model.ports || []).forEach((p, index) => {
       if (!p || !Array.isArray(p.start) || !Array.isArray(p.stop) || [...p.start, ...p.stop].some(v => typeof v !== "number")) return;
@@ -313,9 +353,11 @@ export class Viewport {
     this.overlays.traverse(o => { if (o.userData.scaleWithView) o.scale.setScalar(diag * 0.006); });
     const gridSize = Math.max(10, Math.ceil(diag * 1.5));
     if (!this.grid || Math.abs(gridSize - this.gridSize) / this.gridSize > 0.5) this._makeGrid(gridSize);
-    this.grid.position.z = Math.min(0, box.min.z);
+    // The construction grid represents the global XY plane, not the bottom
+    // of the model's bounding box. Negative-Z geometry must not move it.
+    this.grid.position.set(0, 0, 0);
     this.setSelection(this.selection);
-    if (first) { this._fitted = true; this.view("iso"); }
+    if (first) { this._fitted = true; this.view("perspective"); }
     return errors;
   }
 
@@ -410,7 +452,7 @@ export class Viewport {
     this._dirty = true;
     this.options[key] = value;
     if (key === "grid" && this.grid) this.grid.visible = value;
-    this.overlays.children.forEach(o => { if (o.userData.overlay === key) o.visible = value; });
+    this.overlays.children.forEach(o => { if (o.userData.overlay === key) o.visible = value || (o.userData.ref?.kind==="refinement"&&this.selection?.kind==="refinement"&&o.userData.ref.index===this.selection.index); });
   }
 
   setSelection(ref) {
@@ -433,6 +475,10 @@ export class Viewport {
       const r = group.userData.ref;
       if (!r) continue;
       const on = ref && r.kind === ref.kind && r.index === ref.index;
+      if(r.kind==="refinement"){
+        group.visible=!!on||this.options.domain;
+        group.material.color.set(on?0xcbb6ff:0x9d7bff);
+      }
       group.traverse(o => {
         if (o.isMesh && o.material?.emissive) {
           // Others are ghosted, so the selection only needs a faint tint to keep its real colour.
@@ -454,9 +500,10 @@ export class Viewport {
     const r = Math.max(box.getSize(new THREE.Vector3()).length() / 2, this.bounds.getSize(new THREE.Vector3()).length() / 40, 0.5);
     const h = Math.max(1, this.container.clientHeight);
     const covered = h / Math.max(h * 0.3, h - Math.min(this.bottomInset || 0, h * 0.7)); // part hidden by a phone sheet
-    const dist = r / Math.sin((this.camera.fov * Math.PI / 180) / 2) * 1.8 * covered * (this.camera.aspect < 1 ? 1 / this.camera.aspect ** 0.5 : 1);
+    const dist = r / Math.sin((this.perspective.fov * Math.PI / 180) / 2) * 1.8 * covered * (this.perspective.aspect < 1 ? 1 / this.perspective.aspect ** 0.5 : 1);
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     this._focus = { t0: performance.now(), fromT: this.controls.target.clone(), toT: c,
+      fromZoom: this.camera.zoom, toZoom: 1 / (dist * this._tanHalfFov()),
       fromP: this.camera.position.clone(), toP: c.clone().add(dir.multiplyScalar(dist)) };
   }
   _stepFocus(now) {
@@ -465,6 +512,10 @@ export class Viewport {
     const k = Math.min(1, (now - f.t0) / 380), e = 1 - (1 - k) ** 3;
     this.controls.target.lerpVectors(f.fromT, f.toT, e);
     this.camera.position.lerpVectors(f.fromP, f.toP, e);
+    if (this.camera.isOrthographicCamera) {
+      this.camera.zoom = THREE.MathUtils.lerp(f.fromZoom, f.toZoom, e);
+      this.camera.updateProjectionMatrix();
+    }
     if (k >= 1) this._focus = null;
   }
 
@@ -508,7 +559,7 @@ export class Viewport {
         o.material.color.set(hd.key === "result-probe" ? (active ? 0xffb020 : 0xffdf73) : kind === "action" ? 0x5fd08a : active ? accent : 0xffffff);
         o.material.opacity = kind === "action" ? 0.9 : active ? 1 : 0.85;
         o.userData.axes = hd.axes || [false, false, false];
-        o.userData.size = hd.key === "result-probe" ? 1.4 : 1;
+        o.userData.size = 1;
         o.userData.snap = hd.snap;
       }
     }
@@ -592,24 +643,50 @@ export class Viewport {
     });
   }
 
+  _tanHalfFov() {
+    return Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
+  }
+
   view(name) {
     this._dirty = true;
     this._focus = null;
+    // Finish any pending damped orbit or pan before applying the exact preset pose.
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.controls.enableDamping = damping;
     const target = (this.bounds.isEmpty() ? new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) : this.bounds.clone());
     if (this.radiation.children.length) target.union(new THREE.Box3().setFromObject(this.radiation));
     const c = target.getCenter(new THREE.Vector3());
     const r = Math.max(target.getSize(new THREE.Vector3()).length() / 2, 1);
-    const dist = r / Math.sin((this.camera.fov * Math.PI / 180) / 2) * (this.camera.aspect < 1 ? 1.25 / this.camera.aspect ** 0.5 : 1.05);
+    const dist = r / Math.sin((this.perspective.fov * Math.PI / 180) / 2) * (this.perspective.aspect < 1 ? 1.25 / this.perspective.aspect ** 0.5 : 1.05);
+    const camera = name === "iso" ? this.orthographic : name === "perspective" ? this.perspective : this.camera;
+    if (camera !== this.camera) {
+      this.scene.remove(this.camera);
+      this.camera = camera;
+      this.scene.add(camera);
+      camera.add(this.keyLight);
+      this.controls.object = camera;
+      this.gizmo.camera = camera;
+      this.resize();
+    }
+    if (camera.isOrthographicCamera) {
+      const aspect = this.perspective.aspect;
+      const halfHeight = 1.05 * r / Math.min(1, aspect);
+      camera.zoom = 1 / halfHeight;
+    } else {
+      camera.zoom = 1;
+    }
+    camera.up.set(0, 0, 1);
+    camera.updateProjectionMatrix();
     const dirs = {
-      iso: [1, -1.25, 0.9], top: [0, -0.0001, 1], bottom: [0, 0.0001, -1], front: [0, -1, 0],
+      perspective: [1, -1.25, 0.9], iso: [1, -1, 1], top: [0, -0.0001, 1], bottom: [0, 0.0001, -1], front: [0, -1, 0],
       back: [0, 1, 0], right: [1, 0, 0], left: [-1, 0, 0],
     };
-    const d = new THREE.Vector3(...(dirs[name] || dirs.iso)).normalize();
+    const d = new THREE.Vector3(...(dirs[name] || (camera.isOrthographicCamera ? dirs.iso : dirs.perspective))).normalize();
     this.camera.position.copy(c.clone().add(d.multiplyScalar(dist)));
-    this.camera.near = dist / 1000;
-    this.camera.far = dist * 100;
-    this.camera.updateProjectionMatrix();
     this.controls.target.copy(c);
+    this._updateClipPlanes();
     this.controls.update();
   }
 

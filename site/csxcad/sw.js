@@ -9,7 +9,7 @@ const SHELL = [
   "./vendor/codemirror/lib/codemirror.js", "./vendor/codemirror/lib/codemirror.css", "./vendor/codemirror/mode/javascript/javascript.js",
   "./vendor/codemirror/addon/hint/show-hint.js", "./vendor/codemirror/addon/hint/show-hint.css", "./vendor/codemirror/addon/edit/closebrackets.js",
   "./vendor/codemirror/addon/edit/matchbrackets.js", "./vendor/codemirror/addon/comment/comment.js", "./vendor/codemirror/addon/selection/active-line.js",
-  "./js/sim/radiation.js", "./js/sim/mesh.js", "./js/sim/model.js", "./js/sim/run.js", "./js/sim/plot.js", "./js/sim/panel.js",
+  "./js/sim/remote.js", "./js/sim/diagnostics.js", "./js/sim/radiation.js", "./js/sim/mesh.js", "./js/sim/model.js", "./js/sim/run.js", "./js/sim/plot.js", "./js/sim/panel.js",
   "./vendor/openems/openems.js", "./vendor/openems/openems-core.js", "./vendor/openems/openems-post.js",
   "./vendor/openems/openems-worker.js", "./vendor/openems/openems.mjs", "./vendor/openems/openems.wasm",
   "./vendor/three.module.min.js", "./vendor/addons/controls/OrbitControls.js", "./vendor/addons/environments/RoomEnvironment.js", "./vendor/addons/controls/TransformControls.js",
@@ -37,7 +37,13 @@ self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   if (e.request.cache === "only-if-cached" && e.request.mode !== "same-origin") return;
-  e.respondWith(fetch(e.request).then(r => {
+  // Revalidate the small app shell instead of trusting the browser's HTTP
+  // freshness lifetime. Large immutable vendor assets keep normal caching.
+  const scope = new URL(self.registration.scope);
+  const relative = url.pathname.slice(scope.pathname.length);
+  const request = e.request.mode === "navigate" || relative === "app.css" || relative.startsWith("js/")
+    ? new Request(e.request, { cache: "no-cache" }) : e.request;
+  e.respondWith(fetch(request).then(r => {
     if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
     return isolate(r);
   }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(isolate)));

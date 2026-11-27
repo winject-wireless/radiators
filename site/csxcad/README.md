@@ -98,13 +98,13 @@ expands them after resolving parameters (`scripts/sweep.py` runs
 
 ## Simulating in the browser
 
-**Simulation → Run in browser** simulates the current case on the device with openEMS
+**Simulation → Run in browser** defaults to the CPU engine (experimental); Basic remains selectable. It simulates a single case on the device with openEMS
 compiled to WebAssembly (`site/openems`, PR #20; copied into `vendor/openems` by
 `prepare.py`). Nothing is uploaded. The results panel shows best S11, the −10 dB band,
 Zin, Dmax / efficiency / realized gain, S11 / Zin / VSWR charts and three directivity
 cuts per far-field frequency, and offers the run as `result.json` (the shape
 `antennas/simulate_v2.py` writes). **Stop** ends the FDTD early and post-processes what
-was computed.
+was computed. For sweeps, **Run all** queues a snapshot of the resolved cases and runs them sequentially to limit device memory. Completed results appear immediately in the fixed Results case selector; failed cases do not block the rest. **Stop** cancels the remaining queue and retains completed results. On phones, swipe left/right across the Results content to change cases while preserving the relative vertical scroll position. Case labels show only the swept variables, with complete parameters retained in the configuration. The compact layout uses consistent typography and spacing for panels, controls and viewport overlays. The More menu shows the deployed build hash, and the service worker revalidates the app shell without discarding local drafts or simulation results. Solver max timesteps and end criteria apply to both browser and native runs; advanced native CI CPU/memory settings are export-only. Successful results are saved locally in IndexedDB by exact resolved input and restored after a refresh, including each completed sweep case. Edited configs never reuse a mismatched result; interrupted jobs must be restarted. The browser may evict site storage or deny writes, so download important results as JSON.
 
 - `js/sim/model.js` ports `simulate_v2.output_data()` up to the run (validation,
   materials, primitives, lumped ports, NF2FF box, excitation, boundaries) and
@@ -131,7 +131,9 @@ After a successful run, select a far-field frequency in the viewport. **XY, YZ,
 XZ** show the exact intersections of the triangulated radiation surface with
 the three principal planes through the origin. Each plane can be toggled
 independently. **Follow point** moves all three enabled planes through the
-sampling point instead.
+visible sampling point instead. Hiding the point turns Follow off and resets
+the planes to the global origin (XY: Z=0, YZ: X=0, XZ: Y=0). The construction
+grid always lies at global Z=0, even if the geometry extends below it.
 
 The yellow sampling point reports its XYZ display coordinates, theta/phi,
 interpolated directivity, gain (including radiation efficiency), realized gain
@@ -139,7 +141,7 @@ interpolated directivity, gain (including radiation efficiency), realized gain
 point or **Sampling point** to attach the same three-axis translation gizmo as
 the geometry editor. The readout follows the drag without editing the antenna
 or invalidating simulation results. **Reset** returns to the peak direction;
-**Point** hides or shows the probe.
+**Point** hides or shows the probe. The marker has a fixed on-screen radius across camera zoom; the compact bottom readout shows directional metrics, with coordinates, angles, frequency and global efficiencies/power under **Point details**.
 
 The pattern is an angular far-field representation, not a spatial field map.
 The displayed radius and point distance in millimetres are illustrative; only
@@ -150,7 +152,7 @@ efficiencies are global metrics.
 ## Layout
 
 Desktop: model tree | 3D view | inspector, with a Parameters / Checks / JSON
-dock. Phones (≤760 px): full-screen 3D view, bottom navigation, and each panel
+dock. Drag the horizontal grip above its tabs to resize it (double-click to reset, arrow keys to adjust); the height is remembered. Simulation has a compact run toolbar and grouped, collapsible setup cards. Results place the summary and download above responsive frequency-response and radiation chart grids. Phones (≤760 px): full-screen 3D view, bottom navigation, and each panel
 as a bottom sheet (drag the handle up for full height, down to close; Android
 back closes it). One finger orbits, two fingers zoom and pan, tap selects.
 
@@ -204,3 +206,53 @@ through `@capacitor/filesystem` (Documents, falling back to the cache) and
 opens the share sheet through `@capacitor/share`. The results-viewer links
 point to the published site. `www/`, `android/` and `node_modules/` are not
 committed.
+
+### Workspace units
+
+Open **More → Workspace units** to select default length, frequency, angle,
+resistance, conductivity and memory units for the current document. These
+preferences are stored as `workspace_units` in the saved antenna JSON. Numeric
+fields accept e.g. `1 GHz`, `1000 MHz`, `{f_ghz * 1000} MHz` or a bare value in
+the selected default. One trailing unit applies to the entire expression;
+mixed-unit arithmetic within an expression is not supported. Parameters and
+sweep values remain scalar, with units applied at the dimensional field.
+The saved physical values remain in schema units (mm, Hz, degrees, Ω, S/m,
+GiB, or metres for conducting sheet thickness). Expressions compile to ordinary
+`$expr` values, so native CI and browser sweeps agree. Workspace display metadata
+is removed from resolved cases and has no effect on cached simulation inputs.
+
+### Feed preflight warnings
+
+Checks reports potential missing lumped-port terminal contacts, fragile curved
+point contacts, coarse requested local mesh spacing near such contacts,
+inconsistent conducting polyhedron winding/open edges, and insufficient
+conductor-to-domain clearance before PML. Analytic shape tests distinguish a
+hollow tube from a solid conductor; finite port faces are sampled, and mesh
+checks use triangulated surfaces. These are non-blocking geometric heuristics:
+intentional capacitive feeds, discretized contacts and material priorities can
+differ from the geometric estimate. Verify the actual FDTD mesh and convergence.
+
+### Local mesh refinements
+
+In **Simulation → Refinements**, add a free **Box** or **Around feed** (current case, 5 mm padding, 0.25 mm resolution). Each region has editable Start/Stop XYZ and resolution in workspace units. **Edit in 3D** selects the purple box and its start corner; select either corner to move it with the XYZ gizmo. Selecting a box keeps it visible even with Domain hidden. Refinement boxes are saved in `mesh.refinements`; feature mode adds rectilinear grid lines along all three axes, while uniform mode ignores the regions. The feed preset is a starting point, not a mesh-convergence guarantee.
+
+### Temporarily disable geometry
+
+In the Model tree, use the checkbox icon next to an object (or the Simulation control in its inspector). Disabled objects are hidden from the geometry viewport and excluded from parameter resolution, script expansion, validation, meshing and simulation; their full source definition remains editable and undoable. The eye icon remains preview-only. JSON uses `"enabled": false`; omit the property or set it to `true` to enable again. The toggle works for primitives and entire scripted instances in browser and native sweep runs.
+
+
+## Remote simulation runner
+
+Choose **Remote** in the Simulation runner selector. The editor sends the resolved
+schema v2 case to the native Python openEMS solver on your machine, polls logs,
+and loads the completed S11, impedance and radiation results into the existing viewer.
+CPU and RAM come from solver.resources; sweeps submit cases sequentially.
+No geometry scripts or generators are executed by the remote API. The URL is
+saved locally; the access token stays in memory until reload.
+
+On the runner machine (Linux or WSL2 with Docker and Python 3), clone the repository and run `./run-remote.sh`. First launch creates private settings and builds the native solver image if necessary. Use `./run-remote.sh --print-token` to retrieve the editor access token. See [the deployment guide](../../docs/remote-runner.md) for configuration, HTTPS and optional startup at boot. The runner accepts one active job; native PEC exports and diagnostic waveforms are not yet implemented remotely.
+
+API: GET /v1/health, POST /v1/jobs with id and config, GET /v1/jobs/{id},
+GET /v1/jobs/{id}/result, DELETE /v1/jobs/{id}. All except OPTIONS require
+Authorization: Bearer <token>. Results inline native pattern records for the
+editor. HTTPS termination is the operator's responsibility.

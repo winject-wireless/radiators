@@ -105,12 +105,15 @@ function cylinderMesh(mesh, a, b, rOuter, rInner, n = 32) {
   const axis = unit(sub(b, a));
   const [u, v] = frame(axis);
   const A = ring(mesh, a, u, v, rOuter, n), B = ring(mesh, b, u, v, rOuter, n);
-  bridge(mesh, A, B);
+  // frame() makes u × v point along a -> b. With rings ordered
+  // along that axis, the outer wall needs circumferential-first winding.
+  // The inner wall and the two annular caps must face out of the material.
+  bridge(mesh, A, B, true);
   if (rInner) {
     const Ai = ring(mesh, a, u, v, rInner, n), Bi = ring(mesh, b, u, v, rInner, n);
-    bridge(mesh, Ai, Bi, true);
-    bridge(mesh, Ai, A, false); // annular end caps
-    bridge(mesh, B, Bi, false);
+    bridge(mesh, Ai, Bi, false);
+    bridge(mesh, Ai, A, true); // bottom annulus: -axis
+    bridge(mesh, B, Bi, true); // top annulus: +axis
   } else {
     cap(mesh, A, a, true);
     cap(mesh, B, b, false);
@@ -192,7 +195,8 @@ export function hemisphereMesh(radius, thickness = null, lat = 10, az = 32) {
     const lastI = inner[inner.length - 1];
     for (let j = 0; j < az; j++) {
       const n = (j + 1) % az;
-      faces.push([lastO[j], lastO[n], lastI[n]], [lastO[j], lastI[n], lastI[j]]);
+      // The rim faces toward -Z, opposite the dome's outer surface.
+      faces.push([lastO[j], lastI[n], lastO[n]], [lastO[j], lastI[j], lastI[n]]);
     }
   }
   return { verts, faces };
@@ -211,7 +215,7 @@ function tubeMesh(mesh, pts, r, sides = 10, maxRings = 1500) {
     else u = frame(t)[0];
     const v = cross(t, u);
     const R = ring(mesh, P[i], u, v, r, sides);
-    if (prevRing) bridge(mesh, prevRing, R);
+    if (prevRing) bridge(mesh, prevRing, R, true);
     else cap(mesh, R, P[i], true);
     prevU = u; prevRing = R;
   }
@@ -305,6 +309,20 @@ export function tessellate(g) {
   const positions = new Float32Array(mesh.p.length * 3);
   mesh.p.forEach((p, k) => { const w = T(p); positions[3 * k] = w[0]; positions[3 * k + 1] = w[1]; positions[3 * k + 2] = w[2]; });
   return { positions, indices: Uint32Array.from(mesh.i), flat };
+}
+
+// World-space bounds of the actual display mesh, not the conservative
+// solver envelope (which pads cylinders along their axial direction).
+export function displayBounds(parts) {
+  const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+  for(const g of Array.isArray(parts)?parts:[parts]){
+    const {positions}=tessellate(g);
+    for(let i=0;i<positions.length;i++){
+      const k=i%3;lo[k]=Math.min(lo[k],positions[i]);hi[k]=Math.max(hi[k],positions[i]);
+    }
+  }
+  if(!lo.every(Number.isFinite))throw Error("No display geometry");
+  return [lo,hi];
 }
 
 // Bounds exactly as install_geometry() reports them (used for domain checks).

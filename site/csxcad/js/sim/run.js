@@ -3,27 +3,60 @@
 // requested frequency (directivity, radiated power, efficiencies, realized gain).
 // `ems` is the async API of openems.js (OpenEMS in a Web Worker) or an adapter with the
 // same methods around OpenEMSCore (node tests): writeFile, readFile, list, run, nf2ff, readNf2ff.
-import { lumpedPort, nf2ffXml } from "../../vendor/openems/openems-post.js";
+import { lumpedPort, nf2ffXml, parseProbe } from "../../vendor/openems/openems-post.js";
+
+import { probeDiagnostics, updateSolverDiagnostics, diagnosticWarnings } from "./diagnostics.js";
 
 const finite = x => (Number.isFinite(x) ? x : null);
 const finiteArr = a => Array.from(a, finite);
 
-export async function runSimulation(ems, model, { config, engine = "basic", threads, onLog, onProgress, onStage } = {}) {
+// openEMS can return success even when an excitation primitive was never used.
+export function solverWarning(line, drivenId) {
+  const message = String(line).trim();
+  if (!/\bwarning\s*[:,]/i.test(message)) return null;
+  const unused = /Unused primitive.*property:\s*port_excite_(\d+)\b/i.exec(message);
+  return { message, fatal: !!unused && Number(unused[1]) === Number(drivenId) };
+}
+export function hasValidS11(result) {
+  return (result?.s11?.logmag_db ?? []).some(Number.isFinite);
+}
+
+export async function runSimulation(ems, model, { config, engine = "basic", threads, onLog, onProgress, onStage, onWarning, onPartial } = {}) {
   const t0 = Date.now();
   onStage?.("writing model");
   await ems.writeFile("model.xml", model.xml);
   onStage?.("FDTD");
   const args = threads ? [`--numThreads=${threads}`] : [];
-  const run = await ems.run("model.xml", { args, engine, onLog, onProgress });
+  const warnings = [];
+  const solver = {};
+  let fatal = null;
+  const run = await ems.run("model.xml", { args, engine, onProgress, onLog: (line, stream) => {
+    onLog?.(line, stream);
+    updateSolverDiagnostics(solver,line);
+    const warning = solverWarning(line, model.driven.id);
+    if (!warning) return;
+    if (!warnings.includes(warning.message)) warnings.push(warning.message);
+    onWarning?.(warning);
+    if (warning.fatal && !fatal) {
+      fatal = "Feed excitation was not used by openEMS. Check the feed gap, mesh alignment and conductor overlap. " + warning.message;
+      ems.abort?.();
+    }
+  } });
+  if (fatal) throw Error(fatal);
   if (run.exitCode !== 0) throw Error(`openEMS exited with code ${run.exitCode}`);
-  const aborted = !!run.aborted;
+  const aborted = !!run.aborted || solver.termination === "aborted";
 
   // ---- port: S11, VSWR, Zin (ports.LumpedPort.CalcPort with Z_ref = R)
   onStage?.("port");
   const drv = model.driven;
   const ut = await ems.readFile(`port_ut_${drv.id}`, "utf8"), it = await ems.readFile(`port_it_${drv.id}`, "utf8");
+  const voltage = probeDiagnostics(parseProbe(ut)), current = probeDiagnostics(parseProbe(it));
+  let source=null;
+  try { source=probeDiagnostics(parseProbe(await ems.readFile("et","utf8"))); } catch { /* optional solver dump */ }
+  for(const message of diagnosticWarnings(solver,voltage,current)) if(!warnings.includes(message)) warnings.push(message);
   const port = lumpedPort(ut, it, model.freq, drv.R);
   const n = model.freq.length;
+  if (!port.pInc.some(v => Number.isFinite(v) && v > 0)) throw Error("No nonzero incident power at the driven port. Check feed excitation and mesh alignment.");
   const mag = Array.from({ length: n }, (_, k) => Math.hypot(port.s11.re[k], port.s11.im[k]));
   const result = {
     schema_version: 2,
@@ -47,16 +80,39 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
     },
     impedance: { frequency_hz: [...model.freq], real_ohm: finiteArr(port.zin.re), imag_ohm: finiteArr(port.zin.im) },
     patterns: [],
+    diagnostics: {
+      solver, mesh: model.meshStatistics ?? [], voltage, current, source,
+      power_spectrum: {frequency_hz:[...model.freq], incident:finiteArr(port.pInc), reflected:finiteArr(port.pRef), accepted:finiteArr(port.pAcc)},
+    },
+    solver_warnings: warnings,
     aborted,
   };
+  if (!hasValidS11(result)) throw Error("No valid S11 samples: check the feed excitation and port probes.");
   const outputs = config?.outputs ?? {};
   if (outputs.include_impedance === false) delete result.impedance;
 
+  // Publish valid port data before any expensive or fallible far-field work.
+  result.fdtd_seconds = run.seconds ?? null;
+  result.postprocessing_pending = true;
+  result.seconds = (Date.now() - t0) / 1000;
+  onPartial?.({...result, patterns: [...result.patterns], solver_warnings: [...warnings]});
+
   // ---- far field per frequency (nf2ff.CalcNF2FF + simulate_v2's derived numbers)
-  const files = new Set((await ems.list()).map(f => f.path));
+  let files;
+  try { files = new Set((await ems.list()).map(f => f.path)); }
+  catch (e) {
+    warnings.push("Far-field file listing failed: " + e.message);
+    result.postprocessing_incomplete = true;
+    files = null;
+  }
   const box = model.nf2ff;
-  for (const f of model.patterns) {
+  if (aborted || (solver.excitation_timesteps && solver.executed_timesteps < solver.excitation_timesteps)) {
+    result.postprocessing_incomplete = true;
+  }
+  for (const f of result.postprocessing_incomplete ? [] : model.patterns) {
     onStage?.(`far field ${(f / 1e9).toFixed(3)} GHz`);
+    try {
+    if (!files) throw Error("Near-field files unavailable");
     const outfile = `nf2ff_${Math.trunc(f)}.h5`;
     // only the planes openEMS wrote (faces on PEC/PMC walls are mirrored instead)
     const xml = nf2ffXml({ freqs: [f], thetaDeg: model.theta, phiDeg: model.phi, outfile, box, deltaUnit: model.deltaUnit })
@@ -65,7 +121,7 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
         return !m || (files.has(m[1]) && files.has(m[2]));
       }).join("\n");
     await ems.writeFile("nf2ff.xml", xml);
-    const nr = await ems.nf2ff("nf2ff.xml");
+    const nr = await ems.nf2ff("nf2ff.xml", {onLog});
     if (nr.exitCode !== 0) throw Error(`nf2ff exited with code ${nr.exitCode}`);
     const ff = await ems.readNf2ff(outfile);
     const nt = model.theta.length, np = model.phi.length;
@@ -98,7 +154,19 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
       max_realized_gain_dbi: valid && gainFactor !== null && outputs.include_realized_gain ? finite(dmax + 10 * Math.log10(Math.max(gainFactor, 1e-30))) : null,
       record,
     });
+    if (!valid) result.postprocessing_incomplete = true;
+    } catch (e) {
+      result.postprocessing_incomplete = true;
+      const message = "Far-field " + (f / 1e9).toFixed(3) + " GHz failed: " + e.message;
+      warnings.push(message);
+      onWarning?.({message, fatal: false});
+      result.patterns.push({frequency_hz:f,max_directivity_dbi:null,radiation_efficiency:null,max_realized_gain_dbi:null,
+        record:{frequency_hz:f,radiation_valid:false,radiation_warning:message}});
+    }
+    result.seconds = (Date.now() - t0) / 1000;
+    onPartial?.({...result, patterns:[...result.patterns], solver_warnings:[...warnings]});
   }
+  result.postprocessing_pending = false;
   result.seconds = (Date.now() - t0) / 1000;
   result.fdtd_seconds = run.seconds ?? null;
   onStage?.("done");
