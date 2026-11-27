@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
-import { tessellate } from "./geometry.js";
+import { tessellate, transformer } from "./geometry.js";
 import { planeSegments } from "./sim/radiation.js";
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -66,6 +66,12 @@ export class Viewport {
     this.radiation = new THREE.Group();
     this.sections = new THREE.Group();
     this.scene.add(this.parts, this.overlays, this.radiation, this.sections);
+    this.diagnosticObjects=new THREE.Group();
+    this.diagnosticVectors=new THREE.LineSegments(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({vertexColors:true,depthTest:false,toneMapped:false}));
+    this.diagnosticVectors.frustumCulled=false;
+    this.diagnosticVectors.renderOrder=22;
+    this.scene.add(this.diagnosticObjects,this.diagnosticVectors);
+    this.diagnosticLabels=[];
     this.axes = new THREE.AxesHelper(1);
     this.scene.add(this.axes);
     this.grid = null;
@@ -140,6 +146,7 @@ export class Viewport {
             hnd.scale.setScalar(Math.max(1e-6, distance * 0.011 * (touch ? 1.5 : 1) * (hnd === this._hover ? 1.35 : 1)));
           }
         }
+        this.updateDiagnosticLabels();
         this.renderer.render(this.scene, this.camera);
       }
       requestAnimationFrame(loop);
@@ -148,6 +155,69 @@ export class Viewport {
   }
 
   markDirty() { this._dirty = true; }
+
+  setDiagnosticObjects(records){
+    for(const child of [...this.diagnosticObjects.children]){
+      this.diagnosticObjects.remove(child);child.geometry.dispose();child.material.dispose();
+    }
+    for(const r of records){
+      if(r.enabled===false||!r.start||!r.stop)continue;
+      try{
+        const tf=transformer(r),a=r.start,b=r.stop,vertices=[];
+        if(![...a,...b].every(Number.isFinite))continue;
+        const corners=Array.from({length:8},(_,i)=>tf([i&1?b[0]:a[0],i&2?b[1]:a[1],i&4?b[2]:a[2]]));
+        for(let i=0;i<8;i++)for(const mask of [1,2,4])if(!(i&mask))vertices.push(...corners[i],...corners[i|mask]);
+        if(a.every((v,i)=>v===b[i])){
+          const p=corners[0];for(let k=0;k<3;k++){const x=[...p],y=[...p];x[k]-=1;y[k]+=1;vertices.push(...x,...y);}
+        }
+        const geometry=new THREE.BufferGeometry();geometry.setAttribute("position",new THREE.Float32BufferAttribute(vertices,3));
+        const line=new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color:0x39a9ff,transparent:true,opacity:.45,toneMapped:false}));
+        this.diagnosticObjects.add(line);
+      }catch{ /* unresolved geometry is reported in Checks */ }
+    }
+    this.markDirty();
+  }
+
+  setDiagnosticFrame(arrows){
+    const positions=[],colors=[],labels=[];
+    const segment=(a,b,c)=>{positions.push(...a.toArray(),...b.toArray());colors.push(c.r,c.g,c.b,c.r,c.g,c.b);};
+    for(const arrow of arrows){
+      const a=new THREE.Vector3(...arrow.position),v=new THREE.Vector3(...arrow.vector),length=v.length(),c=new THREE.Color(arrow.color);
+      if(length>1e-8){
+        const b=a.clone().add(v),u=v.clone().normalize(),p=new THREE.Vector3().crossVectors(u,Math.abs(u.z)<.9?new THREE.Vector3(0,0,1):new THREE.Vector3(0,1,0)).normalize();
+        const q=new THREE.Vector3().crossVectors(u,p).normalize(),h=Math.min(length*.28,2.5);
+        const back=b.clone().addScaledVector(u,-h);
+        segment(a,b,c);
+        for(const side of [p,q])for(const sign of [-1,1])segment(b,back.clone().addScaledVector(side,sign*h*.45),c);
+      }
+      if(arrow.label)labels.push({position:a,text:arrow.label,color:arrow.color});
+    }
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
+    geo.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
+    this.diagnosticVectors.geometry.dispose();this.diagnosticVectors.geometry=geo;
+    while(this.diagnosticLabels.length>labels.length)this.diagnosticLabels.pop().el.remove();
+    labels.forEach((label,i)=>{
+      let item=this.diagnosticLabels[i];
+      if(!item){
+        const el=document.createElement("span");
+        el.style.cssText="position:absolute;pointer-events:none;z-index:5;white-space:nowrap;font-size:11px;background:#151b25cc;padding:2px 4px;border-radius:3px";
+        this.container.append(el);item={el};this.diagnosticLabels.push(item);
+      }
+      Object.assign(item,label);item.el.textContent=label.text;item.el.style.color=label.color;
+    });
+    this.markDirty();
+  }
+
+  updateDiagnosticLabels(){
+    const w=this.renderer.domElement.clientWidth,h=this.renderer.domElement.clientHeight;
+    for(const item of this.diagnosticLabels){
+      const p=item.position.clone().project(this.camera);
+      item.el.hidden=p.z>1||p.z< -1||Math.abs(p.x)>1||Math.abs(p.y)>1;
+      item.el.style.left=((p.x+1)*w/2+6)+"px";
+      item.el.style.top=((1-p.y)*h/2-14)+"px";
+    }
+  }
 
   // Fit sets the pose, not a permanent near plane. At close feed inspection
   // distances the original fit-dependent near plane can cut through conductors.
