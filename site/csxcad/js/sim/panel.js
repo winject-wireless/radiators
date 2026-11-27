@@ -137,6 +137,7 @@ export async function restoreResults(ctx) {
   if(changed)ctx.refresh();
 }
 
+const canStartCase = id => !sim.running || (!sim.aborting && !!sim.batch?.canAdd?.(id));
 const fraction = () => sim.batch ? (sim.batch.finished + [...sim.active.values()].reduce((n,j)=>n+(j.progress?.fraction??0),0)) / sim.batch.total : sim.progress?.fraction ?? 0;
 const cpuSettings=()=>{
   const remote=sim.runner==="remote",cap=remote?128:Math.min(navigator.hardwareConcurrency||4,64);
@@ -168,6 +169,7 @@ export function renderRunPanel(box, ctx) {
     storage.set("radiators.cpu."+sim.runner,{pool:n,perJob:t});
     sim.threads=t;pool.value=n;threads.value=t;threads.max=n;
     parallel.textContent=Math.min(cases.length,Math.floor(n/t))+" concurrent case(s) maximum";
+    updateProgress();
   };
   const parallel=h("span",{class:"hint",text:Math.min(cases.length,Math.floor(cpu.pool/cpu.perJob))+" concurrent case(s) maximum"});
   pool.addEventListener("change",saveCPU);threads.addEventListener("change",saveCPU);
@@ -213,7 +215,7 @@ export function renderRunPanel(box, ctx) {
   manage.addEventListener("toggle",()=>{if(manage.open)void refreshJobs();});
   const unavailable = remote ? null : OpenEMS.unsupportedReason();
   const isolationBlocked = remote ? null : isolationUnavailableReason();
-  const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config || !!unavailable, onclick: () => start(ctx, false) }, sim.running ? "Running…" : sweep ? "Run case" : remote?"Run remotely":"Run in browser");
+  const runBtn = h("button", { type: "button", class: "primary", disabled: !canStartCase(c.id) || !c.config || !!unavailable, onclick: () => start(ctx, false, c.id) }, sweep ? "Run case" : remote?"Run remotely":"Run in browser");
   const validateBtn = h("button",{type:"button",hidden:remote,disabled:sim.running||!c.config||!!unavailable,onclick:()=>validateMesh(ctx),title:"Run openEMS operator setup only and download the actual discretized PEC edges (VTP)."},"Validate mesh / export PEC");
   const allBtn = sweep ? h("button", { type: "button", class: "primary", disabled: sim.running || pending || !!unavailable || !cases.some(x=>x.config), onclick: () => start(ctx, true) }, `Run all (${cases.length})`) : null;
   if (sweep) runBtn.classList.remove("primary");
@@ -237,9 +239,10 @@ export function renderRunPanel(box, ctx) {
     const fill=h("div",{class:"sim-case-fill"});
     const track=h("div",{class:"sim-case-track",role:"progressbar","aria-label":label,"aria-valuemin":0,"aria-valuemax":100},fill);
     const detail=h("div",{class:"sim-case-detail"});
-    const row=h("div",{class:"sim-case-row","data-case-id":c.id},h("div",{class:"sim-case-top"},h("strong",{class:"sim-case-name",text:label,title:c.id}),state,percent),track,detail);
+    const startBtn=h("button",{type:"button",class:"sim-case-start small","aria-label":"Start "+c.id,disabled:!c.config||!!unavailable,onclick:()=>start(ctx,false,c.id)},"Start");
+    const row=h("div",{class:"sim-case-row","data-case-id":c.id},h("div",{class:"sim-case-top"},h("strong",{class:"sim-case-name",text:label,title:c.id}),state,percent,startBtn),track,detail);
     caseList.append(row);
-    return {id:c.id,key:c.config?JSON.stringify(c.config):null,row,state,percent,fill,track,detail};
+    return {id:c.id,key:c.config?JSON.stringify(c.config):null,row,state,percent,fill,track,detail,startBtn,available:!!c.config&&!unavailable};
   });
   ui = { bar, stats, runBtn, abortBtn, warningBox, caseRows, countRefs, counts, caseList, caseId:c.id };
 
@@ -338,8 +341,13 @@ function updateProgress() {
     ref.fill.style.width=v.progress+"%";
     ref.track.setAttribute("aria-valuenow",String(v.progress));
     ref.detail.textContent=v.detail;
+    ref.startBtn.disabled=!ref.available||!canStartCase(ref.id);
+    ref.startBtn.textContent=v.status==="done"||v.status==="partial"?"Rerun":"Start";
+    ref.startBtn.title=ref.startBtn.disabled?"Case unavailable, already submitted, or CPU pool full":"Start this case if CPU capacity is available";
   }
   for(const k of Object.keys(counts))ui.countRefs[k].textContent=counts[k];
+  const selectedRow=ui.caseRows.find(r=>r.id===ui.caseId);
+  ui.runBtn.disabled=!selectedRow?.available||!canStartCase(ui.caseId);
   const pct=sim.batch?Math.round(Math.min(1,fraction())*100):Math.round(sum/Math.max(1,ui.caseRows.length));
   ui.bar.firstChild.style.width=pct+"%";
   const el = sim.running ? Math.round((Date.now()-sim.startedAt)/1000):null;
@@ -395,9 +403,13 @@ async function validateMesh(ctx) {
     ctx.onBadge(simStatus());ctx.refresh();
   }
 }
-async function start(ctx, all = false) {
-  if (sim.running) return;
-  const cases = all ? ctx.getCases() : [ctx.getCase()];
+async function start(ctx, all = false, id = ctx.getCase().id) {
+  const chosen=ctx.getCases().find(c=>c.id===id);
+  if(sim.running){
+    if(!all&&chosen?.config&&!chosen.pending&&sim.batch?.canAdd?.(id))sim.batch.add(chosen);
+    return;
+  }
+  const cases = all ? ctx.getCases() : chosen?[chosen]:[];
   if (!cases.some(c=>c.config) || cases.some(c=>c.pending)) return;
   const remote=sim.runner==="remote";
   const why = remote ? null : OpenEMS.unsupportedReason();
@@ -405,14 +417,17 @@ async function start(ctx, all = false) {
   if (why) { sim.error = isolationUnavailableReason() || why; ctx.refresh(); return; }
   // Capture immutable resolved configs; selecting another case or editing the document
   // during the sweep cannot change the queued simulation inputs.
-  const queue = cases.map(c=>({...c, config:c.config ? structuredClone(c.config) : null}));
+  const snapshot=(c,immediate)=>({...c,immediate,config:c.config?structuredClone(c.config):null});
+  const queue = cases.map(c=>snapshot(c,!all));
   const runCases = runs, states = caseStates;
-  for (const c of queue) { states.set(c.id,{status:"queued",key: c.config ? JSON.stringify(c.config) : null}); }
+  const previous=new Map();
+  const markQueued=c=>{previous.set(c.id,states.get(c.id));states.set(c.id,{status:"queued",key:c.config?JSON.stringify(c.config):null});};
+  for(const c of queue)markQueued(c);
   const cpu=cpuSettings(),engine=sim.engine;
   const endpoint=sim.remoteUrl,token=sim.remoteToken;
   Object.assign(sim,{running:true,aborting:false,error:null,warning:null,cacheWarning:null,summary:"",log:[],progress:null,model:null,active:new Map(),
     batch:{total:queue.length,finished:0},stage:"preparing",startedAt:Date.now()});
-  let completed=0, failed=0, stopped=0, partial=0;
+  let completed=0, failed=0, stopped=0, partial=0, notStarted=0;
   const publish=()=>{ctx.onBadge(simStatus());ctx.refresh();};
   publish();
   const tick=setInterval(updateProgress,1000);
@@ -430,7 +445,7 @@ async function start(ctx, all = false) {
           job.remote=new RemoteRunner(endpoint,token);
           const config=structuredClone(c.config);config.solver??={};config.solver.resources??={};config.solver.resources.cpus=cpu.perJob;
           job.stage="submitting remote job";updateProgress();
-          result=await job.remote.run(config,{onStatus:status=>{
+          result=await job.remote.run(config,{requireCapacity:c.immediate,onStatus:status=>{
             job.remoteState=status.state;
             job.stage=status.state==="queued"?"Waiting for server resources":status.state==="starting"?"Starting native solver":status.state==="done"?"Retrieving result":"Native solver · "+status.state;
             job.log=(status.log||"").split("\n").slice(-2000);
@@ -476,7 +491,10 @@ async function start(ctx, all = false) {
         const s=summarize(result,c.config.excitation.center_hz);
         ctx.notify(`${c.id}: ${result.aborted?"Stopped":result.postprocessing_incomplete?"Partial result":"Done"} · S11 ${fmt(s.bestDb,1)} dB at ${ghz(s.bestHz)}`);
       } catch(e) {
-        if(partialRun){
+        if(c.immediate&&/CPU capacity unavailable/.test(e.message)){
+          const old=previous.get(c.id);if(old)states.set(c.id,old);else states.delete(c.id);
+          job.notStarted=true;notStarted++;sim.error=e.message;ctx.notify(sim.error,true);
+        } else if(partialRun){
           const result={...partialRun.result,postprocessing_pending:false,postprocessing_incomplete:true,aborted:sim.aborting,solver_warnings:[...(partialRun.result.solver_warnings??[]),"Post-processing interrupted: "+e.message]};
           runCases.set(c.id,{...partialRun,result});
           states.set(c.id,{status:sim.aborting?"stopped":"partial",key,error:e.message});
@@ -488,7 +506,7 @@ async function start(ctx, all = false) {
         job.ems?.terminate();
         job.ems=null;job.remote=null;
         const last=states.get(c.id);
-        if(last)states.set(c.id,{...last,log:job.log.slice(-2000),progress:job.progress?.fraction??0});
+        if(last&&!job.notStarted)states.set(c.id,{...last,log:job.log.slice(-2000),progress:job.progress?.fraction??0});
         sim.active.delete(c.id);
         sim.batch.finished++;
         job.progress=null;
@@ -504,25 +522,46 @@ async function start(ctx, all = false) {
       if(cpu.perJob>Math.min(info.max_cpus,info.ncpu_pool??info.max_cpus))throw Error("ncpu_per_job exceeds remote CPU limit");
       limit=Math.min(limit,info.ncpu_pool??info.max_cpus);
       if(!info.parallel_jobs)limit=cpu.perJob; // older single-job server
+      if(!info.immediate_start&&queue.some(c=>c.immediate))throw Error("Update remote runner for immediate case start");
+      if(!info.immediate_start)sim.batch.legacyRemote=true;
     }
     const slots=Math.max(1,Math.floor(limit/cpu.perJob));
     let next=0;
-    await Promise.all(Array.from({length:Math.min(slots,queue.length)},async()=>{
-      while(!sim.aborting&&runs===runCases&&next<queue.length){const c=queue[next++];await runCase(c);}
-    }));
+    const tasks=new Set();
+    const pump=()=>{
+      while(!sim.aborting&&runs===runCases&&tasks.size<slots&&next<queue.length){
+        const c=queue[next++];
+        const task=runCase(c);
+        tasks.add(task);
+        task.then(()=>tasks.delete(task),()=>tasks.delete(task));
+      }
+    };
+    sim.batch.canAdd=id=>!sim.batch.legacyRemote&&!sim.aborting&&runs===runCases&&next===queue.length&&tasks.size<slots&&!sim.active.has(id);
+    sim.batch.add=c=>{
+      if(!sim.batch.canAdd(c.id))return;
+      const copy=snapshot(c,true);queue.push(copy);markQueued(copy);
+      sim.batch.total++;pump();publish();
+    };
+    pump();publish();
+    while(tasks.size){await Promise.race(tasks);pump();updateProgress();}
+    sim.batch.canAdd=()=>false;
   } catch(e){
     sim.error=e.message;
     for(const c of queue)if(states.get(c.id)?.status==="queued"){
-      states.set(c.id,{...states.get(c.id),status:sim.aborting?"cancelled":"failed",error:e.message});
-      if(!sim.aborting)failed++;
+      if(c.immediate&&/Update remote runner for immediate case start/.test(e.message)){
+        const old=previous.get(c.id);if(old)states.set(c.id,old);else states.delete(c.id);notStarted++;
+      }else{
+        states.set(c.id,{...states.get(c.id),status:sim.aborting?"cancelled":"failed",error:e.message});
+        if(!sim.aborting)failed++;
+      }
     }
     ctx.notify(sim.error,true);
   }
   finally {
     clearTimeout(sim.stopTimer);clearInterval(tick);
     for(const c of queue)if(states.get(c.id)?.status==="queued")states.set(c.id,{...states.get(c.id),status:"cancelled"});
-    const cancelled=queue.length-completed-failed-stopped-partial;
-    sim.summary=`${completed}/${queue.length} completed${partial?" · "+partial+" partial":""}${failed?" · "+failed+" failed":""}${stopped?" · "+stopped+" stopped":""}${cancelled?" · "+cancelled+" cancelled":""}`;
+    const cancelled=queue.length-completed-failed-stopped-partial-notStarted;
+    sim.summary=`${completed}/${queue.length} completed${partial?" · "+partial+" partial":""}${failed?" · "+failed+" failed":""}${stopped?" · "+stopped+" stopped":""}${cancelled?" · "+cancelled+" cancelled":""}${notStarted?" · "+notStarted+" not started":""}`;
     Object.assign(sim,{ems:null,running:false,aborting:false,stage:"",batch:null,progress:null,active:new Map()});
     publish();
     ctx.notify(sim.summary,failed>0||partial>0);
