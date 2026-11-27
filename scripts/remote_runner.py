@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
+import ssl
 import subprocess
 import tempfile
 import threading
@@ -263,6 +265,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--bind", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--tls-cert", type=Path)
+    p.add_argument("--tls-key", type=Path)
     p.add_argument("--origin", action="append", default=[], help="Allowed editor origin; repeat as needed")
     p.add_argument("--image", default="radiators-openems:ci")
     p.add_argument("--max-cpus", type=int, default=min(os.cpu_count() or 2, 16))
@@ -275,13 +279,30 @@ def main():
     args.token = os.environ.get("RADIATORS_RUNNER_TOKEN", "")
     if len(args.token) < 24 or not args.origin or args.retain < 1 or args.timeout < 1:
         p.error("Set RADIATORS_RUNNER_TOKEN (at least 24 chars), --origin, positive --retain and --timeout")
+    if bool(args.tls_cert) != bool(args.tls_key):
+        p.error("TLS requires both --tls-cert and --tls-key")
+    if not args.tls_cert and args.bind not in ("127.0.0.1", "localhost"):
+        p.error("Plain HTTP may only bind loopback; use TLS or an HTTPS reverse proxy")
+    if not (1 <= args.port <= 65535 and args.max_cpus >= 1 and args.max_memory_gib >= .25 and args.max_cells >= 1 and args.max_timesteps >= 1):
+        p.error("Invalid runner resource limits or port")
+    tls = None
+    if args.tls_cert:
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.minimum_version = ssl.TLSVersion.TLSv1_2
+        tls.load_cert_chain(args.tls_cert, args.tls_key)
     docker = docker_command()
     subprocess.run(docker+["image", "inspect", args.image], check=True, stdout=subprocess.DEVNULL)
     with tempfile.TemporaryDirectory(prefix="radiators-remote-") as work:
         runner = Runner(args, docker, Path(work))
         with ThreadingHTTPServer((args.bind, args.port), Handler) as http:
             http.runner = runner
-            print(f"Radiators runner listening on {args.bind}:{args.port}", flush=True)
+            if tls:
+                http.socket = tls.wrap_socket(http.socket, server_side=True)
+            def terminate(signum, frame):
+                raise KeyboardInterrupt
+            signal.signal(signal.SIGTERM, terminate)
+            scheme = "https" if tls else "http"
+            print(f"Radiators runner listening on {scheme}://{args.bind}:{args.port}", flush=True)
             try:
                 http.serve_forever()
             except KeyboardInterrupt:

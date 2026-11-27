@@ -1,0 +1,90 @@
+"""Offline API tests: no Docker, network access outside loopback or openEMS required."""
+import copy
+from http.server import ThreadingHTTPServer
+import json
+from pathlib import Path
+import tempfile
+import threading
+import time
+import unittest
+from types import SimpleNamespace
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from unittest.mock import patch
+
+from launch_remote_runner import load_config, server_command
+from remote_runner import Handler, Runner, validate
+
+TOKEN = "a" * 32
+ORIGIN = "https://editor.example"
+ID = "1" * 32
+CONFIG = {"schema_version": 2, "units": "mm", "name": "test",
+          "geometry": [{"name":"d", "shape":"box"}],
+          "solver":{"resources":{"cpus":2,"memory_gib":1}},
+          "mesh":{"max_cells":1000}}
+
+
+class RemoteTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.args = SimpleNamespace(max_cpus=4,max_memory_gib=4,max_cells=10000,
+            max_timesteps=100000,retain=2,token=TOKEN,origin=[ORIGIN])
+        self.runner = Runner(self.args, [], Path(self.temp.name))
+
+    def test_private_config(self):
+        path = Path(self.temp.name)/"settings"/"config.json"
+        a = load_config(path)
+        self.assertEqual(a,load_config(path))
+        self.assertEqual(path.stat().st_mode & 0o777,0o600)
+        self.assertNotIn(a["token"],server_command(a))
+
+    def test_limits(self):
+        cfg=copy.deepcopy(CONFIG)
+        self.assertEqual(validate({"id":ID,"config":cfg},self.args)[2:],(2,1024**3))
+        cfg["solver"]["resources"]["cpus"]=5
+        with self.assertRaises(ValueError): validate({"id":ID,"config":cfg},self.args)
+        cfg=copy.deepcopy(CONFIG)
+        cfg["scripts"]={}
+        with self.assertRaises(ValueError): validate({"id":ID,"config":cfg},self.args)
+
+    def test_api(self):
+        def fake(j, cpus, memory):
+            path=j["path"]/"out"
+            path.mkdir()
+            (path/"result.json").write_text(json.dumps({"patterns":[{"file":"pattern_2450000000Hz.json"}]}))
+            (path/"pattern_2450000000Hz.json").write_text(json.dumps({"radiation_valid":True}))
+            with self.runner.lock:
+                j.update(state="done", seconds=.01)
+        http=ThreadingHTTPServer(("127.0.0.1",0),Handler)
+        http.runner=self.runner
+        thread=threading.Thread(target=http.serve_forever,daemon=True)
+        thread.start()
+        self.addCleanup(http.server_close)
+        self.addCleanup(http.shutdown)
+        base="http://127.0.0.1:"+str(http.server_port)
+        def request(path,method="GET",body=None,token=TOKEN,origin=ORIGIN):
+            headers={"Authorization":"Bearer "+token,"Origin":origin}
+            if body is not None: headers["Content-Type"]="application/json"
+            req=Request(base+path,data=json.dumps(body).encode() if body is not None else None,headers=headers,method=method)
+            with urlopen(req,timeout=3) as r:
+                self.assertEqual(r.headers["Access-Control-Allow-Origin"],ORIGIN)
+                return json.load(r)
+        with self.assertRaises(HTTPError) as e:
+            request("/v1/health",token="bad")
+        self.assertEqual(e.exception.code,403)
+        with self.assertRaises(HTTPError):
+            request("/v1/health",origin="https://wrong.example")
+        self.assertEqual(request("/v1/health")["api_version"],1)
+        with patch.object(self.runner,"execute",side_effect=fake):
+            self.assertEqual(request("/v1/jobs","POST",{"id":ID,"config":CONFIG})["id"],ID)
+            for _ in range(100):
+                if request("/v1/jobs/"+ID)["state"]=="done": break
+                time.sleep(.01)
+            r=request("/v1/jobs/"+ID+"/result")
+            self.assertEqual(r["generator"],"remote native openEMS")
+            self.assertTrue(r["patterns"][0]["record"]["radiation_valid"])
+
+
+if __name__ == "__main__":
+    unittest.main()
