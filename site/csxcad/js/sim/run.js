@@ -8,13 +8,37 @@ import { lumpedPort, nf2ffXml } from "../../vendor/openems/openems-post.js";
 const finite = x => (Number.isFinite(x) ? x : null);
 const finiteArr = a => Array.from(a, finite);
 
-export async function runSimulation(ems, model, { config, engine = "basic", threads, onLog, onProgress, onStage } = {}) {
+// openEMS can return success even when an excitation primitive was never used.
+export function solverWarning(line, drivenId) {
+  const message = String(line).trim();
+  if (!/\bwarning\s*:/i.test(message)) return null;
+  const unused = /Unused primitive.*property:\s*port_excite_(\d+)\b/i.exec(message);
+  return { message, fatal: !!unused && Number(unused[1]) === Number(drivenId) };
+}
+export function hasValidS11(result) {
+  return (result?.s11?.logmag_db ?? []).some(Number.isFinite);
+}
+
+export async function runSimulation(ems, model, { config, engine = "basic", threads, onLog, onProgress, onStage, onWarning } = {}) {
   const t0 = Date.now();
   onStage?.("writing model");
   await ems.writeFile("model.xml", model.xml);
   onStage?.("FDTD");
   const args = threads ? [`--numThreads=${threads}`] : [];
-  const run = await ems.run("model.xml", { args, engine, onLog, onProgress });
+  const warnings = [];
+  let fatal = null;
+  const run = await ems.run("model.xml", { args, engine, onProgress, onLog: (line, stream) => {
+    onLog?.(line, stream);
+    const warning = solverWarning(line, model.driven.id);
+    if (!warning) return;
+    if (!warnings.includes(warning.message)) warnings.push(warning.message);
+    onWarning?.(warning);
+    if (warning.fatal && !fatal) {
+      fatal = "Feed excitation was not used by openEMS. Check the feed gap, mesh alignment and conductor overlap. " + warning.message;
+      ems.abort?.();
+    }
+  } });
+  if (fatal) throw Error(fatal);
   if (run.exitCode !== 0) throw Error(`openEMS exited with code ${run.exitCode}`);
   const aborted = !!run.aborted;
 
@@ -24,6 +48,7 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
   const ut = await ems.readFile(`port_ut_${drv.id}`, "utf8"), it = await ems.readFile(`port_it_${drv.id}`, "utf8");
   const port = lumpedPort(ut, it, model.freq, drv.R);
   const n = model.freq.length;
+  if (!port.pInc.some(v => Number.isFinite(v) && v > 0)) throw Error("No nonzero incident power at the driven port. Check feed excitation and mesh alignment.");
   const mag = Array.from({ length: n }, (_, k) => Math.hypot(port.s11.re[k], port.s11.im[k]));
   const result = {
     schema_version: 2,
@@ -47,8 +72,10 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
     },
     impedance: { frequency_hz: [...model.freq], real_ohm: finiteArr(port.zin.re), imag_ohm: finiteArr(port.zin.im) },
     patterns: [],
+    solver_warnings: warnings,
     aborted,
   };
+  if (!hasValidS11(result)) throw Error("No valid S11 samples: check the feed excitation and port probes.");
   const outputs = config?.outputs ?? {};
   if (outputs.include_impedance === false) delete result.impedance;
 
