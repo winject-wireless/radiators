@@ -432,6 +432,7 @@ async function start(ctx, all = false) {
           }
         });
         }
+        if(remote&&c.config.probes?.some(p=>p.enabled!==false)&&!Array.isArray(result.diagnostic_probes))throw Error("Runner did not return diagnostic data; update the native runner checkout");
         result.aborted=!!(result.aborted||sim.aborting);
         const firstValid=result.patterns.findIndex(p=>p.record.radiation_valid);
         const run={...partialRun,result,key,log:job.log.slice(-2000),frequency:partialRun?.frequency>=0?partialRun.frequency:firstValid};
@@ -689,7 +690,7 @@ function playbackPanel(records,ctx){
   root.append(h("div",{class:"actions"},modeSelect,frequency,play,speed,readout),
     slider,h("div",{class:"row"},h("label",{text:"Arrow length (mm)"}),scale),
     h("div",{class:"row"},h("label",{text:"Spatial stride"}),density),
-    h("div",{class:"hint",text:"Arrows use fixed peak scaling per object. Recorded field frames use nearest recorded time; probe samples are interpolated. Phase playback is not recorded time."}));
+    h("div",{class:"hint",text:"Arrows use fixed peak scaling per physical unit. Recorded field frames use nearest recorded time; probe samples are interpolated. Phase playback is not recorded time."}));
   for(const r of valid){
     const check=h("input",{type:"checkbox",checked:true});
     check.onchange=()=>{check.checked?visible.add(r.id):visible.delete(r.id);update();};
