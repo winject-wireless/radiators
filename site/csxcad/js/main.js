@@ -2330,7 +2330,37 @@ async function boot() {
   $("menu").addEventListener("click", e => { const a = e.target.closest("[data-action]"); if (a) menuAction(a.dataset.action); });
   $("addButton").addEventListener("click", e => { e.stopPropagation(); const wasOpen = !$("addMenu").hidden; closeMenus(); if (!wasOpen) openAddMenu(e.currentTarget); });
   document.addEventListener("click", e => { if (!e.target.closest(".menu, .menu-wrap, .add-wrap")) closeMenus(); });
-  for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => viewport?.view(b.dataset.view));
+  const facePairs = {
+    top: ["top", "bottom", "z", 1],
+    front: ["front", "back", "y", -1],
+    right: ["right", "left", "x", 1],
+  };
+  const viewButtons = [...document.querySelectorAll("[data-view]")];
+  const label = face => face[0].toUpperCase() + face.slice(1);
+  let activeFace = null;
+  function syncFaceButtons() {
+    const direction = viewport.camera.position.clone().sub(viewport.controls.target).normalize();
+    let face = null;
+    for (const [first, opposite, axis, sign] of Object.values(facePairs)) {
+      const alignment = direction[axis] * sign;
+      if (Math.abs(alignment) > 0.999999) face = alignment > 0 ? first : opposite;
+    }
+    if (face === activeFace) return;
+    activeFace = face;
+    for (const button of viewButtons) {
+      const pair = facePairs[button.dataset.view];
+      if (!pair) continue;
+      const [first, opposite] = pair;
+      const selected = face === first || face === opposite;
+      button.setAttribute("aria-pressed", String(selected));
+      button.textContent = label(selected ? face : first);
+      button.title = "Show " + (face === first ? opposite : first) + " view";
+    }
+  }
+  for (const button of viewButtons) button.addEventListener("click", () => {
+    const preset = button.dataset.view;
+    viewport?.view(facePairs[preset] && activeFace === preset ? facePairs[preset][1] : preset);
+  });
   for (const b of document.querySelectorAll("[data-toggle]")) {
     const key = b.dataset.toggle;
     if (prefs.view && key in prefs.view) b.setAttribute("aria-pressed", String(prefs.view[key]));
@@ -2452,6 +2482,7 @@ async function boot() {
       onHandle: onHandleTap,
       onHandleMove, onHandleDrag, onScalarMove,
     });
+    viewport.controls.addEventListener("change", syncFaceButtons);
     // ?debug exposes internals for automated UI tests.
     if (new URLSearchParams(location.search).has("debug")) window.__csxcad = { state, viewport, scriptRT };
     for (const b of document.querySelectorAll("[data-toggle]")) viewport.setOption(b.dataset.toggle, b.getAttribute("aria-pressed") === "true");
