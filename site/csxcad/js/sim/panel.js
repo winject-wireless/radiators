@@ -118,13 +118,13 @@ export async function restoreResults(ctx) {
       target.get(id)?.key===key || ["queued","running"].includes(states.get(id)?.status))continue;
     if(!hasValidS11(entry.result)){states.set(id,{status:"failed",key,error:"Cached simulation has no valid S11. Check feed excitation and rerun."});changed=true;continue;}
     target.set(id,{result:entry.result,key,frequency:entry.frequency,cached:true});
-    states.set(id,{status:"done",key});changed=true;
+    states.set(id,{status:entry.result.postprocessing_incomplete?"partial":"done",key});changed=true;
   }
   if(changed)ctx.refresh();
 }
 
 const fraction = () => sim.batch ? (sim.batch.finished + (sim.progress?.fraction ?? 0)) / sim.batch.total : sim.progress?.fraction ?? 0;
-export const simStatus = () => sim.running ? `${Math.round(Math.min(1,fraction()) * 100)}%` : runs.size ? "✓" : "";
+export const simStatus = () => sim.running ? `${Math.min(99,Math.round(Math.min(1,fraction()) * 100))}%` : [...caseStates.values()].some(s=>s.status==="failed"||s.status==="partial") ? "!" : runs.size ? "✓" : "";
 
 // ctx: { getCase() -> {config?, error?, pending?, id, name}, slug, onBadge(text), notify(msg, isError) }
 export function renderRunPanel(box, ctx) {
@@ -205,7 +205,7 @@ async function start(ctx, all = false) {
   for (const c of queue) { states.set(c.id,{status:"queued",key: c.config ? JSON.stringify(c.config) : null}); }
   Object.assign(sim,{running:true,aborting:false,error:null,warning:null,cacheWarning:null,summary:"",log:[],progress:null,model:null,
     batch:{total:queue.length,finished:0,id:queue[0].id},stage:"preparing",startedAt:Date.now()});
-  let completed=0, failed=0, stopped=0;
+  let completed=0, failed=0, stopped=0, partial=0;
   const publish=()=>{ctx.onBadge(simStatus());ctx.refresh();};
   publish();
   const tick=setInterval(updateProgress,1000);
@@ -216,6 +216,7 @@ async function start(ctx, all = false) {
       sim.batch.id=c.id;
       Object.assign(sim,{progress:null,model:null,stage:"preparing",startedAt:Date.now(),log:[],warning:null});
       states.set(c.id,{status:"running",key});
+      let partialRun=null;
       publish();
       try {
         if (!c.config) throw Error(c.error || "Case configuration unavailable");
@@ -230,21 +231,35 @@ async function start(ctx, all = false) {
           onLog:line=>{sim.log.push(line);if(sim.log.length>2000)sim.log.splice(0,500);},
           onWarning:w=>{sim.warning=w.fatal?"Invalid feed — "+w.message:w.message;updateProgress();},
           onProgress:p=>{sim.progress=p;ctx.onBadge(simStatus());updateProgress();},
-          onStage:s=>{sim.stage=s;updateProgress();}
+          onStage:s=>{sim.stage=s;updateProgress();},
+          onPartial:r=>{
+            const previous=partialRun;
+            partialRun={...previous,result:r,key,frequency:previous?.frequency>=0?previous.frequency:r.patterns.findIndex(p=>p.record.radiation_valid)};
+            runCases.set(c.id,partialRun);
+            publish();
+          }
         });
         result.aborted=!!(result.aborted||sim.aborting);
         const firstValid=result.patterns.findIndex(p=>p.record.radiation_valid);
-        const run={result,key,frequency:firstValid};
+        const run={...partialRun,result,key,frequency:partialRun?.frequency>=0?partialRun.frequency:firstValid};
+        runCases.set(c.id,run);
+        publish();
+        sim.stage="saving result";updateProgress();
         // Commit the cache before publishing completion, so an immediate reload
         // after the completion badge cannot race the persistent write.
         if(!result.aborted)try{await cachePut(key,run);}catch(e){sim.cacheWarning="Result cache unavailable: "+e.message;}
         runCases.set(c.id,run);
-        states.set(c.id,{status:result.aborted?"stopped":"done",key});
-        if(result.aborted)stopped++;else completed++;
+        states.set(c.id,{status:result.aborted?"stopped":result.postprocessing_incomplete?"partial":"done",key});
+        if(result.aborted)stopped++;else if(result.postprocessing_incomplete)partial++;else completed++;
         const s=summarize(result,c.config.excitation.center_hz);
-        ctx.notify(`${c.id}: ${result.aborted?"Stopped":"Done"} · S11 ${fmt(s.bestDb,1)} dB at ${ghz(s.bestHz)}`);
+        ctx.notify(`${c.id}: ${result.aborted?"Stopped":result.postprocessing_incomplete?"Partial result":"Done"} · S11 ${fmt(s.bestDb,1)} dB at ${ghz(s.bestHz)}`);
       } catch(e) {
-        if(sim.aborting){states.set(c.id,{status:"stopped",key});stopped++;}
+        if(partialRun){
+          const result={...partialRun.result,postprocessing_pending:false,postprocessing_incomplete:true,aborted:sim.aborting,solver_warnings:[...(partialRun.result.solver_warnings??[]),"Post-processing interrupted: "+e.message]};
+          runCases.set(c.id,{...partialRun,result});
+          states.set(c.id,{status:sim.aborting?"stopped":"partial",key,error:e.message});
+          if(sim.aborting)stopped++;else {partial++;sim.error=c.id+": "+e.message;ctx.notify(sim.error,true);}
+        } else if(sim.aborting){states.set(c.id,{status:"stopped",key});stopped++;}
         else {runCases.delete(c.id);states.set(c.id,{status:"failed",key,error:e.message});sim.error=c.id+": "+e.message;failed++;ctx.notify(sim.error,true);}
       } finally {
         clearTimeout(sim.stopTimer);
@@ -260,11 +275,11 @@ async function start(ctx, all = false) {
     clearTimeout(sim.stopTimer);clearInterval(tick);
     sim.ems?.terminate();
     for(const c of queue)if(states.get(c.id)?.status==="queued")states.set(c.id,{...states.get(c.id),status:"cancelled"});
-    const cancelled=queue.length-completed-failed-stopped;
-    sim.summary=`${completed}/${queue.length} completed${failed?" · "+failed+" failed":""}${stopped?" · "+stopped+" stopped":""}${cancelled?" · "+cancelled+" cancelled":""}`;
+    const cancelled=queue.length-completed-failed-stopped-partial;
+    sim.summary=`${completed}/${queue.length} completed${partial?" · "+partial+" partial":""}${failed?" · "+failed+" failed":""}${stopped?" · "+stopped+" stopped":""}${cancelled?" · "+cancelled+" cancelled":""}`;
     Object.assign(sim,{ems:null,running:false,aborting:false,stage:"",batch:null,progress:null});
     publish();
-    ctx.notify(sim.summary,failed>0);
+    ctx.notify(sim.summary,failed>0||partial>0);
   }
 }
 function stop() {
@@ -301,6 +316,8 @@ export function renderResults(box, ctx, run, caseId, stale) {
     h("div",{class:"result-summary-head"},
       h("h3",{text:run.cached?"Results · cached on this device":"Overview"}),
       h("button",{type:"button",class:"small result-download",onclick:download},"Download result.json")),
+    r.postprocessing_pending ? h("div",{class:"note",text:"Port results available. Radiation post-processing is still running."}) : null,
+    r.postprocessing_incomplete ? h("div",{class:"note warn",text:"Partial result: S11 and impedance are available, but some radiation results are unavailable."}) : null,
     r.aborted ? h("div", { class: "note warn", text: "Stopped early: the results use the time steps computed so far." }) : null,
     ...(r.solver_warnings ?? []).map(message=>h("div",{class:"note warn",text:message})),
     h("div", { class: "sim-kpis" },
