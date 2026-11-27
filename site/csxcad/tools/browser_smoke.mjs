@@ -71,6 +71,22 @@ try {
 
   await page.goto(new URL("?example=examples__dipole_2450.json&debug=1", base).href);
   await page.waitForFunction(() => crossOriginIsolated && window.__csxcad?.viewport && document.querySelector("#sim .sim-controls"), { }, { timeout: 90000 });
+  // Repair a thick imported current probe, then change its shared normal position.
+  const original=await page.evaluate(()=>structuredClone(window.__csxcad.state.doc));
+  const probeDoc={...original,probes:[{name:"current_driven",type:"current",start:[-5,-5,0],stop:[5,5,10]}]};
+  const openConfig=doc=>page.locator("#openFile").setInputFiles({name:"probe-edit.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(doc))});
+  await openConfig(probeDoc);
+  await page.getByRole("button",{name:"Edit current_driven",exact:true}).click();
+  await page.getByRole("button",{name:"Flatten to XY plane",exact:true}).click();
+  assert.deepEqual(await page.evaluate(()=>window.__csxcad.state.doc.probes[0].stop),[5,5,0]);
+  await page.getByLabel("Current plane Z position",{exact:true}).fill("5 mm");
+  await page.getByLabel("Current plane Z position",{exact:true}).press("Tab");
+  assert.deepEqual(await page.evaluate(()=>[window.__csxcad.state.doc.probes[0].start[2],window.__csxcad.state.doc.probes[0].stop[2]]),[5,5]);
+  await page.getByLabel("Current plane normal",{exact:true}).selectOption("x");
+  assert.deepEqual(await page.evaluate(()=>window.__csxcad.state.doc.probes[0].stop),[-5,5,15]);
+  await openConfig(original);
+  await page.waitForFunction(()=>!(window.__csxcad.state.doc.probes??[]).length);
+  console.log("Current probe plane editor: PASS");
   // Clicking the already-active projection restores its home pose and framing.
   const cameraPose = () => page.evaluate(() => {
     const { camera, controls } = window.__csxcad.viewport;
