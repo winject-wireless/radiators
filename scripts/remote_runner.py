@@ -230,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
         super().setup()
         self.connection.settimeout(30)
 
-    def headers(self, code, size):
+    def response_headers(self, code, size):
         self.send_response(code)
         origin = self.headers.get("Origin")
         if origin and origin in self.server.runner.args.origin:
@@ -247,7 +247,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def reply(self, code, payload):
         data = json.dumps(payload, allow_nan=False, separators=(",", ":")).encode()
-        self.headers(code, len(data))
+        self.response_headers(code, len(data))
         self.wfile.write(data)
 
     def origin_ok(self):
@@ -255,16 +255,31 @@ class Handler(BaseHTTPRequestHandler):
         return not origin or origin in self.server.runner.args.origin
 
     def do_OPTIONS(self):
-        self.headers(204 if self.origin_ok() else 403, 0)
+        if not self.origin_ok():
+            self.log_error("CORS denied: origin %r not in configured origins", self.headers.get("Origin"))
+            return self.response_headers(403, 0)
+        self.response_headers(204, 0)
 
-    def authenticated(self):
-        return self.origin_ok() and hmac.compare_digest(
-            self.headers.get("Authorization", "").encode(),
-            ("Bearer " + self.server.runner.args.token).encode())
+    def auth_error(self):
+        # Never log credentials, only why authentication failed.
+        if not self.origin_ok():
+            self.log_error("CORS denied: origin %r not in configured origins", self.headers.get("Origin"))
+            return "Origin not allowed by runner"
+        header = self.headers.get("Authorization", "")
+        if not header:
+            return "Authorization header missing (check reverse proxy)"
+        parts = header.split(None, 1)
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            return "Authorization must use Bearer token"
+        if not hmac.compare_digest(parts[1].strip().encode(), self.server.runner.args.token.encode()):
+            return "Invalid bearer token (check running service configuration)"
+        return None
 
     def handle_api(self, method):
-        if not self.authenticated():
-            return self.reply(403, {"error": "Invalid token or origin"})
+        error = self.auth_error()
+        if error:
+            self.log_error("Request denied: %s", error)
+            return self.reply(403, {"error": error})
         runner = self.server.runner
         path = urlsplit(self.path).path
         try:
