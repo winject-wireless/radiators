@@ -343,6 +343,7 @@ function derive() {
   for (const [k, v] of Object.entries(doc)) {
     if (k === "sweep" || k === "parameters" || k === "generator") continue;
     if (k === "geometry") d.geometry = v.map((g, i) => g.enabled===false ? null : lenient(g, m => { d.errors.geometry[i] = m; }));
+    else if(k==="probes")d.resolved.probes=v.map((p,i)=>p.enabled===false?{enabled:false}:lenient(p,m=>d.errors.other.push("Diagnostic "+(i+1)+": "+m))??{enabled:false});
     else if (k === "ports") d.ports = (v || []).map((p, i) => lenient(p, m => { d.errors.port[i] = m; }));
     else d.resolved[k] = lenient(v, m => d.errors.other.push(`${k}: ${m}`));
   }
@@ -655,7 +656,7 @@ function showChip() {
   const chip = $("selectionChip");
   const s = state.sel;
   if (!s || !mobile() || document.body.dataset.sheet) { chip.hidden = true; return; }
-  const item = s.kind === "geometry" ? state.doc.geometry[s.index] : s.kind === "port" ? state.doc.ports[s.index] : s.kind==="refinement" ? state.doc.mesh?.refinements?.[s.index] : null;
+  const item = s.kind === "geometry" ? state.doc.geometry[s.index] : s.kind === "port" ? state.doc.ports[s.index] : s.kind==="diagnostic"?state.doc.probes?.[s.index]:s.kind==="refinement" ? state.doc.mesh?.refinements?.[s.index] : null;
   if (!item) { chip.hidden = true; return; }
   $("chipText").textContent = s.kind==="refinement" ? "Refinement "+(s.index+1) : `${item.name || item.shape || "port"} · ${item.shape || item.type}`;
   chip.hidden = false;
@@ -699,6 +700,16 @@ function computeHandles() {
     const key = `dim:${handleKey(field)}:${name}`;
     out.set(key, { key, kind: "scalar", field, base: xf.fwd(baseLocal), dir: xf.dir(V.unit(dirLocal)), dist, enabled, set, label });
   };
+  if(s.kind==="diagnostic"){
+    const raw=state.doc.probes?.[s.index],p=d.resolved.probes?.[s.index];
+    if(!raw||!p||raw.enabled===false)return out;
+    try{
+      const fwd=transformer(p),m=rotationMatrix(p.transform?.rotate_deg??[0,0,0]),t=p.transform?.translate??[0,0,0];
+      const xf={fwd,rotated:(p.transform?.rotate_deg??[0,0,0]).some(v=>v!==0),inv:w=>[0,1,2].map(k=>m.reduce((sum,row,j)=>sum+row[k]*(w[j]-t[j]),0))};
+      for(const k of ["start","stop"])point(["probes",s.index,k],p[k],raw[k],xf);
+    }catch{}
+    return out;
+  }
   if(s.kind==="refinement"){
     const raw=state.doc.mesh?.refinements?.[s.index],resolved=d.resolved.mesh?.refinements?.[s.index];
     if(raw&&resolved)for(const k of ["start","stop"])point(["mesh","refinements",s.index,k],resolved[k],raw[k],identity);
@@ -1463,12 +1474,13 @@ function inspectDiagnostic(box,title,i){
     checkField([...base,"enabled"],"Enabled",true),
     row("Start",vec3Field([...base,"start"],{unit:"mm"})),
     row("Stop",vec3Field([...base,"stop"],{unit:"mm"})),
-    row("Translate",vec3Field([...base,"transform","translate"],{unit:"mm",optional:true,def:0})),
-    row("Rotate (90° steps)",vec3Field([...base,"transform","rotate_deg"],{unit:"°",optional:true,def:0})),
+    ...["translate","rotate_deg"].map(k=>row(k==="translate"?"Translate":"Rotate (90° steps)",vec3Field([...base,"transform",k],{unit:k==="translate"?"mm":"°",placeholder:"0",prepare:d=>{const p=d.probes[i];p.transform??={};p.transform[k]??=[0,0,0];}}))),
     p.type==="current"||p.type==="voltage"?row("Direction (local)",selectField([...base,"direction"],["x","y","z","-x","-y","-z"],{optional:true,emptyLabel:"Automatic"})):null,
     p.type==="field_dump"?row("Field",selectField([...base,"field"],["E","H","J","J_total","D","B"])):null,
-    p.type==="field_dump"?row("Spatial subsampling",vec3Field([...base,"sub_sampling"],{int:true})):null,
+    p.type==="field_dump"?row("Spatial subsampling",vec3Field([...base,"sub_sampling"],{int:true,unit:"",placeholder:"2",prepare:d=>{d.probes[i].sub_sampling??=[2,2,2];}})):null,
+    p.type==="field_dump"?row("Field interpolation",selectField([...base,"dump_mode"],[["node","Node"],["cell","Cell"]],{optional:true,emptyLabel:"Node (default)"})):null,
     checkField([...base,"time_domain","enabled"],"Record time domain",true),
+    row("Time oversampling",numField([...base,"time_domain","oversampling"],{optional:true,int:true,placeholder:"Native default"})),
     checkField([...base,"frequency_domain","enabled"],"Record frequency domain",false),
     ...(p.frequency_domain?.frequencies_hz??[]).map((_,j)=>h("div",{class:"row"},h("label",{text:"Frequency "+(j+1)}),
       numField([...base,"frequency_domain","frequencies_hz",j],{unit:"Hz"}),
