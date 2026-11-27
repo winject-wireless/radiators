@@ -19,7 +19,7 @@ export function hasValidS11(result) {
   return (result?.s11?.logmag_db ?? []).some(Number.isFinite);
 }
 
-export async function runSimulation(ems, model, { config, engine = "basic", threads, onLog, onProgress, onStage, onWarning } = {}) {
+export async function runSimulation(ems, model, { config, engine = "basic", threads, onLog, onProgress, onStage, onWarning, onPartial } = {}) {
   const t0 = Date.now();
   onStage?.("writing model");
   await ems.writeFile("model.xml", model.xml);
@@ -79,11 +79,25 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
   const outputs = config?.outputs ?? {};
   if (outputs.include_impedance === false) delete result.impedance;
 
+  // Publish valid port data before any expensive or fallible far-field work.
+  result.fdtd_seconds = run.seconds ?? null;
+  result.postprocessing_pending = true;
+  result.seconds = (Date.now() - t0) / 1000;
+  onPartial?.({...result, patterns: [...result.patterns], solver_warnings: [...warnings]});
+
   // ---- far field per frequency (nf2ff.CalcNF2FF + simulate_v2's derived numbers)
-  const files = new Set((await ems.list()).map(f => f.path));
+  let files;
+  try { files = new Set((await ems.list()).map(f => f.path)); }
+  catch (e) {
+    warnings.push("Far-field file listing failed: " + e.message);
+    result.postprocessing_incomplete = true;
+    files = null;
+  }
   const box = model.nf2ff;
   for (const f of model.patterns) {
     onStage?.(`far field ${(f / 1e9).toFixed(3)} GHz`);
+    try {
+    if (!files) throw Error("Near-field files unavailable");
     const outfile = `nf2ff_${Math.trunc(f)}.h5`;
     // only the planes openEMS wrote (faces on PEC/PMC walls are mirrored instead)
     const xml = nf2ffXml({ freqs: [f], thetaDeg: model.theta, phiDeg: model.phi, outfile, box, deltaUnit: model.deltaUnit })
@@ -92,7 +106,7 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
         return !m || (files.has(m[1]) && files.has(m[2]));
       }).join("\n");
     await ems.writeFile("nf2ff.xml", xml);
-    const nr = await ems.nf2ff("nf2ff.xml");
+    const nr = await ems.nf2ff("nf2ff.xml", {onLog});
     if (nr.exitCode !== 0) throw Error(`nf2ff exited with code ${nr.exitCode}`);
     const ff = await ems.readNf2ff(outfile);
     const nt = model.theta.length, np = model.phi.length;
@@ -125,7 +139,19 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
       max_realized_gain_dbi: valid && gainFactor !== null && outputs.include_realized_gain ? finite(dmax + 10 * Math.log10(Math.max(gainFactor, 1e-30))) : null,
       record,
     });
+    if (!valid) result.postprocessing_incomplete = true;
+    } catch (e) {
+      result.postprocessing_incomplete = true;
+      const message = "Far-field " + (f / 1e9).toFixed(3) + " GHz failed: " + e.message;
+      warnings.push(message);
+      onWarning?.({message, fatal: false});
+      result.patterns.push({frequency_hz:f,max_directivity_dbi:null,radiation_efficiency:null,max_realized_gain_dbi:null,
+        record:{frequency_hz:f,radiation_valid:false,radiation_warning:message}});
+    }
+    result.seconds = (Date.now() - t0) / 1000;
+    onPartial?.({...result, patterns:[...result.patterns], solver_warnings:[...warnings]});
   }
+  result.postprocessing_pending = false;
   result.seconds = (Date.now() - t0) / 1000;
   result.fdtd_seconds = run.seconds ?? null;
   onStage?.("done");
