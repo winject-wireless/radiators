@@ -152,7 +152,7 @@ function checkFeed(p,a,b,k,conductors,mesh,warn,getGrid){
         let spacing=nominal;
         if(mesh?.grid_mode!=="uniform"){
           if(mesh?.local_min_cell_mm>0&&Math.max(...hit.bounds[1].map((v,i)=>v-hit.bounds[0][i]))<=(mesh.auto_refine_max_span_mm??40))spacing=Math.min(spacing,mesh.local_min_cell_mm);
-          for(const r of mesh?.refinements||[])if(r.resolution_mm>0&&r.start?.every((v,i)=>sample[i]>=v&&sample[i]<=r.stop[i]))spacing=Math.min(spacing,r.resolution_mm);
+          for(const r of mesh?.refinements||[])if(r?.enabled!==false&&r.resolution_mm>0&&r.start?.every((v,i)=>sample[i]>=v&&sample[i]<=r.stop[i]))spacing=Math.min(spacing,r.resolution_mm);
         }
         if(spacing>Math.min(length/4,hit.feature?hit.feature/2:0.5))
           warn("Feed-tip mesh near "+hit.name+": requested local spacing "+Number(spacing.toPrecision(3))+" mm may be too coarse for the contact. Refine around the terminal and check convergence.");
@@ -217,6 +217,7 @@ export function checkCase(cfg) {
       if (res > lambda / 10) warn("mesh", `max_cell_mm ${res} > λmin/10 (${(lambda / 10).toFixed(2)} mm)`);
     }
     for (const [i, r] of (mesh.refinements || []).entries()) {
+      if(r?.enabled===false)continue;
       try {
         const a = vec3(r.start, "refinement.start"), b = vec3(r.stop, "refinement.stop");
         if (!a.every((v, k) => b[k] > v)) err("mesh", `refinement ${i + 1}: stop <= start`);
