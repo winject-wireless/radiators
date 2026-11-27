@@ -70,6 +70,7 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
     mesh_cells: model.counts,
     mesh_total_cells: model.cells,
     mesh_lines_mm: model.meshLines,
+    mesh_algorithm: "priority-refinement-v2",
     port_name: drv.name,
     port_id: drv.id,
     s11: {

@@ -189,15 +189,40 @@ export class Grid {
   set(axis, values) { this.lines[axis] = uniqueSorted(values); }
 }
 
-function addLocalMesh(grid, ds, de, lo, hi, step) {
-  step = positive(step, "mesh.local_min_cell_mm");
-  for (let i = 0; i < 3; i++) {
-    const left = Math.max(ds[i], lo[i]), right = Math.min(de[i], hi[i]);
-    if (right <= left) continue;
-    const n = Math.ceil((right - left) / step) + 1;
-    if (n > 1800) throw Error(`Local mesh region ${AXES[i]} has ${n} requested lines (> 1800)`);
-    grid.add(i, linspace(left, right, n));
+// Resolve a single spacing target per base cell. Fine regions override
+// coarser regions and the global spacing, independent of their input order.
+// Region boundaries are snapped outwards to base cell boundaries. Only hard
+// feature lines and target transitions survive; global/intermediate grid lines
+// inside a refined interval are replaced, not superimposed.
+export function refinementSeeds(lines, protectedLines, regions, resolution, maxIntervals=2500) {
+  const targets=diff(lines).map((width,i)=>{
+    let target=resolution;
+    for(const [lo,hi,step] of regions)
+      if(step<target&&hi>lo&&lo<lines[i+1]&&hi>lines[i])target=step;
+    return target;
+  });
+  if(!targets.some((t,i)=>t<resolution&&(lines[i+1]-lines[i])>t*(1+1e-12)))return null;
+  const hard=new Set(protectedLines);
+  const cuts=[0];
+  for(let i=1;i<lines.length-1;i++)
+    if(hard.has(lines[i])||targets[i]!==targets[i-1])cuts.push(i);
+  cuts.push(lines.length-1);
+  const out=[lines[0]],limit=Math.max(lines.length-1,maxIntervals);
+  for(let j=1;j<cuts.length;j++){
+    const i=cuts[j-1],left=lines[i],right=lines[cuts[j]],target=targets[i];
+    const n=target<resolution?Math.max(1,Math.ceil((right-left)/target*(1-1e-12))):1;
+    require(Number.isSafeInteger(n)&&out.length+n-1<=limit,"Refined mesh axis exceeds cell budget");
+    out.push(...linspace(left,right,n+1).slice(1));
   }
+  return out;
+}
+
+export function refineAxis(lines, protectedLines, regions, resolution, growth, maxIntervals=2500){
+  const seeds=refinementSeeds(lines,protectedLines,regions,resolution,maxIntervals);
+  if(!seeds)return [...lines];
+  const out=SmoothMeshLines(seeds,resolution,growth);
+  require(out.length-1<=Math.max(lines.length-1,maxIntervals),"Refined mesh axis exceeds cell budget");
+  return out;
 }
 
 // Boundary: openEMS type (0 PEC, 1 PMC, 2 MUR, 3 PML) and CreateNF2FFBox size
@@ -243,16 +268,22 @@ export function setupMesh(cfg, geometryBounds, sourceBounds, previews, ports, ds
     else if (pv.points) { addPointPlanes(pv.points[0]); addPointPlanes(pv.points[pv.points.length - 1]); }
   }
   for (const p of ports) { addPointPlanes(p.start); addPointPlanes(p.stop); }
+  const regions=[];
+  const addRegion=(lo,hi,step)=>{
+    step=positive(step,"mesh refinement resolution_mm");
+    if(step<resolution)regions.push([lo,hi,step]);
+  };
   if (m.local_min_cell_mm != null) {
     const step = positive(m.local_min_cell_mm, "mesh.local_min_cell_mm");
     const maxSpan = Number(m.auto_refine_max_span_mm ?? 40);
     for (const [lo, hi] of [...geometryBounds, ...sourceBounds]) {
-      if (Math.max(...hi.map((v, i) => v - lo[i])) <= maxSpan) addLocalMesh(grid, ds, de, lo, hi, step);
+      if (Math.max(...hi.map((v, i) => v - lo[i])) <= maxSpan) addRegion(lo,hi,step);
     }
   }
   for (const r of m.refinements ?? []) {
+    if(r?.enabled===false)continue;
     require(r.stop.every((v, i) => v > r.start[i]), "mesh refinement stop <= start");
-    addLocalMesh(grid, ds, de, r.start, r.stop, r.resolution_mm);
+    addRegion(r.start,r.stop,r.resolution_mm);
   }
   const boundary = cfg.domain.boundary ?? Array(6).fill("PML_8");
   const bounds = [...geometryBounds, ...sourceBounds];
@@ -282,7 +313,13 @@ export function setupMesh(cfg, geometryBounds, sourceBounds, previews, ports, ds
       }
       parts.forEach((n, k) => seeds.push(...linspace(margin[k], margin[k + 1], n + 1).slice(1, -1)));
     }
-    grid.set(i, seeds.length === grid.lines[i].length ? lines : SmoothMeshLines(seeds, resolution, growth));
+    const baseLines=seeds.length===grid.lines[i].length?lines:SmoothMeshLines(seeds,resolution,growth);
+    if(!regions.length){grid.set(i,baseLines);continue;}
+    // Retain enough outer grid planes for the NF2FF surface to remain clear
+    // of geometry even if the coarse interior grid is rebuilt.
+    const low=boundaryInfo(boundary[2*i]).size,high=boundaryInfo(boundary[2*i+1]).size;
+    const hard=[...seeds,...baseLines.slice(0,low+1),...baseLines.slice(baseLines.length-high-1)];
+    grid.set(i,refineAxis(baseLines,hard,regions.map(([lo,hi,step])=>[lo[i],hi[i],step]),resolution,growth,Math.min(2500,maxCells)));
   }
   const counts = grid.lines.map(l => l.length - 1);
   const cells = counts[0] * counts[1] * counts[2];

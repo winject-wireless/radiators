@@ -973,3 +973,7 @@ dialog .example-list > button { padding:7px 9px; gap:3px; }
 
 .sweep-axis input.sweep-axis-warning {border-color:var(--warn);}
 .sweep-axis-notice {margin:2px 0 6px;padding:5px 7px;font-size:var(--ui-small);overflow-wrap:anywhere;}
+
+.refinement-disabled {border-style:dashed;}
+.refinement-disabled .refinement-name {color:var(--muted);}
+.refinement-disabled .refinement-name .swatch {opacity:.3;}

@@ -253,7 +253,11 @@ def expand_cases(config, source):
             base = _run_generator(generator, base, parameters)
         if base.get("schema_version") == 2 and isinstance(base.get("geometry"), list):
             base["geometry"] = [g for g in base["geometry"] if not isinstance(g, dict) or g.get("enabled") is not False]
+        if isinstance(base.get("mesh"), dict) and isinstance(base["mesh"].get("refinements"), list):
+            base["mesh"]["refinements"] = [r for r in base["mesh"]["refinements"] if not isinstance(r, dict) or r.get("enabled") is not False]
         resolved = resolve_template(base, parameters)
+        if isinstance(resolved.get("mesh"), dict) and isinstance(resolved["mesh"].get("refinements"), list):
+            resolved["mesh"]["refinements"] = [r for r in resolved["mesh"]["refinements"] if not isinstance(r, dict) or r.get("enabled") is not False]
         if resolved.get("schema_version") == 2 and isinstance(resolved.get("geometry"), list):
             resolved["geometry"] = [g for g in resolved["geometry"] if not isinstance(g, dict) or g.get("enabled") is not False]
         if _uses_scripts(resolved):

@@ -8,7 +8,8 @@ import os
 from pathlib import Path
 import numpy as np
 
-from v2_geometry import add_local_mesh, install_geometry, positive, vec3
+from v2_geometry import install_geometry, positive, vec3
+from mesh_refinement import refinement_seeds
 from v2_diagnostics import prepare as prepare_probes, install as install_probes, collect as collect_probes
 
 
@@ -174,21 +175,25 @@ def setup_mesh(mesh, cfg, geometry_bounds, source_bounds, geometry_previews, por
         add_point_planes(port["start"])
         add_point_planes(port["stop"])
 
+    regions=[]
+    def add_region(lo,hi,step):
+        step=positive(step,"mesh refinement resolution_mm")
+        if step<resolution:
+            regions.append((lo,hi,step))
     local_step=mesh_cfg.get("local_min_cell_mm")
     if local_step is not None:
         step=positive(local_step,"mesh.local_min_cell_mm")
         for lo,hi in geometry_bounds+source_bounds:
-            # Local automatic refinement only around each small bounding
-            # envelope. For long structures use explicit refinements instead.
-            span=hi-lo
-            if np.max(span)<=float(mesh_cfg.get("auto_refine_max_span_mm",40)):
-                add_local_mesh(mesh,domain_start,domain_stop,lo,hi,step)
+            if np.max(hi-lo)<=float(mesh_cfg.get("auto_refine_max_span_mm",40)):
+                add_region(lo,hi,step)
 
     for region in mesh_cfg.get("refinements",[]):
+        if region.get("enabled") is False:
+            continue
         a=vec3(region["start"],"mesh region start")
         b=vec3(region["stop"],"mesh region stop")
         require(np.all(b>a),"mesh refinement stop <= start")
-        add_local_mesh(mesh,domain_start,domain_stop,a,b,region["resolution_mm"])
+        add_region(a,b,region["resolution_mm"])
 
     boundary = cfg["domain"].get("boundary", ["PML_8"] * 6)
     bounds = geometry_bounds + source_bounds
@@ -222,6 +227,20 @@ def setup_mesh(mesh, cfg, geometry_bounds, source_bounds, geometry_previews, por
         if added:
             mesh.SetLines(axis, sorted(seeds))
             mesh.SmoothMeshLines(axis, resolution, growth)
+        if regions:
+            base_lines=list(mesh.GetLines(axis))
+            def boundary_offset(bc):
+                return int(bc[4:])+1 if bc.startswith("PML_") else 2 if bc=="MUR" else 0
+            low,high=boundary_offset(boundary[2*i]),boundary_offset(boundary[2*i+1])
+            hard=seeds+base_lines[:low+1]+base_lines[-high-1:]
+            limit=min(2500,int(mesh_cfg.get("max_cells",5000000)))
+            refined=refinement_seeds(base_lines,hard,
+                       [(lo[i],hi[i],step) for lo,hi,step in regions],resolution,limit)
+            if refined is not None:
+                mesh.SetLines(axis,refined)
+                mesh.SmoothMeshLines(axis,resolution,growth)
+                require(len(mesh.GetLines(axis))-1<=max(len(base_lines)-1,limit),
+                        "Refined mesh axis exceeds cell budget")
     counts=[len(mesh.GetLines(axis))-1 for axis in "xyz"]
     cells=math.prod(counts)
     max_cells=int(mesh_cfg.get("max_cells",5000000))
@@ -338,6 +357,7 @@ def output_data(config, resultdir):
         "mesh_cells":counts,
         "mesh_total_cells":cells,
         "mesh_lines_mm":mesh_lines_mm,
+        "mesh_algorithm":"priority-refinement-v2",
         "port_name":driven.get("name",f"port-{driven_id}"),
         "port_id":driven_id,
         "s11":{

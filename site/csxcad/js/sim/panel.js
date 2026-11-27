@@ -74,6 +74,11 @@ function resultDB() {
 // cache revision; unrelated existing results remain valid.
 function cacheStorageKey(key) {
   const cfg=JSON.parse(key);
+  const mesh=cfg.mesh??{};
+  // Old refined results used independent, overlapping mesh seed grids.
+  const refined=(mesh.grid_mode??"feature")==="feature"&&
+    (mesh.local_min_cell_mm!=null||mesh.refinements?.some(r=>r?.enabled!==false));
+  if(refined)return "priority-refinement-v2:"+key;
   return cfg.geometry?.some(g=>(g.shape??g.type)==="hemispherical_shell")
     ? "hemisphere-rim-v2:"+key : key;
 }

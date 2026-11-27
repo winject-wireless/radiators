@@ -28,3 +28,18 @@ assert.deepEqual(preview.counts,full.counts);
 assert.equal(preview.cells,full.cells);
 assert.deepEqual(buildModel({...cfg,probes:[{name:"bad",type:"current",start:[-1,-1,-1],stop:[1,1,1]}]},{meshOnly:true}).meshLines,preview.meshLines);
 console.log("Mesh view geometry and exact preview parity: PASS");
+
+// Disabled refinements are excluded from resolution, validation and actual grids.
+const refinement={start:[-5,-5,-5],stop:[5,5,5],resolution_mm:0.5};
+const base={...cfg,mesh:{...cfg.mesh,grid_mode:"feature",refinements:[]}};
+const baseline=buildModel(base,{meshOnly:true});
+const withRegion=r=>({...base,mesh:{...base.mesh,refinements:[r]}});
+assert.deepEqual(buildModel(withRegion({...refinement,enabled:false}),{meshOnly:true}).meshLines,baseline.meshLines);
+assert.deepEqual(buildModel(withRegion(refinement),{meshOnly:true}).meshLines,buildModel(withRegion({...refinement,enabled:true}),{meshOnly:true}).meshLines);
+assert.ok(buildModel(withRegion(refinement),{meshOnly:true}).cells>baseline.cells);
+const disabled=withRegion({...refinement,enabled:false,resolution_mm:{$param:"missing"}});
+assert.deepEqual(resolveCase(disabled,{}).mesh.refinements,[]);
+assert.equal(disabled.mesh.refinements[0].resolution_mm.$param,"missing");
+assert.deepEqual(resolveCase(withRegion({...refinement,enabled:{$param:"on"}}),{on:false}).mesh.refinements,[]);
+assert.equal(resolveCase(withRegion({...refinement,enabled:{$param:"on"}}),{on:true}).mesh.refinements.length,1);
+console.log("Mesh refinement toggle: PASS");

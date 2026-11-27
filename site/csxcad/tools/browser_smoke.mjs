@@ -171,6 +171,15 @@ try {
   await box.getByLabel("Refinement "+(newIndex+1)+" resolution",{exact:true}).fill("0.5 mm");
   await box.getByLabel("Refinement "+(newIndex+1)+" resolution",{exact:true}).press("Tab");
   assert.equal(await page.evaluate(i=>window.__csxcad.state.doc.mesh.refinements[i].resolution_mm,newIndex),.5);
+  const enabled=box.getByLabel("Enable refinement "+(newIndex+1),{exact:true});
+  assert.equal(await enabled.isChecked(),true);
+  await enabled.uncheck();
+  assert.equal(await enabled.isChecked(),false);
+  assert.equal(await box.getByRole("button",{name:"Edit in 3D",exact:true}).isDisabled(),true);
+  assert.equal(await page.evaluate(i=>window.__csxcad.viewport.overlays.children.some(o=>o.userData.ref?.kind==="refinement"&&o.userData.ref.index===i),newIndex),false);
+  assert.equal(await page.evaluate(i=>window.__csxcad.state.doc.mesh.refinements[i].resolution_mm,newIndex),.5);
+  await enabled.check();
+  assert.equal(await enabled.isChecked(),true);
   await box.getByRole("button",{name:"Edit in 3D",exact:true}).click();
   assert.equal(await page.evaluate(()=>window.__csxcad.viewport.gizmo.object?.userData.handleKey),"mesh.refinements."+newIndex+".start");
   assert.equal(await page.evaluate(i=>window.__csxcad.viewport.overlays.children.find(o=>o.userData.ref?.kind==="refinement"&&o.userData.ref.index===i)?.visible,newIndex),true);
