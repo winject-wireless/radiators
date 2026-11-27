@@ -73,8 +73,13 @@ class RemoteTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as e:
             request("/v1/health",token="bad")
         self.assertEqual(e.exception.code,403)
-        with self.assertRaises(HTTPError):
+        self.assertIn("Invalid bearer token",json.load(e.exception)["error"])
+        with self.assertRaises(HTTPError) as e:
+            urlopen(base+"/v1/health",timeout=3)
+        self.assertIn("Authorization header missing",json.load(e.exception)["error"])
+        with self.assertRaises(HTTPError) as e:
             request("/v1/health",origin="https://wrong.example")
+        self.assertEqual(json.load(e.exception)["error"],"Origin not allowed by runner")
         self.assertEqual(request("/v1/health")["api_version"],1)
         with patch.object(self.runner,"execute",side_effect=fake):
             self.assertEqual(request("/v1/jobs","POST",{"id":ID,"config":CONFIG})["id"],ID)

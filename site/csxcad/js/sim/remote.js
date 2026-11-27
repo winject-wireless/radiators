@@ -8,8 +8,8 @@ export function remoteEndpoint(value, pageProtocol=globalThis.location?.protocol
 export class RemoteRunner {
   // Window.fetch must keep its global receiver, not the RemoteRunner instance.
   constructor(url,token,fetcher=(...args)=>globalThis.fetch(...args)) {
-    this.url=remoteEndpoint(url);this.token=token;this.fetcher=fetcher;
-    if(!token)throw Error("Enter runner token");
+    this.url=remoteEndpoint(url);this.token=String(token??"").trim();this.fetcher=fetcher;
+    if(!this.token)throw Error("Enter runner token");
     this.id=null;this.cancelled=false;this.cancelRequest=null;
   }
   async request(path,method="GET",body) {

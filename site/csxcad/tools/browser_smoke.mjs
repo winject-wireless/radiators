@@ -56,7 +56,7 @@ try {
     const endpoint=new URL("remote-test",base).href;
     await blockedPage.getByLabel("Simulation runner").selectOption("remote");
     await blockedPage.getByLabel("Remote runner URL").fill(endpoint);
-    await blockedPage.getByLabel("Remote runner token").fill("test-token");
+    await blockedPage.getByLabel("Remote runner token").fill("  test-token  ");
     await blockedPage.getByRole("button",{name:"Test connection"}).click();
     await blockedPage.getByText("Connected · 8 CPUs · 16 GiB max per job").waitFor();
     const received=await blockedPage.evaluate(async endpoint=>{
