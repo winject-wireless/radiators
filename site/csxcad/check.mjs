@@ -272,23 +272,34 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
     args: { radius_start: 5, radius_stop: 0, thickness: 1 } }] }, editorRun), /thickness must be below both radii/);
 }
 
-// In-browser simulation model == the Python simulator's XML (golden file from simulate_v2,
-// site/openems/examples/dipole.xml): mesh lines, port elements, NF2FF box
+// The historical native dipole XML fixture predates priority refinement.
+// Verify the unchanged transverse mesh and port definitions, and check the
+// regenerated refined axis against its physical constraints and emitted XML.
 {
   const cfg = JSON.parse(fs.readFileSync(path.join(repo, "wasm/openems/test/dipole_v2.json"), "utf8"));
   const gold = fs.readFileSync(path.join(repo, "site/openems/examples/dipole.xml"), "utf8");
   const m = buildModel(cfg);
   const lines = xml => ["X", "Y", "Z"].map(a => new RegExp(`<${a}Lines Qty="\\d+">([^<]+)<`).exec(xml)[1].split(",").map(Number));
   const [gl, ml] = [lines(gold), lines(m.xml)];
-  gl.forEach((l, i) => {
-    assert.equal(ml[i].length, l.length, `dipole ${"XYZ"[i]} mesh line count`);
-    l.forEach((v, k) => assert.ok(Math.abs(ml[i][k] - v) < 1e-9, `dipole ${"XYZ"[i]} line ${k}: ${ml[i][k]} vs ${v}`));
+  gl.slice(0,2).forEach((l,i)=>{
+    assert.equal(ml[i].length,l.length);
+    l.forEach((v,k)=>assert.ok(Math.abs(ml[i][k]-v)<1e-9));
   });
+  for(let i=0;i<3;i++){
+    assert.equal(ml[i].length,m.meshLines[i].length);
+    ml[i].forEach((v,k)=>assert.ok(Math.abs(v-m.meshLines[i][k])<1e-9));
+    assert.ok(m.meshStatistics[i].min_mm>=0.99);
+    assert.ok(m.meshStatistics[i].max_mm<=cfg.mesh.max_cell_mm+1e-9);
+  }
+  // The local auto-refinement covers both arms and feed: 1 mm maximum.
+  const z=ml[2];
+  assert.ok(z.slice(1).every((v,i)=>!(z[i]>=-28&&v<=28)||v-z[i]<=1+1e-9));
   for (const tag of ['Name="port_resist_1" Direction="2"', 'Name="port_excite_1"', 'Name="port_ut_1"', 'Name="port_it_1"', 'Name="nf2ff_E"', 'Name="nf2ff_H"']) {
     assert.ok(m.xml.includes(tag), `dipole model has ${tag}`);
   }
   const box = /Name="nf2ff_E"[\s\S]*?<P1 X="([^"]+)" Y="([^"]+)" Z="([^"]+)"/.exec(gold).slice(1).map(Number);
-  box.forEach((v, i) => assert.ok(Math.abs(m.nf2ff.start[i] - v) < 1e-9, "dipole NF2FF box start"));
+  box.slice(0,2).forEach((v,i)=>assert.ok(Math.abs(m.nf2ff.start[i]-v)<1e-9));
+  assert.ok(m.nf2ff.start[2]<-28&&m.nf2ff.stop[2]>28);
   assert.equal(m.cells, 38 * 38 * 90);
   assert.throws(() => buildModel({ ...cfg, ports: [{ ...cfg.ports[0], type: "msl" }] }), /not supported in the browser/);
 }
@@ -482,4 +493,47 @@ await import("./tools/check_mesh_view.mjs");
   assert.equal(sweepWarnings(cfg).every(w=>w.level==="warn"),true);
   assert.equal(sweepWarnings({...cfg,probes:[{start:[0,0,{$param:"unused"}]}]}).some(w=>w.axis==="unused"),false);
   assert.equal(sweepWarnings({...cfg,probes:[{enabled:false,start:[0,0,{$param:"unused"}]}]}).some(w=>w.axis==="unused"),true);
+}
+
+
+// Priority refinement uses the same region partition in Python and JS.
+{
+  const {refinementSeeds,refineAxis}=await import("./js/sim/mesh.js");
+  const lines=Array.from({length:21},(_,i)=>5*i),hard=[0,25,75,100];
+  const coarse=[32.1,66.9,2],fine=[48.4,58.4,1];
+  const cases=[
+    [lines,hard,[[32.1,66.9,5]],5],
+    [lines,hard,[[32.1,66.9,8]],5],
+    [lines,hard,[coarse,fine],5],
+    [lines,hard,[fine,coarse],5],
+    [lines,hard,[coarse,fine,[49.1,57.1,3]],5],
+    [lines,[...hard,50],[coarse,fine],5],
+    [[0,5,5.001,10,15,20],[0,5,5.001,20],[[4.5,13,1]],5],
+    [lines,hard,[[101,110,0.5]],5],
+    [lines,hard,[[40,40,0.5]],5]
+  ];
+  const native=py(`
+import json,sys
+sys.path.insert(0,"antennas")
+from mesh_refinement import refinement_seeds
+print(json.dumps([refinement_seeds(*args) for args in json.load(sys.stdin)]))
+`,cases);
+  cases.forEach((args,i)=>{
+    const js=refinementSeeds(...args),p=native[i];
+    if(js===null)assert.equal(p,null);
+    else {
+      assert.equal(js.length,p.length);
+      js.forEach((v,j)=>assert.ok(Math.abs(v-p[j])<1e-10));
+    }
+  });
+  assert.deepEqual(refineAxis(lines,hard,[coarse,fine],5,1.4),refineAxis(lines,hard,[fine,coarse],5,1.4));
+  assert.deepEqual(refinementSeeds(lines,hard,[coarse,fine],5),refinementSeeds(lines,hard,[coarse,fine,[49.1,57.1,3]],5));
+  assert.deepEqual(refineAxis(lines,hard,[[32.1,66.9,5]],5,1.4),lines);
+  const refined=refineAxis(lines,hard,[coarse,fine],5,1.4);
+  assert.ok(hard.every(v=>refined.includes(v)));
+  assert.ok(refined.slice(1).every((v,i)=>v-refined[i]>=0.5&&v-refined[i]<=5+1e-9));
+  assert.ok(refined.slice(1).every((v,i)=>!(refined[i]>=45&&v<=60)||v-refined[i]<=1+1e-9));
+  assert.ok(refined.slice(1).some((v,i)=>v-refined[i]>4));
+  assert.throws(()=>refinementSeeds(lines,hard,[[0,100,0.00001]],5),/cell budget/);
+  console.log("Priority refinement JS/Python partition parity: PASS");
 }
