@@ -5,10 +5,12 @@ import { buildModel } from "./model.js";
 import { runSimulation, summarize, hasValidS11 } from "./run.js";
 import { lineChart, polarChart, smithChart } from "./plot.js";
 import { updateSolverDiagnostics } from "./diagnostics.js";
-import { registerServiceWorker, isolationUnavailableReason } from "../platform.js";
+import { registerServiceWorker, isolationUnavailableReason, storage } from "../platform.js";
+import { RemoteRunner, remoteEndpoint } from "./remote.js";
+import { ProgressParser } from "../../vendor/openems/openems-core.js";
 
 const sim = {
-  engine: "cpu", threads: 0, running: false, stage: "", progress: null, log: [], error: null,
+  engine: "cpu", threads: 0, runner:storage.get("radiators.runner")==="remote"?"remote":"browser", remoteUrl:storage.get("radiators.runner.url")||"", remoteToken:"", remote:null, running: false, stage: "", progress: null, log: [], error: null,
   ems: null, model: null, startedAt: 0, aborting: false, stopTimer: null,
 };
 let ui = null; // live DOM refs of the rendered panel
@@ -141,10 +143,26 @@ export function renderRunPanel(box, ctx) {
   engine.addEventListener("change", () => { sim.engine = engine.value; });
   const threads = h("input", { type: "number", min: 1, max: 64, value: sim.threads, "aria-label": "Threads", disabled: sim.running });
   threads.addEventListener("change", () => { sim.threads = Math.max(1, Math.min(64, Math.trunc(Number(threads.value)) || hc())); });
-  const unavailable = OpenEMS.unsupportedReason();
-  const isolationBlocked = isolationUnavailableReason();
-  const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config || !!unavailable, onclick: () => start(ctx, false) }, sim.running ? "Running…" : sweep ? "Run case" : "Run in browser");
-  const validateBtn = h("button",{type:"button",disabled:sim.running||!c.config||!!unavailable,onclick:()=>validateMesh(ctx),title:"Run openEMS operator setup only and download the actual discretized PEC edges (VTP)."},"Validate mesh / export PEC");
+  const remote=sim.runner==="remote";
+  const runnerSelect=h("select",{"aria-label":"Simulation runner",disabled:sim.running},h("option",{value:"browser",text:"Browser"}),h("option",{value:"remote",text:"Remote"}));
+  runnerSelect.value=sim.runner;
+  runnerSelect.addEventListener("change",()=>{sim.runner=runnerSelect.value;storage.set("radiators.runner",sim.runner);sim.error=null;ctx.refresh();});
+  const url=h("input",{type:"url",value:sim.remoteUrl,placeholder:"https://runner.example.com","aria-label":"Remote runner URL",disabled:sim.running});
+  const token=h("input",{type:"password",value:sim.remoteToken,placeholder:"Runner token",autocomplete:"off","aria-label":"Remote runner token",disabled:sim.running});
+  const connection=h("span",{class:"hint",text:"Token stays in this session."});
+  const save=()=>{sim.remoteUrl=url.value.trim();sim.remoteToken=token.value;storage.set("radiators.runner.url",sim.remoteUrl);};
+  url.addEventListener("input",save);token.addEventListener("input",save);
+  const test=h("button",{type:"button",disabled:sim.running,onclick:async()=>{
+    save();test.disabled=true;
+    try{const info=await new RemoteRunner(sim.remoteUrl,sim.remoteToken).health();
+      if(info.api_version!==1)throw Error("Incompatible runner API");
+      connection.textContent="Connected · "+info.max_cpus+" CPUs · "+info.max_memory_gib+" GiB max per job";
+    }catch(e){connection.textContent=e.message;}finally{test.disabled=false;}
+  }},"Test connection");
+  const unavailable = remote ? null : OpenEMS.unsupportedReason();
+  const isolationBlocked = remote ? null : isolationUnavailableReason();
+  const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config || !!unavailable, onclick: () => start(ctx, false) }, sim.running ? "Running…" : sweep ? "Run case" : remote?"Run remotely":"Run in browser");
+  const validateBtn = h("button",{type:"button",hidden:remote,disabled:sim.running||!c.config||!!unavailable,onclick:()=>validateMesh(ctx),title:"Run openEMS operator setup only and download the actual discretized PEC edges (VTP)."},"Validate mesh / export PEC");
   const allBtn = sweep ? h("button", { type: "button", class: "primary", disabled: sim.running || pending || !!unavailable || !cases.some(x=>x.config), onclick: () => start(ctx, true) }, `Run all (${cases.length})`) : null;
   if (sweep) runBtn.classList.remove("primary");
   if (sim.running && allBtn) allBtn.hidden = true;
@@ -160,9 +178,10 @@ export function renderRunPanel(box, ctx) {
     ? sweep ? `${c.label} · ${cases.length} cases` : "Single case"
     : c.pending ? "Geometry scripts are still running…" : `Cannot simulate: ${c.error}`;
   box.append(h("div", { class: "form-section sim-run" },
-    h("div",{class:"sim-run-head"},h("h3",{text:"Run in browser"}),h("span",{class:"hint sim-case-hint",title:c.name||"",text:`${caseLine}${pending&&!c.pending?" · preparing cases":""}`})),
+    h("div",{class:"sim-run-head"},h("h3",{text:"Simulation runner"}),h("span",{class:"hint sim-case-hint",title:c.name||"",text:`${caseLine}${pending&&!c.pending?" · preparing cases":""}`})),
     h("div", { class: "sim-controls" }, h("div",{class:"sim-run-actions"},allBtn,runBtn,validateBtn,abortBtn),
-      h("div",{class:"sim-run-options"},h("label", { class: "sim-engine" }, "Engine", engine), h("label", { class: "sim-threads" }, "Threads", threads))),
+      h("div",{class:"sim-run-options"},h("label",{},"Runner",runnerSelect),!remote?h("label", { class: "sim-engine" }, "Engine", engine):null,!remote?h("label", { class: "sim-threads" }, "Threads", threads):null)),
+    remote?h("div",{class:"form-section"},h("label",{},"Runner URL",url),h("label",{},"Access token",token),h("div",{class:"actions"},test,connection),h("p",{class:"hint",text:"Remote uses solver.resources CPUs and RAM. Your resolved geometry is sent to this server. Browser mesh validation remains available in Browser mode."})):null,
     unavailable ? h("div", { class: "note warn" },
       h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
       !isolationBlocked ? h("button", { type: "button", onclick: async e => {
@@ -242,7 +261,9 @@ async function start(ctx, all = false) {
   if (sim.running) return;
   const cases = all ? ctx.getCases() : [ctx.getCase()];
   if (!cases.some(c=>c.config) || cases.some(c=>c.pending)) return;
-  const why = OpenEMS.unsupportedReason();
+  const remote=sim.runner==="remote";
+  const why = remote ? null : OpenEMS.unsupportedReason();
+  if(remote){try{remoteEndpoint(sim.remoteUrl);if(!sim.remoteToken)throw Error("Enter runner token");}catch(e){sim.error=e.message;ctx.refresh();return;}}
   if (why) { sim.error = isolationUnavailableReason() || why; ctx.refresh(); return; }
   // Capture immutable resolved configs; selecting another case or editing the document
   // during the sweep cannot change the queued simulation inputs.
@@ -266,13 +287,26 @@ async function start(ctx, all = false) {
       publish();
       try {
         if (!c.config) throw Error(c.error || "Case configuration unavailable");
+        let result;
+        if(remote){
+          sim.remote=new RemoteRunner(sim.remoteUrl,sim.remoteToken);
+          sim.stage="submitting remote job";updateProgress();
+          result=await sim.remote.run(c.config,{onStatus:status=>{
+            sim.stage="remote "+status.state+" · "+status.id.slice(0,8);
+            sim.log=(status.log||"").split("\n").slice(-2000);
+            const parser=new ProgressParser();parser.maxTimesteps=c.config.solver?.max_timesteps??20000;
+            for(const line of sim.log){const progress=parser.line(line);if(progress)sim.progress=progress;}
+            ctx.onBadge(simStatus());updateProgress();
+          }});
+          if(!hasValidS11(result))throw Error("Remote solver returned no valid S11");
+        }else{
         const model=buildModel(c.config);
         sim.model=model;
         sim.stage="starting openEMS";
         sim.ems=new OpenEMS({threads:workerPoolSize(model,sim.engine,sim.threads)});
         await sim.ems.initialize();
         if (sim.aborting) throw Error("Stopped");
-        const result=await runSimulation(sim.ems,model,{
+        result=await runSimulation(sim.ems,model,{
           config:c.config,engine:sim.engine,threads:sim.threads,
           onLog:line=>{sim.log.push(line);if(sim.log.length>2000)sim.log.splice(0,500);},
           onWarning:w=>{sim.warning=w.fatal?"Invalid feed — "+w.message:w.message;updateProgress();},
@@ -285,6 +319,7 @@ async function start(ctx, all = false) {
             publish();
           }
         });
+        }
         result.aborted=!!(result.aborted||sim.aborting);
         const firstValid=result.patterns.findIndex(p=>p.record.radiation_valid);
         const run={...partialRun,result,key,frequency:partialRun?.frequency>=0?partialRun.frequency:firstValid};
@@ -310,7 +345,7 @@ async function start(ctx, all = false) {
       } finally {
         clearTimeout(sim.stopTimer);
         sim.ems?.terminate();
-        sim.ems=null;
+        sim.ems=null;sim.remote=null;
         sim.batch.finished++;
         sim.progress=null;
         // Publish each result immediately, without changing the user's selected case.
@@ -332,6 +367,7 @@ function stop() {
   if (!sim.running || sim.aborting) return;
   sim.aborting=true;
   if(ui?.abortBtn){ui.abortBtn.disabled=true;ui.abortBtn.textContent="Stopping…";}
+  if(sim.remote){sim.remote.abort().catch(e=>{sim.warning="Remote cancellation not confirmed: "+e.message;updateProgress();});return;}
   const ems=sim.ems;
   if(!ems)return;
   if(sim.stage==="FDTD"){ems.abort();sim.stopTimer=setTimeout(()=>ems.terminate(),1000);}
@@ -371,7 +407,7 @@ export function renderResults(box, ctx, run, caseId, stale) {
       kpi("−10 dB band", s.band ? `${fmt((s.band[1] - s.band[0]) / 1e6, 0)} MHz` : "none", s.band ? `${ghz(s.band[0])} – ${ghz(s.band[1])}` : ""),
       s.zin ? kpi("Zin", `${fmt(s.zin[0], 1)} ${s.zin[1] < 0 ? "−" : "+"} j${fmt(Math.abs(s.zin[1]), 1)} Ω`, `at ${ghz(s.zin[2])}`) : null,
       ...s.patterns.map(p => kpi(`Dmax ${ghz(p.f)}`, `${fmt(p.dmax)} dBi`, `efficiency ${p.eta === null ? "—" : fmt(p.eta * 100, 1) + "%"}${p.gain !== null ? ` · gain ${fmt(p.gain)} dBi` : ""}`)),
-      kpi("Mesh / time", `${(r.mesh_total_cells / 1e6).toFixed(2)} M cells`, `${fmt(r.seconds, 0)} s on this device`)),
+      kpi("Mesh / time", `${(r.mesh_total_cells / 1e6).toFixed(2)} M cells`, `${fmt(r.seconds, 0)} s · ${r.generator==="remote native openEMS"?"remote":"browser"}`)),
     h("div",{class:"result-section-head"},h("h3",{text:"Frequency response"})),
     h("div", { class: "sim-charts" },
       chartCard("S11 (dB)", lineChart({ series: [{ x: f, y: r.s11.logmag_db }], xLabel: "GHz", yLabel: "dB", hlines: [{ y: -10, label: "−10 dB" }], yMax: 0, xFmt: v => String(+v.toFixed(3)) })),

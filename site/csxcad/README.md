@@ -239,3 +239,43 @@ In **Simulation → Refinements**, add a free **Box** or **Around feed** (curren
 ### Temporarily disable geometry
 
 In the Model tree, use the checkbox icon next to an object (or the Simulation control in its inspector). Disabled objects are hidden from the geometry viewport and excluded from parameter resolution, script expansion, validation, meshing and simulation; their full source definition remains editable and undoable. The eye icon remains preview-only. JSON uses `"enabled": false`; omit the property or set it to `true` to enable again. The toggle works for primitives and entire scripted instances in browser and native sweep runs.
+
+
+## Remote simulation runner
+
+Choose **Remote** in the Simulation runner selector. The editor sends the resolved
+schema v2 case to the native Python openEMS solver on your machine, polls logs,
+and loads the completed S11, impedance and radiation results into the existing viewer.
+CPU and RAM come from solver.resources; sweeps submit cases sequentially.
+No geometry scripts or generators are executed by the remote API. The URL is
+saved locally; the access token stays in memory until reload.
+
+On the runner machine (Linux or WSL2 with Linux Docker):
+
+```bash
+docker build -t radiators-openems:ci docker/openems
+export RADIATORS_RUNNER_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+# Copy the token into the editor; do not commit it.
+python3 scripts/remote_runner.py --origin https://winject-wireless.github.io \
+  --max-cpus 16 --max-memory-gib 32 --max-cells 20000000
+```
+
+The API listens on 127.0.0.1:8765 by default. Use localhost for a browser
+on that same host, or an HTTPS reverse proxy (e.g. Caddy on a trusted LAN/VPN)
+to access it from another device. Set --origin to the exact editor origin
+(scheme, hostname, port, no path); repeat for multiple origins. Never expose
+the unencrypted API to the Internet. The token grants access to every job;
+this is a single-user trusted-host service, not a multi-tenant service.
+The Docker image must already exist; it is not pulled automatically.
+The service accepts one active job, retains the last four jobs in a temporary
+directory until restart, enforces CPU/RAM/cell/timestep/wall-time limits,
+and uses no-network containers with a read-only repository. Output disk usage
+is not separately quota-limited; configure host disk space/quota before use.
+A browser disconnect does not stop the server job; Stop requests cancellation.
+Native PEC debug export and source/port diagnostic plots are browser-only in
+this first remote implementation. No remote deployment is bundled.
+
+API: GET /v1/health, POST /v1/jobs with id and config, GET /v1/jobs/{id},
+GET /v1/jobs/{id}/result, DELETE /v1/jobs/{id}. All except OPTIONS require
+Authorization: Bearer <token>. Results inline native pattern records for the
+editor. HTTPS termination is the operator's responsibility.

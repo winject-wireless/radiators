@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime, timezone
 import json
 import math
+import os
 from pathlib import Path
 import numpy as np
 
@@ -311,7 +312,9 @@ def output_data(config, resultdir):
     resultdir.mkdir(parents=True,exist_ok=True)
     fdtd_path=resultdir/"fdtd"
     csx.Write2XML(str(resultdir/"geometry.xml"))
-    fdtd.Run(str(fdtd_path),cleanup=True,verbose=1)
+    remote_threads=os.environ.get("RADIATORS_OPENEMS_THREADS")
+    run_options={"numThreads": int(remote_threads)} if remote_threads else {}
+    fdtd.Run(str(fdtd_path),cleanup=True,verbose=1,**run_options)
 
     current=ports[driven_id]
     current.CalcPort(str(fdtd_path),freq)
