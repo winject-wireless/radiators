@@ -249,12 +249,15 @@ function toast(msg) {
 }
 
 // ---------------------------------------------------------------- documents
-function normalizeDoc(cfg) {
+function checkDocShape(cfg) {
   if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) throw Error("Not a JSON object");
   if (cfg.schema_version === 1) throw Error("schema_version 1 is not supported by the editor; convert to schema v2");
   if (cfg.schema_version !== 2) throw Error("Requires radiators schema_version 2");
   if (!Array.isArray(cfg.geometry)) throw Error("geometry must be an array");
   if (!Array.isArray(cfg.materials)) throw Error("materials must be an array");
+}
+function normalizeDoc(cfg) {
+  checkDocShape(cfg);
   const doc = clone(cfg);
   doc.units ??= "mm";
   doc.ports ??= [];
@@ -2124,7 +2127,7 @@ function renderChecks() {
 // ---------------------------------------------------------------- JSON panel
 let jsonEditor = null, jsonLoading = null, jsonSync = false;
 let jsonResizeObserver = null, jsonResizeFrame = 0, jsonLastSize = "", jsonComposing = false;
-let jsonDraft = null, jsonBase = null, jsonValidationTimer = 0;
+let jsonDraft = null, jsonBase = null, jsonClean = "", jsonValidationTimer = 0;
 const jsonValue = () => jsonEditor?.cm ? jsonEditor.cm.getValue() : $("jsonText").value;
 function validateJson() {
   clearTimeout(jsonValidationTimer);
@@ -2132,7 +2135,7 @@ function validateJson() {
   let error = "";
   try {
     const parsed = JSON.parse(jsonValue());
-    if (source) normalizeDoc(parsed);
+    if (source) checkDocShape(parsed);
   } catch (e) { error = e.message; }
   status.classList.toggle("error", !!error);
   const message = error ? error : source ? (jsonDraft !== null ? "Valid configuration · unapplied edits" : "Valid configuration") : "Resolved case · read-only";
@@ -2146,12 +2149,19 @@ function validateJson() {
 function jsonChanged(value) {
   if (jsonSync || state.jsonMode !== "source") return;
   if (jsonDraft === null) jsonBase = JSON.stringify(state.doc);
-  jsonDraft = value === JSON.stringify(state.doc, null, 2) ? null : value;
+  jsonDraft = value === jsonClean ? null : value;
   clearTimeout(jsonValidationTimer);
-  jsonValidationTimer = setTimeout(validateJson, 150);
+  if (!jsonComposing) jsonValidationTimer = setTimeout(validateJson, 350);
 }
 function ensureJsonEditor() {
-  if (jsonLoading) return;
+  // Native textarea editing on touch devices: Android/iOS own the keyboard,
+  // caret, long-press selection handles and clipboard. CodeMirror's virtual
+  // document/IME bridge is not needed here.
+  if (jsonLoading || jsonEditor) return;
+  if (navigator.maxTouchPoints > 0 && (mobile() || matchMedia("(pointer: coarse)").matches)) {
+    jsonEditor = { refresh() {}, focus() { $("jsonText").focus(); } };
+    return;
+  }
   jsonLoading = upgradeTextarea($("jsonText"), { json: true, readOnly: state.jsonMode !== "source",
     onChange: (value, blur) => { if (!blur) jsonChanged(value); }
   }).then(editor => {
@@ -2197,7 +2207,7 @@ function setJsonMax(on) {
 }
 function renderJson(force = false) {
   const ta = $("jsonText"), cm = jsonEditor?.cm, source = state.jsonMode === "source";
-  if (!force && source && (jsonDraft !== null || cm?.hasFocus() || document.activeElement === ta)) return;
+  if (!force && ((source && jsonDraft !== null) || cm?.hasFocus() || document.activeElement === ta)) return;
   const d = state.derived;
   if (!d) return;
   $("jsonSource").setAttribute("aria-pressed", String(source));
@@ -2206,7 +2216,10 @@ function renderJson(force = false) {
   $("jsonFormat").hidden = !source;
   ta.readOnly = !source;
   let value;
-  if (source) value = jsonDraft ?? JSON.stringify(state.doc, null, 2);
+  if (source) {
+    if (jsonDraft === null) jsonClean = JSON.stringify(state.doc, null, 2);
+    value = jsonDraft ?? jsonClean;
+  }
   else {
     try {
       const ex = expandResolved(resolveCase(state.doc, d.case.parameters));
@@ -2221,7 +2234,7 @@ function renderJson(force = false) {
       cm.setOption("lineWrapping", $("jsonWrap").getAttribute("aria-pressed") === "true");
       if (cm.getValue() !== value) { cm.setValue(value); cm.clearHistory(); }
     }
-    ta.value = value;
+    if (ta.value !== value) ta.value = value;
   } finally { jsonSync = false; }
   validateJson();
 }
@@ -2508,7 +2521,7 @@ function openSheet(name, { peek = false } = {}) {
   document.body.classList.remove("sheet-tall");
   document.body.classList.toggle("sheet-peek", peek);
   if (name === "scripts") setTimeout(() => scriptEditor?.refresh(), 280); // after the sheet slides in
-  if (name === "json") { renderJson(true); ensureJsonEditor(); refreshJsonEditor(); }
+  if (name === "json") { renderJson(true); ensureJsonEditor(); setJsonMax(true); }
   else if (document.body.classList.contains("json-max")) setJsonMax(false);
   for (const b of document.querySelectorAll(".mobile-nav button")) b.classList.toggle("active", b.dataset.sheet === name);
   for (const p of document.querySelectorAll(".dock-panel")) p.hidden = false;
@@ -2738,6 +2751,9 @@ async function boot() {
   $("jsonSource").addEventListener("click", () => { state.jsonMode = "source"; renderJson(true); });
   $("jsonResolved").addEventListener("click", () => { state.jsonMode = "resolved"; renderJson(true); });
   $("jsonText").addEventListener("input", () => jsonChanged($("jsonText").value));
+  $("jsonText").addEventListener("compositionstart", () => { jsonComposing = true; clearTimeout(jsonValidationTimer); });
+  $("jsonText").addEventListener("compositionend", () => { jsonComposing = false; jsonChanged($("jsonText").value); });
+  $("jsonText").addEventListener("blur", () => { jsonComposing = false; });
   $("jsonApply").addEventListener("click", applyJson);
   $("jsonDiscard").addEventListener("click", () => { jsonDraft = jsonBase = null; renderJson(true); });
   $("jsonWrap").addEventListener("click", () => {

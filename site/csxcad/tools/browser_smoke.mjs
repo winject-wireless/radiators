@@ -436,27 +436,42 @@ try {
     assert.equal(fonts.hint,12);
     assert.equal(await mobilePage.locator(".sim-run-actions").getByRole("button",{name:"Stop",exact:true}).isVisible(),false);
     assert.match(await mobilePage.locator(".editor-build").textContent(),/^Build [0-9a-f]{12}$/);
-    // JSON validation must not resize the editor or steal focus on a phone.
+    // Touch JSON uses the real textarea so the OS owns selection and IME.
     await mobilePage.locator("#menuButton").click();
     await mobilePage.locator('[data-action="json"]').click();
-    await mobilePage.waitForFunction(()=>document.querySelector("#panelJson .CodeMirror")?.CodeMirror);
-    const jsonSnapshot=()=>mobilePage.evaluate(()=>{
-      const el=document.querySelector("#panelJson .CodeMirror"), cm=el.CodeMirror;
-      return {height:el.getBoundingClientRect().height, value:cm.getValue(), focus:cm.hasFocus(), cursor:cm.getCursor(), scroll:cm.getScrollInfo().top};
-    });
-    await mobilePage.evaluate(()=>{const cm=document.querySelector("#panelJson .CodeMirror").CodeMirror; cm.focus(); cm.setCursor({line:0,ch:0});});
+    const json=mobilePage.locator("#jsonText");
+    await json.waitFor({state:"visible"});
+    assert.equal(await mobilePage.locator("#panelJson .CodeMirror").count(),0);
+    await mobilePage.waitForFunction(()=>document.body.classList.contains("json-max"));
+    await mobilePage.evaluate(async()=>{await document.fonts.ready;});
+    await mobilePage.waitForTimeout(300); // sheet transition before layout measurement
+    const jsonSnapshot=()=>json.evaluate(el=>({height:el.getBoundingClientRect().height,value:el.value,focus:document.activeElement===el,start:el.selectionStart,end:el.selectionEnd}));
+    await json.focus();
+    await json.evaluate(el=>el.setSelectionRange(0,0));
     const beforeJson=await jsonSnapshot();
-    await mobilePage.evaluate(()=>{const cm=document.querySelector("#panelJson .CodeMirror").CodeMirror;cm.replaceRange("!",{line:0,ch:0},undefined,"+input");});
+    await mobilePage.keyboard.insertText("!");
     await mobilePage.waitForFunction(()=>document.querySelector("#jsonStatus").classList.contains("error"));
     const invalidJson=await jsonSnapshot();
-    assert.equal(invalidJson.height,beforeJson.height,"JSON validation resized the editor");
+    assert.ok(Math.abs(invalidJson.height-beforeJson.height)<=1,"JSON validation resized editor: "+JSON.stringify([beforeJson.height,invalidJson.height]));
     assert.ok(invalidJson.focus,"JSON validation stole editor focus");
     assert.equal(invalidJson.value,"!"+beforeJson.value);
     assert.equal(await mobilePage.locator("#jsonApply").isDisabled(),true);
-    await mobilePage.evaluate(()=>document.querySelector("#panelJson .CodeMirror").CodeMirror.undo());
+    await mobilePage.keyboard.press("Backspace");
     await mobilePage.waitForFunction(()=>!document.querySelector("#jsonStatus").classList.contains("error"));
     assert.equal((await jsonSnapshot()).value,beforeJson.value);
-    assert.equal((await jsonSnapshot()).height,beforeJson.height);
+    await json.evaluate(el=>el.setSelectionRange(0,10));
+    // Simulate the soft keyboard changing the visible viewport while selecting.
+    await mobilePage.evaluate(()=>{
+      Object.defineProperty(visualViewport,"height",{configurable:true,get:()=>innerHeight-280});
+      visualViewport.dispatchEvent(new Event("resize"));
+    });
+    await mobilePage.waitForFunction(()=>document.body.getBoundingClientRect().height<=innerHeight-279);
+    const selected=await jsonSnapshot();
+    assert.ok(selected.focus,"Keyboard resize blurred JSON");
+    assert.deepEqual([selected.start,selected.end],[0,10],"Keyboard resize lost selection");
+    assert.equal(selected.value,beforeJson.value);
+    await mobilePage.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event("resize"));});
+    await mobilePage.waitForFunction(()=>Math.abs(document.body.getBoundingClientRect().height-innerHeight)<=1);
     await mobilePage.locator("#panelJson .sheet-close").click();
     // The example picker contains long multiline names and descriptions.
     // Verify no flex shrink or text spill, even beyond the scroll viewport.
