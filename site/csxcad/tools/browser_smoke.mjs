@@ -71,6 +71,34 @@ try {
 
   await page.goto(new URL("?example=examples__dipole_2450.json&debug=1", base).href);
   await page.waitForFunction(() => crossOriginIsolated && window.__csxcad?.viewport && document.querySelector("#sim .sim-controls"), { }, { timeout: 90000 });
+  // Repair a thick imported current probe, then change its shared normal position.
+  const original=await page.evaluate(()=>structuredClone(window.__csxcad.state.doc));
+  const probeDoc={...original,probes:[{name:"current_driven",type:"current",start:[-5,-5,0],stop:[5,5,10]}]};
+  const openConfig=doc=>page.locator("#openFile").setInputFiles({name:"probe-edit.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(doc))});
+  await openConfig(probeDoc);
+  await page.getByRole("button",{name:"Edit current_driven",exact:true}).click();
+  await page.getByRole("button",{name:"Flatten to XY plane",exact:true}).click();
+  assert.deepEqual(await page.evaluate(()=>window.__csxcad.state.doc.probes[0].stop),[5,5,0]);
+  await page.getByLabel("Current plane Z position",{exact:true}).fill("5 mm");
+  await page.getByLabel("Current plane Z position",{exact:true}).press("Tab");
+  assert.deepEqual(await page.evaluate(()=>[window.__csxcad.state.doc.probes[0].start[2],window.__csxcad.state.doc.probes[0].stop[2]]),[5,5]);
+  await page.getByLabel("Current plane normal",{exact:true}).selectOption("x");
+  assert.deepEqual(await page.evaluate(()=>window.__csxcad.state.doc.probes[0].stop),[-5,5,15]);
+  await openConfig(original);
+  await page.waitForFunction(()=>!(window.__csxcad.state.doc.probes??[]).length);
+  console.log("Current probe plane editor: PASS");
+  await page.locator("#meshToggle").click();
+  assert.match(await page.locator("#meshReadout").textContent(),/Generated mesh preview.*Min/);
+  assert.ok(await page.evaluate(()=>window.__csxcad.viewport.meshView.children.length>0));
+  await page.getByLabel("Mesh view plane").selectOption("XY");
+  assert.match(await page.locator("#meshReadout").textContent(),/Z =/);
+  await page.locator("#meshSmallest").click();
+  assert.ok(await page.evaluate(()=>window.__csxcad.viewport.meshView.children.some(o=>o.name==="mesh-smallest")));
+  await page.getByLabel("Mesh view plane").selectOption("3D");
+  assert.ok(await page.getByLabel("Mesh slice index").isDisabled());
+  await page.locator("#meshToggle").click();
+  assert.equal(await page.evaluate(()=>window.__csxcad.viewport.meshView.children.length),0);
+  console.log("Mesh canvas preview: PASS");
   // Clicking the already-active projection restores its home pose and framing.
   const cameraPose = () => page.evaluate(() => {
     const { camera, controls } = window.__csxcad.viewport;
@@ -175,6 +203,15 @@ try {
   assert.match(await caseLog.locator("summary").textContent(),/case-0002/);
   await caseLog.locator("summary").click();
   assert.match(await caseLog.locator("pre").textContent(),/openEMS|Timestep/i);
+  const logText=await caseLog.locator("pre").textContent();
+  await page.context().grantPermissions(["clipboard-read","clipboard-write"]);
+  await caseLog.getByRole("button",{name:"Copy openEMS log"}).click();
+  await caseLog.getByText("Copied",{exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),logText);
+  assert.equal(await caseLog.evaluate(el=>el.open),true);
+  await page.locator("#meshToggle").click();
+  assert.match(await page.locator("#meshReadout").textContent(),/Recorded solver mesh/);
+  await page.locator("#meshToggle").click();
   await page.locator("#resultCase").selectOption("0");
   assert.ok(await page.locator("#resultCharts").getByText("Best S11", { exact: true }).isVisible());
   assert.ok(await page.locator("#resultCharts svg").count() >= 4);
@@ -273,6 +310,7 @@ try {
   ]);
   const result = JSON.parse(await readFile(await download.path(), "utf8"));
   assert.equal(result.aborted, false);
+  assert.deepEqual(result.mesh_lines_mm.map(a=>a.length-1),result.mesh_cells);
   assert.ok(result.s11.logmag_db.some(Number.isFinite));
   assert.ok(result.impedance.real_ohm.some(Number.isFinite));
   assert.ok(result.patterns.some(p => p.record.radiation_valid && Number.isFinite(p.max_directivity_dbi)));
@@ -354,6 +392,25 @@ try {
     const mobilePage=await phone.newPage();
     await mobilePage.goto(new URL("?debug=1",base).href);
     await mobilePage.waitForFunction(()=>crossOriginIsolated&&window.__csxcad?.viewport&&document.querySelector("#sim .sim-controls"),{},{timeout:90000});
+    const assertNavVisible=async()=>{
+      const layout=await mobilePage.evaluate(()=>{
+        const nav=document.querySelector(".mobile-nav"),r=nav.getBoundingClientRect(),w=document.querySelector(".workspace").getBoundingClientRect();
+        return {top:r.top,bottom:r.bottom,workspaceBottom:w.bottom,visible:Math.min(innerHeight,visualViewport?.height??innerHeight),buttons:[...nav.querySelectorAll("button")].map(b=>b.getBoundingClientRect().bottom)};
+      });
+      assert.ok(layout.bottom<=layout.visible+1,"Mobile nav clipped: "+JSON.stringify(layout));
+      assert.ok(layout.buttons.every(y=>y<=layout.visible+1),"Mobile nav buttons clipped");
+      assert.ok(layout.workspaceBottom<=layout.top+1,"Workspace overlaps mobile nav");
+    };
+    await assertNavVisible();
+    // Reproduce an installed app whose visible viewport is smaller than the CSS viewport.
+    await mobilePage.evaluate(()=>{
+      Object.defineProperty(visualViewport,"height",{configurable:true,get:()=>innerHeight-48});
+      visualViewport.dispatchEvent(new Event("resize"));
+    });
+    await mobilePage.waitForFunction(()=>document.body.getBoundingClientRect().height<=innerHeight-47);
+    await assertNavVisible();
+    await mobilePage.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event("resize"));});
+    await mobilePage.waitForFunction(()=>Math.abs(document.body.getBoundingClientRect().height-innerHeight)<=1);
     await mobilePage.locator('.mobile-nav [data-sheet="sim"]').click();
     await mobilePage.waitForFunction(()=>document.body.dataset.sheet==="sim");
     assert.equal(await mobilePage.getByLabel("openEMS engine").inputValue(),"cpu");

@@ -455,3 +455,7 @@ console.log(`CSXCAD editor: ${exprs.length} expressions + ${ranges.length} range
 await import("./tools/check_probe_playback.mjs");
 
 await import("./tools/check_wasm_diagnostics.mjs");
+
+await import("./tools/check_current_plane.mjs");
+
+await import("./tools/check_mesh_view.mjs");

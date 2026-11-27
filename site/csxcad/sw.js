@@ -4,12 +4,12 @@
 const CACHE = "csxcad-CACHE_VERSION";
 const SHELL = [
   "./", "./index.html", "./app.css", "./manifest.webmanifest", "./icon.svg",
-  "./js/main.js", "./js/params.js", "./js/schema.js", "./js/geometry.js",
+  "./js/main.js", "./js/current-plane.js", "./js/params.js", "./js/schema.js", "./js/geometry.js",
   "./js/checks.js", "./js/viewport.js", "./js/platform.js", "./js/scriptcore.js", "./js/script-worker.js", "./js/code-editor.js",
   "./vendor/codemirror/lib/codemirror.js", "./vendor/codemirror/lib/codemirror.css", "./vendor/codemirror/mode/javascript/javascript.js",
   "./vendor/codemirror/addon/hint/show-hint.js", "./vendor/codemirror/addon/hint/show-hint.css", "./vendor/codemirror/addon/edit/closebrackets.js",
   "./vendor/codemirror/addon/edit/matchbrackets.js", "./vendor/codemirror/addon/comment/comment.js", "./vendor/codemirror/addon/selection/active-line.js",
-  "./js/sim/wasm-diagnostics.js", "./js/sim/probe-playback.js", "./js/sim/remote.js", "./js/sim/diagnostics.js", "./js/sim/radiation.js", "./js/sim/mesh.js", "./js/sim/model.js", "./js/sim/run.js", "./js/sim/plot.js", "./js/sim/panel.js",
+  "./js/sim/wasm-diagnostics.js", "./js/sim/probe-playback.js", "./js/sim/remote.js", "./js/sim/diagnostics.js", "./js/sim/radiation.js", "./js/sim/mesh.js", "./js/sim/mesh-view.js", "./js/sim/model.js", "./js/sim/run.js", "./js/sim/plot.js", "./js/sim/panel.js",
   "./vendor/openems/openems.js", "./vendor/openems/openems-core.js", "./vendor/openems/openems-post.js",
   "./vendor/openems/openems-worker.js", "./vendor/openems/openems.mjs", "./vendor/openems/openems.wasm",
   "./vendor/three.module.min.js", "./vendor/addons/controls/OrbitControls.js", "./vendor/addons/environments/RoomEnvironment.js", "./vendor/addons/controls/TransformControls.js",

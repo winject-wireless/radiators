@@ -69,6 +69,7 @@
         <button data-toggle="domain" aria-pressed="false" title="Simulation domain and mesh refinement boxes">Domain</button>
         <button data-toggle="ports" aria-pressed="true" title="Ports">Ports</button>
         <button data-toggle="grid" aria-pressed="true" title="Ground grid">Grid</button>
+        <button id="meshToggle" aria-pressed="false" title="Show actual FDTD mesh">Mesh</button>
         <button data-toggle="xray" aria-pressed="false" title="Transparent solids">X-ray</button>
       </div>
       <label id="caseWrap" class="case-select">
@@ -78,6 +79,19 @@
       <label id="patternWrap" class="case-select" hidden>
         <span>Pattern</span><select id="patternSelect" aria-label="Radiation pattern frequency"></select>
       </label>
+      <div id="meshTools" class="mesh-tools" hidden>
+        <div class="mesh-control-row">
+          <select id="meshPlane" aria-label="Mesh view plane"><option>XY</option><option selected>XZ</option><option>YZ</option><option>3D</option></select>
+          <button id="meshSmallest" type="button" title="Jump to the smallest mesh interval">Min cell</button>
+          <label><input id="meshHighlight" type="checkbox" checked> Min</label>
+          <label><input id="meshPml" type="checkbox"> PML</label>
+        </div>
+        <div class="mesh-control-row">
+          <label for="meshSlice">Slice</label><input id="meshSlice" type="range" min="0" max="1" step="1" value="0" aria-label="Mesh slice index">
+          <label for="meshOpacity">Opacity</label><input id="meshOpacity" type="range" min="0.1" max="1" step="0.05" value="0.45">
+        </div>
+        <div id="meshReadout" class="mesh-readout" role="status"></div>
+      </div>
       <div id="radiationTools" class="radiation-tools" hidden>
         <div class="seg" role="group" aria-label="Radiation sections">
           <button data-section="XY" aria-pressed="true" title="XY section: Z = 0, or probe Z when Follow is active">XY</button>

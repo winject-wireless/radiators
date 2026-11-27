@@ -69,6 +69,7 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
     geometry_preview: model.previews,
     mesh_cells: model.counts,
     mesh_total_cells: model.cells,
+    mesh_lines_mm: model.meshLines,
     port_name: drv.name,
     port_id: drv.id,
     s11: {

@@ -940,3 +940,33 @@ dialog .example-list > button { padding:7px 9px; gap:3px; }
 .result-case-log summary {font-weight:600;color:var(--text);margin:0;}
 .result-case-log .sim-log {max-height:320px;min-height:48px;overflow-wrap:anywhere;font-family:var(--mono);margin-bottom:0;}
 @container (max-width:420px) {.sim-remote-settings {grid-template-columns:minmax(0,1fr);}.sim-count {padding:5px 2px;}.sim-case-list {grid-template-columns:minmax(0,1fr);}}
+
+/* Solver mesh overlay controls are separate from the ground grid. */
+.mesh-tools { background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);padding:5px 7px;max-width:min(100%,440px);font-size:var(--ui-small); }
+.mesh-tools[hidden] { display:none!important; }
+.mesh-control-row { display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px; }
+.mesh-control-row label { display:inline-flex;align-items:center;gap:3px; }
+.mesh-control-row select,.mesh-control-row button { min-height:30px;font-size:var(--ui-small); }
+.mesh-control-row input[type=range] { flex:1;min-width:50px;max-width:120px; }
+.mesh-control-row input[type=checkbox] { min-height:0; }
+.mesh-readout { line-height:1.35;overflow-wrap:anywhere;color:var(--muted);margin-top:3px; }
+.sim-log-box.result-case-log > summary { position:relative;min-height:36px;padding-right:100px;align-content:center; }
+.log-copy-actions { position:absolute;right:0;top:0;display:flex;align-items:center;gap:4px; }
+.log-copy { width:36px;height:36px;padding:5px;display:inline-flex;align-items:center;justify-content:center; }
+.log-copy svg { width:18px;height:18px; }
+.log-copy-status { font-size:var(--ui-small);color:var(--muted);font-weight:400; }
+@media (max-width:760px),(max-height:520px) and (max-width:1000px) {
+  .mesh-tools { grid-column:1/-1;max-width:100%; }
+  .mesh-control-row input[type=range] { max-width:none; }
+}
+
+/* Keep installed PWAs and WebViews within the measured visible app surface.
+   The safe-area padding belongs to the navigation row, not the workspace. */
+@media (max-width:760px),(max-height:520px) and (max-width:1000px) {
+  html { overflow:hidden; }
+  body { position:fixed;inset:0 0 auto;height:100vh;height:min(100dvh,var(--app-height,100dvh));max-height:100%;grid-template-rows:auto minmax(0,1fr) auto; }
+  .workspace { min-height:0;overflow:hidden; }
+  .mobile-nav { min-height:0;align-self:end; }
+  .panel,.dock-panel,.dock .panel { max-height:100%; }
+  body.sheet-peek .panel { max-height:min(46dvh,100%); }
+}

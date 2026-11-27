@@ -281,6 +281,7 @@ function updateResultLog() {
   const lines=state?.key===ref.key?(job?.log??state.log??(run?.key===ref.key?run.log:null)):run?.key===ref.key?run.log:null;
   const log=lines??(validation?.key===ref.key?validation.log:null)??[];
   const content=log.length?log.join("\n"):(state?.key===ref.key&&state?.error?state.error:"No log captured for this case yet.");
+  ref.copy.disabled=!log.length&&!(state?.key===ref.key&&state?.error);
   if(ref.pre.textContent!==content){
     const follow=ref.pre.scrollHeight-ref.pre.scrollTop-ref.pre.clientHeight<24;
     ref.pre.textContent=content;
@@ -289,10 +290,31 @@ function updateResultLog() {
 }
 function resultLog(caseId,key) {
   const pre=h("pre",{class:"sim-log","aria-label":"openEMS log for "+caseId});
+  const copy=h("button",{type:"button",class:"icon log-copy","aria-label":"Copy openEMS log",title:"Copy openEMS log",disabled:true});
+  const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+  svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("aria-hidden","true");
+  const path=document.createElementNS(svg.namespaceURI,"path");path.setAttribute("d","M8 8h12v12H8zM5 16H4V4h12v1");path.setAttribute("fill","none");path.setAttribute("stroke","currentColor");path.setAttribute("stroke-width","1.8");path.setAttribute("stroke-linejoin","round");svg.append(path);copy.append(svg);
+  const feedback=h("span",{class:"log-copy-status",role:"status"});
+  copy.addEventListener("click",async e=>{
+    e.preventDefault();e.stopPropagation();
+    const value=pre.textContent;
+    try{
+      if(navigator.clipboard?.writeText){
+        try{await navigator.clipboard.writeText(value);}catch{legacyCopy(value);}
+      }else legacyCopy(value);
+      feedback.textContent="Copied";
+    }catch{feedback.textContent="Copy failed";}
+  });
+  function legacyCopy(value){
+    const field=h("textarea",{"aria-hidden":"true"});field.value=value;
+    field.style.cssText="position:fixed;left:-9999px;top:0";document.body.append(field);
+    try{field.select();if(!document.execCommand("copy"))throw Error("Clipboard unavailable");}
+    finally{field.remove();copy.focus({preventScroll:true});}
+  }
   const box=h("details",{class:"sim-log-box result-case-log",open:logExpanded.get(caseId)??false},
-    h("summary",{text:"openEMS log · "+caseId}),pre);
+    h("summary",{},h("span",{text:"openEMS log · "+caseId}),h("span",{class:"log-copy-actions"},feedback,copy)),pre);
   box.addEventListener("toggle",()=>logExpanded.set(caseId,box.open));
-  resultLogUI={id:caseId,key,pre};
+  resultLogUI={id:caseId,key,pre,copy};
   return box;
 }
 function updateProgress() {

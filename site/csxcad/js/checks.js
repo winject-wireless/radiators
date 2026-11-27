@@ -368,7 +368,8 @@ export function checkCase(cfg) {
       if(a&&b){
         if(a.some((v,k)=>v>b[k]))err(label,"start must be <= stop",ref);
         const axes=a.map((v,k)=>b[k]>v+1e-9?k:-1).filter(k=>k>=0),dim=axes.length;
-        if(p.type==="field_dump"?dim<2:expected[p.type]!==dim)err(label,"Invalid measurement geometry: voltage=line, current=plane, E/H=point, dump=plane or volume",ref);
+        if(p.type==="current"&&dim!==2)err(label,"Current probe must be a zero-thickness plane. Edit the probe, choose the normal and flatten it; the two tangent dimensions must be nonzero.",ref);
+        else if(p.type!=="current"&&(p.type==="field_dump"?dim<2:expected[p.type]!==dim))err(label,"Invalid measurement geometry: voltage=line, E/H=point, dump=plane or volume",ref);
         if(p.type==="voltage"||p.type==="current"){
           const k=p.type==="voltage"?axes[0]:[0,1,2].find(x=>!axes.includes(x)),axis="xyz"[k];
           if(p.direction!==undefined&&![axis,"-"+axis].includes(p.direction))err(label,"Direction must follow the local measurement axis",ref);

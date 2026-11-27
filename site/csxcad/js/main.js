@@ -7,14 +7,17 @@ import {
   UNIT_GROUPS, normalizeWorkspaceUnits, unitGroup, displayUnit, parseUnitField, formatUnitField, displayedNumber,
 } from "./params.js";
 import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
+import { currentDirection, currentPlaneAxis, currentPlaneLinked, setCurrentPosition, setCurrentDirection, moveCurrentCorner } from "./current-plane.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
 import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
-import { storage, saveFile, registerServiceWorker, isNative } from "./platform.js";
+import { storage, saveFile, registerServiceWorker, isNative, installAppViewport } from "./platform.js";
 import { sampleDirection, defaultProbe } from "./sim/radiation.js";
+import { buildModel } from "./sim/model.js";
+import { meshSegments, meshMinima, nearestLine, planeAxes, validMeshLines } from "./sim/mesh-view.js";
 
 const $ = id => document.getElementById(id);
 const h = (tag, attrs = {}, ...kids) => {
@@ -43,6 +46,7 @@ const ICONS = {
   up: "M12 19V5M6 11l6-6 6 6",
   down: "M12 5v14M6 13l6 6 6-6",
   copy: "M8 8h11v11H8zM5 16V5h11",
+  edit: "m14 5 5 5M4 20l5-1L21 7l-4-4L5 15z",
   array: "M4 4h5v5H4zM15 4h5v5h-5zM4 15h5v5H4zM15 15h5v5h-5z",
   trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   chev: "m9 6 6 6-6 6",
@@ -383,6 +387,11 @@ function runChecks(doc, d) {
         const index=doc.geometry.findIndex(g=>typeof name==="string"&&(g.name===name||(isScriptInstance(g)&&name.startsWith(g.name+"/"))));
         if(index>=0)item.ref={...item.ref,index};
       }
+      if(item.ref?.kind==="diagnostic"){
+        const name=cfg.probes?.[item.ref.index]?.name;
+        const index=doc.probes?.findIndex(p=>p.name===name);
+        if(index>=0)item.ref={...item.ref,index};
+      }
       add(item,c.id);
     }
   }
@@ -404,7 +413,7 @@ function setPath(obj, path, value) {
 
 // ---------------------------------------------------------------- fields
 // A numeric/expression field bound to a document path.
-function numField(path, { optional = false, def, int = false, unit, placeholder, onLive, aria, prepare, step } = {}) {
+function numField(path, { optional = false, def, int = false, unit, placeholder, onLive, aria, prepare, step, write } = {}) {
   const typed=unitGroup(unit);
   const preferred=typed?displayUnit(unit,state.doc.workspace_units):unit;
   const display=v=>typed?formatUnitField(v,unit,preferred):valueToField(v);
@@ -454,7 +463,7 @@ function numField(path, { optional = false, def, int = false, unit, placeholder,
         wrap.classList.add("invalid"); hint.textContent = "Must be an integer"; return;
       }
     }
-    if(edit(doc => { prepare?.(doc); setPath(doc, path, value); }, { inspector: false }))input.value=display(value);
+    if(edit(doc => { prepare?.(doc); if(write)write(doc,value); else setPath(doc, path, value); }, { inspector: !!write }))input.value=display(value);
   };
   input.addEventListener("change", commit);
   input.addEventListener("keydown", e => {
@@ -626,7 +635,8 @@ function renderTree() {
   const probeRows=diagnostics.map((p,i)=>h("li",{class:"tree-row"+(isSel("diagnostic",i)?" active":"")+(p.enabled===false?" tree-disabled":"")},
     h("button",{type:"button",class:"vis",title:"Enable or disable",onclick:()=>edit(d=>{d.probes[i].enabled=d.probes[i].enabled===false;})},icon(p.enabled===false?"enableOff":"enableOn")),
     h("button",{type:"button",class:"tree-name",onclick:()=>select({kind:"diagnostic",index:i})},
-      h("span",{class:"nm",text:p.name}),h("span",{class:"kind",text:p.type}))));
+      h("span",{class:"nm",text:p.name}),h("span",{class:"kind",text:p.type==="current"?"Current · "+"xyz"[currentPlaneAxis(p)].toUpperCase():p.type})),
+    iconBtn("edit","Edit "+p.name,()=>select({kind:"diagnostic",index:i}))));
   tree.append(
     section(`Diagnostics (${diagnostics.length})`,"diagnostic",probeRows,"diagnostic"),
     section(`Geometry (${doc.geometry.length})`, "geometry", geomRows, "geometry"),
@@ -706,7 +716,17 @@ function computeHandles() {
     try{
       const fwd=transformer(p),m=rotationMatrix(p.transform?.rotate_deg??[0,0,0]),t=p.transform?.translate??[0,0,0];
       const xf={fwd,rotated:(p.transform?.rotate_deg??[0,0,0]).some(v=>v!==0),inv:w=>[0,1,2].map(k=>m.reduce((sum,row,j)=>sum+row[k]*(w[j]-t[j]),0))};
-      for(const k of ["start","stop"])point(["probes",s.index,k],p[k],raw[k],xf);
+      for(const k of ["start","stop"]){
+        const path=["probes",s.index,k];
+        point(path,p[k],raw[k],xf);
+        const hd=out.get(handleKey(path));
+        if(hd&&raw.type==="current"){
+          const n=currentPlaneAxis(raw);
+          if(typeof raw.start[n]!=="number"||typeof raw.stop[n]!=="number"){
+            if(xf.rotated)hd.axes=[false,false,false];else hd.axes[n]=false;
+          }
+        }
+      }
     }catch{}
     return out;
   }
@@ -931,7 +951,10 @@ function onHandleMove(key, world) {
       }
     }
   }
-  hd.axes.forEach((ok, k) => { if (ok) target[k] = +local[k].toFixed(6); });
+  if(hd.path[0]==="probes"&&state.doc.probes[hd.path[1]]?.type==="current"){
+    const p=state.doc.probes[hd.path[1]],corner=hd.path[2];
+    moveCurrentCorner(p,corner,local,hd.axes);
+  }else hd.axes.forEach((ok, k) => { if (ok) target[k] = +local[k].toFixed(6); });
   cancelAnimationFrame(dragFrame);
   dragFrame = requestAnimationFrame(() => refresh({ inspector: false, params: false, json: false }));
 }
@@ -1055,6 +1078,52 @@ function updateProbe() {
   $("probeFrequency").textContent = `${probeFmt(record.frequency_hz / 1e9,4)} GHz · Radiated power (global) ${Number.isFinite(s.radiatedPower)?s.radiatedPower.toPrecision(3)+" W":"—"}`;
   $("probeEfficiency").textContent = `Radiation η ${probeFmt(s.radiationEfficiency === null ? null : s.radiationEfficiency * 100,1)}% · Mismatch η ${probeFmt(s.mismatchEfficiency === null ? null : s.mismatchEfficiency * 100,1)}%`;
 }
+// Mesh preview is lazy and independent of the ground grid and radiation cuts.
+let meshPreviewKey=null,meshPreview=null,meshPreviewError=null,meshViewKey=null,meshDisplayedLines=null;
+function syncMeshView({resetSlice=false,jump=false}={}){
+  const enabled=$("meshToggle").getAttribute("aria-pressed")==="true";
+  $("meshTools").hidden=!enabled;
+  if(!viewport)return;
+  if(!enabled){if(meshViewKey!==null)viewport.setMeshView(null);meshViewKey=null;return;}
+  const current=simContext.getCase(),cfg=current.config,run=resultFor(current.id),key=cfg?JSON.stringify(cfg):null;
+  let lines=null,label="";
+  if(key&&run?.key===key&&validMeshLines(run.result.mesh_lines_mm)){
+    lines=run.result.mesh_lines_mm;label="Recorded solver mesh";
+  }else if(cfg){
+    if(key!==meshPreviewKey){
+      meshPreviewKey=key;meshPreview=null;meshPreviewError=null;
+      try{meshPreview=buildModel(cfg,{meshOnly:true}).meshLines;}catch(e){meshPreviewError=e.message;}
+    }
+    lines=meshPreview;label="Generated mesh preview";
+  }
+  const readout=$("meshReadout"),slider=$("meshSlice"),selector=$("meshPlane");
+  if(!validMeshLines(lines)){
+    viewport.setMeshView(null);meshViewKey=null;meshDisplayedLines=null;
+    slider.disabled=true;$("meshSmallest").disabled=true;
+    readout.textContent=meshPreviewError||current.error||"Mesh unavailable until geometry resolves";return;
+  }
+  $("meshSmallest").disabled=false;
+  const minima=meshMinima(lines),worst=minima.reduce((a,b)=>a.min<=b.min?a:b);
+  if(jump){
+    selector.value=["XY","XY","XZ"][worst.axis];
+    $("meshHighlight").checked=true;
+  }
+  const plane=selector.value,normal=planeAxes[plane]?.[2];
+  slider.disabled=normal===undefined;
+  if(normal!==undefined){
+    slider.max=String(lines[normal].length-1);
+    if(resetSlice||lines!==meshDisplayedLines||jump)slider.value=String(nearestLine(lines[normal],0));
+  }
+  meshDisplayedLines=lines;
+  const options={plane,index:Number(slider.value),highlight:$("meshHighlight").checked,pml:$("meshPml").checked,boundary:cfg.domain?.boundary??Array(6).fill("PML_8")};
+  const opacity=Number($("meshOpacity").value);
+  const renderKey=JSON.stringify([lines,options,opacity]);
+  if(renderKey!==meshViewKey){viewport.setMeshView(meshSegments(lines,options),opacity);meshViewKey=renderKey;}
+  const dims=lines.map(a=>a.length-1);
+  const pos=normal===undefined?"3D (decimated)":"XYZ"[normal]+" = "+Number(lines[normal][Number(slider.value)].toPrecision(7))+" mm";
+  readout.textContent=label+" · "+dims.join(" × ")+" · "+pos+" · Min "+"XYZ"[worst.axis]+" "+worst.min.toPrecision(4)+" mm ("+worst.start.toPrecision(6)+" → "+worst.stop.toPrecision(6)+")";
+}
+
 function syncResults() {
   void restoreResults(simContext);
   const caseId = state.derived.case.id;
@@ -1089,6 +1158,7 @@ function syncResults() {
     activeProbe = { run, record };
   } else { activeProbe = null; if (state.handle === "result-probe") state.handle = null; }
   updateProbe();
+  syncMeshView();
   syncHandles();
 }
 
@@ -1465,6 +1535,32 @@ function inspectPort(box, title, i) {
     knownKeysNote(p, ["id", "name", "type", "excite", "priority", ...(def?.fields.map(f => f.key) || [])])));
 }
 
+function currentPlaneFields(p,base,i){
+  const direction=currentDirection(p),k=currentPlaneAxis(p),axis="XYZ"[k],tangent=[0,1,2].filter(j=>j!==k);
+  const select=h("select",{"aria-label":"Current plane normal"});
+  for(const d of ["x","y","z","-x","-y","-z"]){
+    const n="xyz".indexOf(d.replace("-",""));
+    select.append(h("option",{value:d,text:(d.startsWith("-")?"−":"+")+"XYZ"[n]+" · "+["YZ","XZ","XY"][n]+" plane"}));
+  }
+  select.value=direction;
+  select.onchange=()=>edit(doc=>setCurrentDirection(doc.probes[i],select.value));
+  const corner=which=>{
+    const path=[...base,which],control=h("div",{class:"pair","data-handle":handleKey(path)},
+      ...tangent.map(j=>numField([...path,j],{unit:"mm",aria:"Current "+which+" "+"XYZ"[j]})));
+    control.addEventListener("focusin",()=>{const key=handleKey(path);if(currentHandles.has(key)){state.handle=key;syncHandles();}});
+    return row(which==="start"?"Start "+tangent.map(j=>"XYZ"[j]).join("/"):"Stop "+tangent.map(j=>"XYZ"[j]).join("/"),control);
+  };
+  return [
+    row("Plane normal",select),
+    row(axis+" position",numField([...base,"start",k],{unit:"mm",aria:"Current plane "+axis+" position",
+      write:(doc,v)=>{const q=doc.probes[i];q.direction=direction;setCurrentPosition(q,v);}})),
+    ...(!currentPlaneLinked(p)?[h("div",{class:"note warn",text:"This current probe has thickness along "+axis+". Flatten it at the start coordinate before running."}),
+      h("button",{type:"button",class:"small",onclick:()=>edit(doc=>setCurrentDirection(doc.probes[i],direction))},"Flatten to "+["YZ","XZ","XY"][k]+" plane")]:[]),
+    corner("start"),corner("stop"),
+    h("p",{class:"hint",text:"Zero thickness along the normal. The shared plane position moves both corners; expressions are supported."})
+  ];
+}
+
 function inspectDiagnostic(box,title,i){
   const p=state.doc.probes[i],base=["probes",i];
   title.textContent=p.name;
@@ -1472,10 +1568,10 @@ function inspectDiagnostic(box,title,i){
     iconBtn("trash","Delete",()=>remove("diagnostic",i),{danger:true}));
   add(box,row("Name",textField([...base,"name"],{aria:"Diagnostic name"})),
     checkField([...base,"enabled"],"Enabled",true),
-    row("Start",vec3Field([...base,"start"],{unit:"mm"})),
-    row("Stop",vec3Field([...base,"stop"],{unit:"mm"})),
+    ...(p.type==="current"?currentPlaneFields(p,base,i):[row("Start",vec3Field([...base,"start"],{unit:"mm"})),
+    row("Stop",vec3Field([...base,"stop"],{unit:"mm"}))]),
     ...["translate","rotate_deg"].map(k=>row(k==="translate"?"Translate":"Rotate (90° steps)",vec3Field([...base,"transform",k],{unit:k==="translate"?"mm":"°",placeholder:"0",prepare:d=>{const p=d.probes[i];p.transform??={};p.transform[k]??=[0,0,0];}}))),
-    p.type==="current"||p.type==="voltage"?row("Direction (local)",selectField([...base,"direction"],["x","y","z","-x","-y","-z"],{optional:true,emptyLabel:"Automatic"})):null,
+    p.type==="voltage"?row("Direction (local)",selectField([...base,"direction"],["x","y","z","-x","-y","-z"],{optional:true,emptyLabel:"Automatic"})):null,
     p.type==="field_dump"?row("Field",selectField([...base,"field"],["E","H","J","J_total","D","B"])):null,
     p.type==="field_dump"?row("Spatial subsampling",vec3Field([...base,"sub_sampling"],{int:true,unit:"",placeholder:"2",prepare:d=>{d.probes[i].sub_sampling??=[2,2,2];}})):null,
     p.type==="field_dump"?row("Field interpolation",selectField([...base,"dump_mode"],[["node","Node"],["cell","Cell"]],{optional:true,emptyLabel:"Node (default)"})):null,
@@ -1737,7 +1833,7 @@ function addItem(kind, type) {
       const bounds={current:[[-5,-5,5],[5,5,5]],voltage:[[0,0,-2],[0,0,2]],electric_field:[[5,0,0],[5,0,0]],magnetic_field:[[5,0,0],[5,0,0]],field_dump:[[0,-50,-50],[0,50,50]]};
       const [start,stop]=bounds[type];
       doc.probes.push({name:uniqueName(doc.probes.map(p=>p.name),type),type,enabled:true,start,stop,
-        ...(type==="field_dump"?{field:"E",sub_sampling:[2,2,2]}:{}),
+        ...(type==="field_dump"?{field:"E",sub_sampling:[2,2,2]}:type==="current"?{direction:"z"}:{}),
         time_domain:{enabled:true},frequency_domain:{enabled:false,frequencies_hz:[state.derived.resolved.excitation?.center_hz??2.45e9]}});
       state.sel={kind,index:doc.probes.length-1};
     } else if (kind === "material") {
@@ -2386,6 +2482,7 @@ function installSheetDrag() {
 
 // ---------------------------------------------------------------- boot
 async function boot() {
+  installAppViewport();
   const prefs = storage.get(PREFS_KEY) || {};
   if (isNative()) {
     // Inside the Android app there is no ../ results viewer next to us.
@@ -2461,6 +2558,12 @@ async function boot() {
   for (const id of ["caseSelect", "resultCase"]) {
     $(id).addEventListener("change", e => changeCase(Number(e.target.value)));
   }
+  $("meshToggle").addEventListener("click",()=>{
+    const b=$("meshToggle");b.setAttribute("aria-pressed",String(b.getAttribute("aria-pressed")!=="true"));syncMeshView();
+  });
+  $("meshPlane").addEventListener("change",()=>syncMeshView({resetSlice:true}));
+  for(const id of ["meshSlice","meshOpacity","meshHighlight","meshPml"])$(id).addEventListener("input",()=>syncMeshView());
+  $("meshSmallest").addEventListener("click",()=>syncMeshView({jump:true}));
   $("patternSelect").addEventListener("change", e => {
     const run = resultFor(state.derived.case.id);
     if (run) { run.frequency = Number(e.target.value); syncResults(); }
