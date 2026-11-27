@@ -99,9 +99,10 @@ class TeeTests(unittest.TestCase):
                     os.write(1, b"Time for 42 iter")
                     os.write(1, b"ations with 1 cells : 1 sec\n")
                     os.write(2, b"RunFDTD: Warning: something\n")
-                    libc = ctypes.CDLL(None)
-                    libc.printf(b"from C stdio\n")  # buffered: must be flushed before restoring
-                    os.write(1, b"no trailing newline")
+                    os.write(1, b"partial line, ")
+                    # Buffered C stdio with no trailing newline: tee_output must flush it before
+                    # restoring fd 1 and emit the unterminated remainder at EOF.
+                    ctypes.CDLL(None).printf(b"then C stdio")
             finally:
                 os.dup2(saved[0], 1)
                 os.dup2(saved[1], 2)
@@ -111,11 +112,10 @@ class TeeTests(unittest.TestCase):
             err.seek(0)
             stdout, stderr = out.read(), err.read()
         self.assertIn(b"Time for 42 iterations with 1 cells : 1 sec\n", stdout)
-        self.assertIn(b"from C stdio\n", stdout)
+        self.assertTrue(stdout.endswith(b"partial line, then C stdio"))
         self.assertIn(b"RunFDTD: Warning: something\n", stderr)
         self.assertIn(("stdout", "Time for 42 iterations with 1 cells : 1 sec"), seen)
-        self.assertIn(("stdout", "from C stdio"), seen)
-        self.assertIn(("stdout", "no trailing newline"), seen)
+        self.assertIn(("stdout", "partial line, then C stdio"), seen)
         self.assertIn(("stderr", "RunFDTD: Warning: something"), seen)
 
     def test_fds_restored_after_exception(self):
