@@ -189,45 +189,39 @@ export class Grid {
   set(axis, values) { this.lines[axis] = uniqueSorted(values); }
 }
 
-// A refinement is a spacing constraint on an existing base cell, never an
-// independent grid. Project regions onto the rectilinear Yee axes; the smallest
-// requested spacing wins for each cell intersected by any region.
-export function refineAxis(lines, regions, resolution, growth, maxIntervals=2500) {
-  const spans=diff(lines);
-  const ceilParts=x=>Math.max(1,Math.ceil(x*(1-1e-12)));
-  const parts=spans.map((width,i)=>{
+// Resolve a single spacing target per base cell. Fine regions override
+// coarser regions and the global spacing, independent of their input order.
+// Region boundaries are snapped outwards to base cell boundaries. Only hard
+// feature lines and target transitions survive; global/intermediate grid lines
+// inside a refined interval are replaced, not superimposed.
+export function refinementSeeds(lines, protectedLines, regions, resolution, maxIntervals=2500) {
+  const targets=diff(lines).map((width,i)=>{
     let target=resolution;
     for(const [lo,hi,step] of regions)
       if(step<target&&hi>lo&&lo<lines[i+1]&&hi>lines[i])target=step;
-    return target<resolution?ceilParts(width/target):1;
+    return target;
   });
-  let total=parts.reduce((a,b)=>a+b,0);
-  // Do not change an already acceptable base mesh, even if it has pre-existing
-  // feature-driven grading violations. Never worsen those ratios when grading.
-  if(parts.every(n=>n===1))return [...lines];
-  const limit=Math.max(spans.length,maxIntervals);
-  require(Number.isSafeInteger(total)&&total<=limit,"Refined mesh axis exceeds cell budget: "+total+" > "+limit);
-  function grade(a,b){
-    const ratio=Math.max(growth,spans[a]/spans[b]);
-    const n=ceilParts(spans[a]/(ratio*spans[b]/parts[b]));
-    if(n<=parts[a])return false;
-    total+=n-parts[a];
-    require(Number.isSafeInteger(total)&&total<=limit,"Refined mesh axis exceeds cell budget: "+total+" > "+limit);
-    parts[a]=n;
-    return true;
+  if(!targets.some((t,i)=>t<resolution&&(lines[i+1]-lines[i])>t*(1+1e-12)))return null;
+  const hard=new Set(protectedLines);
+  const cuts=[0];
+  for(let i=1;i<lines.length-1;i++)
+    if(hard.has(lines[i])||targets[i]!==targets[i-1])cuts.push(i);
+  cuts.push(lines.length-1);
+  const out=[lines[0]],limit=Math.max(lines.length-1,maxIntervals);
+  for(let j=1;j<cuts.length;j++){
+    const i=cuts[j-1],left=lines[i],right=lines[cuts[j]],target=targets[i];
+    const n=target<resolution?Math.max(1,Math.ceil((right-left)/target*(1-1e-12))):1;
+    require(Number.isSafeInteger(n)&&out.length+n-1<=limit,"Refined mesh axis exceeds cell budget");
+    out.push(...linspace(left,right,n+1).slice(1));
   }
-  let changed;
-  do{
-    changed=false;
-    for(let i=1;i<spans.length;i++)if(grade(i,i-1))changed=true;
-    for(let i=spans.length-2;i>=0;i--)if(grade(i,i+1))changed=true;
-  }while(changed);
-  const out=[lines[0]];
-  for(let i=0;i<parts.length;i++){
-    const width=spans[i]/parts[i];
-    for(let j=1;j<parts[i];j++)out.push(lines[i]+j*width);
-    out.push(lines[i+1]); // exact original feature/domain/PML grid lines
-  }
+  return out;
+}
+
+export function refineAxis(lines, protectedLines, regions, resolution, growth, maxIntervals=2500){
+  const seeds=refinementSeeds(lines,protectedLines,regions,resolution,maxIntervals);
+  if(!seeds)return [...lines];
+  const out=SmoothMeshLines(seeds,resolution,growth);
+  require(out.length-1<=Math.max(lines.length-1,maxIntervals),"Refined mesh axis exceeds cell budget");
   return out;
 }
 
@@ -319,13 +313,13 @@ export function setupMesh(cfg, geometryBounds, sourceBounds, previews, ports, ds
       }
       parts.forEach((n, k) => seeds.push(...linspace(margin[k], margin[k + 1], n + 1).slice(1, -1)));
     }
-    grid.set(i, seeds.length === grid.lines[i].length ? lines : SmoothMeshLines(seeds, resolution, growth));
-  }
-  // Apply all constraints once, after creating the feature-aligned base mesh.
-  // Refinement boundaries need not become mesh planes: cells touching a box
-  // are conservatively refined as a whole, avoiding sliver cells at its edge.
-  if(regions.length){
-    for(let i=0;i<3;i++)grid.set(i,refineAxis(grid.lines[i],regions.map(([lo,hi,step])=>[lo[i],hi[i],step]),resolution,growth,Math.min(2500,maxCells)));
+    const baseLines=seeds.length===grid.lines[i].length?lines:SmoothMeshLines(seeds,resolution,growth);
+    if(!regions.length){grid.set(i,baseLines);continue;}
+    // Retain enough outer grid planes for the NF2FF surface to remain clear
+    // of geometry even if the coarse interior grid is rebuilt.
+    const low=boundaryInfo(boundary[2*i]).size,high=boundaryInfo(boundary[2*i+1]).size;
+    const hard=[...seeds,...baseLines.slice(0,low+1),...baseLines.slice(baseLines.length-high-1)];
+    grid.set(i,refineAxis(baseLines,hard,regions.map(([lo,hi,step])=>[lo[i],hi[i],step]),resolution,growth,Math.min(2500,maxCells)));
   }
   const counts = grid.lines.map(l => l.length - 1);
   const cells = counts[0] * counts[1] * counts[2];
