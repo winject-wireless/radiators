@@ -65,6 +65,8 @@ export class Viewport {
     this.overlays = new THREE.Group();
     this.radiation = new THREE.Group();
     this.sections = new THREE.Group();
+    this.meshView=new THREE.Group();
+    this.scene.add(this.meshView);
     this.scene.add(this.parts, this.overlays, this.radiation, this.sections);
     this.diagnosticObjects=new THREE.Group();
     this.diagnosticVectors=new THREE.LineSegments(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({vertexColors:true,depthTest:false,toneMapped:false}));
@@ -155,6 +157,21 @@ export class Viewport {
   }
 
   markDirty() { this._dirty = true; }
+
+  setMeshView(data,opacity=.45){
+    for(const child of [...this.meshView.children]){
+      this.meshView.remove(child);child.geometry.dispose();child.material.dispose();
+    }
+    if(data)for(const [key,color,alpha] of [["regular",0x7899ba,opacity],["smallest",0xff4141,Math.min(1,opacity+.4)],["absorbing",0xf5ae45,Math.min(1,opacity+.25)]]){
+      if(!data[key]?.length)continue;
+      const geo=new THREE.BufferGeometry();
+      geo.setAttribute("position",new THREE.Float32BufferAttribute(data[key],3));
+      const material=new THREE.LineBasicMaterial({color,opacity:alpha,transparent:true,depthWrite:false,toneMapped:false});
+      const o=new THREE.LineSegments(geo,material);
+      o.name="mesh-"+key;o.renderOrder=5;this.meshView.add(o);
+    }
+    this.markDirty();
+  }
 
   setDiagnosticObjects(records){
     for(const child of [...this.diagnosticObjects.children]){
