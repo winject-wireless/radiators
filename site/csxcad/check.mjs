@@ -451,3 +451,5 @@ console.log(`CSXCAD editor: ${exprs.length} expressions + ${ranges.length} range
   assert.equal(raw.geometry.at(-1).enabled,false);
   assert.throws(()=>buildModel({...cfg,geometry:[disabled]}),/enabled geometry/);
 }
+
+await import("./tools/check_probe_playback.mjs");
