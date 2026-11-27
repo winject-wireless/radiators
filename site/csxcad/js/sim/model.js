@@ -3,7 +3,7 @@
 // ports.LumpedPort, CreateNF2FFBox), so the XML matches what the Python simulator writes.
 // Input: a resolved, script-expanded schema v2 config (see editor expandResolved()).
 import { transformer, helixPoints, hemisphereMesh, polyhedronData, rotationMatrix } from "../geometry.js";
-import { setupMesh } from "./mesh.js";
+import { setupMesh, boundaryInfo } from "./mesh.js";
 
 const require = (cond, msg) => { if (!cond) throw Error(msg); };
 const positive = (v, label) => { const x = Number(v); if (typeof v === "boolean" || !Number.isFinite(x) || x <= 0) throw Error(label + " must be positive"); return x; };
@@ -135,16 +135,6 @@ function materialXml(m, id, prims) {
   throw Error(`Unsupported material type ${JSON.stringify(m.type)}`);
 }
 
-// Boundary: openEMS type (0 PEC, 1 PMC, 2 MUR, 3 PML) and CreateNF2FFBox size
-function boundaryInfo(bc) {
-  if (bc === "PEC") return { type: 0, size: 0, mirror: 1 };
-  if (bc === "PMC") return { type: 1, size: 0, mirror: 2 };
-  if (bc === "MUR") return { type: 2, size: 2, mirror: 0 };
-  const m = /^PML_(\d+)$/.exec(String(bc));
-  require(m, `Unknown boundary condition ${bc}`);
-  return { type: 3, size: Number(m[1]) + 1, mirror: 0 };
-}
-
 export const PATTERN_GRID = cfg => {
   const outputs = cfg.outputs ?? {};
   const ang = cfg.radiation_pattern_grid ?? outputs.radiation_grid ?? {};
@@ -255,9 +245,13 @@ export function buildModel(config) {
   const start = [], stop = [];
   for (let n = 0; n < 3; n++) {
     const l = grid.lines[n];
-    require(l.length > bcs[2 * n].size + bcs[2 * n + 1].size, "CreateNF2FFBox: not enough lines in some direction");
+    require(l.length - 1 > bcs[2 * n].size + bcs[2 * n + 1].size, `NF2FF box has no interior on ${AXES[n]}. Increase the domain or reduce the mesh step.`);
     start.push(l[bcs[2 * n].size]);
     stop.push(l[l.length - 1 - bcs[2 * n + 1].size]);
+    for (const [lo, hi] of [...geometryBounds, ...sourceBounds]) {
+      require((!bcs[2 * n].size || start[n] < lo[n]) && (!bcs[2 * n + 1].size || stop[n] > hi[n]),
+        `NF2FF box intersects geometry or a port on ${AXES[n]}. Increase the domain or reduce the mesh step.`);
+    }
   }
   const directions = bcs.map(b => b.type > 1), mirror = bcs.map(b => b.mirror);
   const nfBoxes = [];

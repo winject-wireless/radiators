@@ -293,6 +293,28 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
   assert.throws(() => buildModel({ ...cfg, ports: [{ ...cfg.ports[0], type: "msl" }] }), /not supported in the browser/);
 }
 
+// Compact two-arm model: the coarse X mesh used to place the PML_8 dump
+// faces past each other. All six faces must enclose the translated strips.
+{
+  const cfg = {
+    ...STARTER,
+    domain: { ...STARTER.domain, start: [-43, -39, -72], stop: [43, 39, 72] },
+    mesh: { max_cell_mm: 6, growth_ratio: 1.4 },
+    geometry: [1, -1].map(sign => ({
+      shape: "box", material: "pec-metal",
+      start: [-5, -0.25, Math.min(0, sign * 31)], stop: [5, 0.25, Math.max(0, sign * 31)],
+      transform: { translate: [0, 0, sign * 2.5] },
+    })),
+    ports: [{ ...STARTER.ports[0], start: [0, 0, -2.6], stop: [0, 0, 2.6] }],
+  };
+  const model = buildModel(cfg);
+  [5, 0.25, 33.5].forEach((extent, i) => {
+    assert.ok(model.nf2ff.start[i] < -extent && model.nf2ff.stop[i] > extent);
+  });
+  assert.throws(() => buildModel({ ...cfg, mesh: { ...cfg.mesh, max_cells: model.cells - 1 } }), /cell budget/);
+  assert.throws(() => buildModel({ ...cfg, mesh: { ...cfg.mesh, grid_mode: "uniform" } }), /NF2FF.*on x/);
+}
+
 // Far-field sampling and exact sections: dB interpolation in linear power,
 // periodic phi, missing data, origin, and shared-edge deduplication.
 {

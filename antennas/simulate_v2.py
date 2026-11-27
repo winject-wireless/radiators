@@ -188,7 +188,38 @@ def setup_mesh(mesh, cfg, geometry_bounds, source_bounds, geometry_previews, por
         require(np.all(b>a),"mesh refinement stop <= start")
         add_local_mesh(mesh,domain_start,domain_stop,a,b,region["resolution_mm"])
 
-    mesh.SmoothMeshLines("all",resolution,growth)
+    boundary = cfg["domain"].get("boundary", ["PML_8"] * 6)
+    bounds = geometry_bounds + source_bounds
+    for i, axis in enumerate("xyz"):
+        seeds = sorted(set(mesh.GetLines(axis)))
+        mesh.SmoothMeshLines(axis, resolution, growth)
+        lines = mesh.GetLines(axis)
+        added = False
+        for side in (0, 1):
+            bc = boundary[2*i + side]
+            offset = int(bc[4:]) + 1 if bc.startswith("PML_") else 2 if bc == "MUR" else 0
+            if not offset:
+                continue
+            edge = max(b[1][i] for b in bounds) if side else min(b[0][i] for b in bounds)
+            def outside(v):
+                return v > edge if side else v < edge
+            if sum(bool(outside(v)) for v in lines) > offset:
+                continue
+            wall = domain_stop[i] if side else domain_start[i]
+            require(wall != edge, f"NF2FF needs clearance on {axis}{'+' if side else '-'}. Extend the domain beyond the geometry and ports.")
+            require(offset + 1 <= int(mesh_cfg.get("max_cells", 5000000)), "NF2FF boundary exceeds mesh cell budget")
+            margin = sorted([v for v in seeds if outside(v)] + [edge])
+            spans = np.diff(margin)
+            parts = np.ones(len(spans), dtype=int)
+            for _ in range(len(spans), offset + 1):
+                parts[np.argmax(spans / parts)] += 1
+            for k, n in enumerate(parts):
+                if n > 1:
+                    seeds.extend(np.linspace(margin[k], margin[k + 1], n + 1)[1:-1])
+                    added = True
+        if added:
+            mesh.SetLines(axis, sorted(seeds))
+            mesh.SmoothMeshLines(axis, resolution, growth)
     counts=[len(mesh.GetLines(axis))-1 for axis in "xyz"]
     cells=math.prod(counts)
     max_cells=int(mesh_cfg.get("max_cells",5000000))
