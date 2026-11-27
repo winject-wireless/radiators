@@ -51,6 +51,8 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
   const drv = model.driven;
   const ut = await ems.readFile(`port_ut_${drv.id}`, "utf8"), it = await ems.readFile(`port_it_${drv.id}`, "utf8");
   const voltage = probeDiagnostics(parseProbe(ut)), current = probeDiagnostics(parseProbe(it));
+  let source=null;
+  try { source=probeDiagnostics(parseProbe(await ems.readFile("et","utf8"))); } catch { /* optional solver dump */ }
   for(const message of diagnosticWarnings(solver,voltage,current)) if(!warnings.includes(message)) warnings.push(message);
   const port = lumpedPort(ut, it, model.freq, drv.R);
   const n = model.freq.length;
@@ -79,7 +81,7 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
     impedance: { frequency_hz: [...model.freq], real_ohm: finiteArr(port.zin.re), imag_ohm: finiteArr(port.zin.im) },
     patterns: [],
     diagnostics: {
-      solver, mesh: model.meshStatistics ?? [], voltage, current,
+      solver, mesh: model.meshStatistics ?? [], voltage, current, source,
       power_spectrum: {frequency_hz:[...model.freq], incident:finiteArr(port.pInc), reflected:finiteArr(port.pRef), accepted:finiteArr(port.pAcc)},
     },
     solver_warnings: warnings,

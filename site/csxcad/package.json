@@ -7,7 +7,7 @@
   "scripts": {
     "prepare-web": "python3 prepare.py",
     "serve": "python3 prepare.py && python3 -m http.server 8080",
-    "check": "node check.mjs",
+    "check": "node check.mjs && node tools/check_diagnostics.mjs",
     "android:init": "python3 prepare.py && npm i -D @capacitor/cli@6 && npm i @capacitor/core@6 @capacitor/android@6 @capacitor/filesystem@6 @capacitor/share@6 && npx cap add android",
     "android:sync": "python3 prepare.py && npx cap sync android",
     "android:open": "npx cap open android"

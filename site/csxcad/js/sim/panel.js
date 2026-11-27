@@ -4,6 +4,7 @@ import { OpenEMS } from "../../vendor/openems/openems.js";
 import { buildModel } from "./model.js";
 import { runSimulation, summarize, hasValidS11 } from "./run.js";
 import { lineChart, polarChart, smithChart } from "./plot.js";
+import { updateSolverDiagnostics } from "./diagnostics.js";
 import { registerServiceWorker, isolationUnavailableReason } from "../platform.js";
 
 const sim = {
@@ -143,6 +144,7 @@ export function renderRunPanel(box, ctx) {
   const unavailable = OpenEMS.unsupportedReason();
   const isolationBlocked = isolationUnavailableReason();
   const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config || !!unavailable, onclick: () => start(ctx, false) }, sim.running ? "Running…" : sweep ? "Run case" : "Run in browser");
+  const validateBtn = h("button",{type:"button",disabled:sim.running||!c.config||!!unavailable,onclick:()=>validateMesh(ctx),title:"Run openEMS operator setup only and download the actual discretized PEC edges (VTP)."},"Validate mesh / export PEC");
   const allBtn = sweep ? h("button", { type: "button", class: "primary", disabled: sim.running || pending || !!unavailable || !cases.some(x=>x.config), onclick: () => start(ctx, true) }, `Run all (${cases.length})`) : null;
   if (sweep) runBtn.classList.remove("primary");
   if (sim.running && allBtn) allBtn.hidden = true;
@@ -159,7 +161,7 @@ export function renderRunPanel(box, ctx) {
     : c.pending ? "Geometry scripts are still running…" : `Cannot simulate: ${c.error}`;
   box.append(h("div", { class: "form-section sim-run" },
     h("div",{class:"sim-run-head"},h("h3",{text:"Run in browser"}),h("span",{class:"hint sim-case-hint",title:c.name||"",text:`${caseLine}${pending&&!c.pending?" · preparing cases":""}`})),
-    h("div", { class: "sim-controls" }, h("div",{class:"sim-run-actions"},allBtn,runBtn,abortBtn),
+    h("div", { class: "sim-controls" }, h("div",{class:"sim-run-actions"},allBtn,runBtn,validateBtn,abortBtn),
       h("div",{class:"sim-run-options"},h("label", { class: "sim-engine" }, "Engine", engine), h("label", { class: "sim-threads" }, "Threads", threads))),
     unavailable ? h("div", { class: "note warn" },
       h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
@@ -192,6 +194,50 @@ function updateProgress() {
   ui.warningBox.textContent = message;
 }
 
+// This uses the pinned solver's actual PEC operator dump, not a voxelization
+// of the geometry preview. SetupFDTD deliberately returns 1 for --no-simulation.
+async function validateMesh(ctx) {
+  if(sim.running)return;
+  const c=ctx.getCase();
+  if(!c.config||OpenEMS.unsupportedReason())return;
+  Object.assign(sim,{running:true,aborting:false,error:null,warning:null,summary:"",log:[],progress:null,model:null,
+    stage:"validating mesh",startedAt:Date.now(),batch:null});
+  ctx.refresh();
+  const tick=setInterval(updateProgress,1000);
+  try{
+    const model=buildModel(structuredClone(c.config));sim.model=model;
+    // Basic engine supports the original operator debug dump. Use the selected
+    // number of threads within the device's concurrency and preloaded pool.
+    const threads=Math.min(sim.threads,navigator.hardwareConcurrency||sim.threads);
+    sim.ems=new OpenEMS({threads:workerPoolSize(model,"basic",threads)});
+    await sim.ems.initialize();
+    if(sim.aborting)throw Error("Stopped");
+    await sim.ems.writeFile("model.xml",model.xml);
+    const solver={};
+    const run=await sim.ems.run("model.xml",{engine:"basic",args:["--numThreads="+threads,"--debug-PEC","--debug-boxes","--no-simulation"],
+      onLog:line=>{sim.log.push(line);updateSolverDiagnostics(solver,line);}});
+    if(sim.aborting)throw Error("Stopped");
+    if(![0,1].includes(run.exitCode)||!solver.timestep_s||!await sim.ems.exists("PEC_dump.vtp"))
+      throw Error("PEC debug export unavailable (exit "+run.exitCode+"). Inspect openEMS log.");
+    const data=await sim.ems.readFile("PEC_dump.vtp");
+    if(!data?.byteLength)throw Error("PEC debug dump is empty");
+    const blob=new Blob([data],{type:"application/octet-stream"});
+    const a=h("a",{href:URL.createObjectURL(blob),download:ctx.slug()+"__"+c.id+".PEC_dump.vtp"});
+    document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    const ratio=solver.max_timesteps/solver.excitation_timesteps;
+    sim.summary="Mesh validated · "+(solver.timestep_s*1e15).toFixed(2)+" fs · excitation "+(solver.excitation_timesteps??"—")+" steps · PEC exported";
+    if(Number.isFinite(ratio)&&ratio<3)sim.warning="Maximum timesteps below 3× excitation length.";
+    ctx.notify(sim.summary);
+  }catch(e){
+    if(!sim.aborting){sim.error="Mesh validation: "+e.message;ctx.notify(sim.error,true);}
+    else sim.summary="Mesh validation stopped";
+  }finally{
+    clearInterval(tick);
+    sim.ems?.terminate();
+    Object.assign(sim,{running:false,aborting:false,ems:null,stage:"",progress:null});
+    ctx.onBadge(simStatus());ctx.refresh();
+  }
+}
 async function start(ctx, all = false) {
   if (sim.running) return;
   const cases = all ? ctx.getCases() : [ctx.getCase()];
@@ -380,7 +426,7 @@ function diagnosticCards(d) {
     kpi("Peak current",sci(i?.peak_abs)+" A",String(i?.samples??0)+" samples"),
     ...(d.mesh??[]).map(m=>kpi(m.axis.toUpperCase()+" min cell",sci(m.min_mm)+" mm",m.min_at_mm?.map(x=>x.toPrecision(8)).join(" → ")+" mm"))));
   const plots=[];
-  for(const [label,p,unit] of [["Port voltage",v,"V"],["Port current",i,"A"]]){
+  for(const [label,p,unit] of [["Source excitation",d.source,"relative"],["Port voltage",v,"V"],["Port current",i,"A"]]){
     if(p?.time_s?.length>1) plots.push(chartCard(label+(p.preview_decimated?" (min/max preview)":""),lineChart({series:[{x:p.time_s.map(t=>t*1e9),y:p.value}],xLabel:"ns",yLabel:unit})));
   }
   const p=d.power_spectrum;
