@@ -348,6 +348,11 @@ function derive() {
     if (k === "sweep" || k === "parameters" || k === "generator") continue;
     if (k === "geometry") d.geometry = v.map((g, i) => g.enabled===false ? null : lenient(g, m => { d.errors.geometry[i] = m; }));
     else if(k==="probes")d.resolved.probes=v.map((p,i)=>p.enabled===false?{enabled:false}:lenient(p,m=>d.errors.other.push("Diagnostic "+(i+1)+": "+m))??{enabled:false});
+    else if(k==="mesh"&&Array.isArray(v?.refinements)){
+      const {refinements,...rest}=v;
+      const mesh=lenient(rest,m=>d.errors.other.push("mesh: "+m));
+      if(mesh)d.resolved.mesh={...mesh,refinements:refinements.map((r,i)=>r?.enabled===false?{enabled:false}:lenient(r,m=>d.errors.other.push("Refinement "+(i+1)+": "+m))??{enabled:false})};
+    }
     else if (k === "ports") d.ports = (v || []).map((p, i) => lenient(p, m => { d.errors.port[i] = m; }));
     else d.resolved[k] = lenient(v, m => d.errors.other.push(`${k}: ${m}`));
   }
@@ -733,7 +738,7 @@ function computeHandles() {
   }
   if(s.kind==="refinement"){
     const raw=state.doc.mesh?.refinements?.[s.index],resolved=d.resolved.mesh?.refinements?.[s.index];
-    if(raw&&resolved)for(const k of ["start","stop"])point(["mesh","refinements",s.index,k],resolved[k],raw[k],identity);
+    if(raw&&resolved&&raw.enabled!==false&&resolved.enabled!==false)for(const k of ["start","stop"])point(["mesh","refinements",s.index,k],resolved[k],raw[k],identity);
     return out;
   }
   if (s.kind === "geometry" && isScriptInstance(state.doc.geometry[s.index])) {
@@ -1641,7 +1646,7 @@ function addRefinement(aroundFeed){
   }
   edit(doc=>{
     doc.mesh??={};doc.mesh.refinements??=[];
-    doc.mesh.refinements.push(r);
+    doc.mesh.refinements.push({...r,enabled:true});
     state.sel={kind:"refinement",index:doc.mesh.refinements.length-1};
     state.handle=null;
   });
@@ -1665,11 +1670,16 @@ function selectRefinement(k,corner,view=false){
 function refinementFields(k){
   const r=state.doc.mesh?.refinements?.[k];
   if(!r)return null;
-  return h("div",{class:"refinement-box"+(state.sel?.kind==="refinement"&&state.sel.index===k?" selected":""),"data-refinement":k},
+  const enabled=r.enabled!==false;
+  const toggle=h("input",{type:"checkbox","aria-label":"Enable refinement "+(k+1)});
+  toggle.checked=enabled;
+  toggle.addEventListener("change",()=>edit(doc=>{doc.mesh.refinements[k].enabled=toggle.checked;if(!toggle.checked&&state.sel?.kind==="refinement"&&state.sel.index===k)state.handle=null;}));
+  return h("div",{class:"refinement-box"+(!enabled?" refinement-disabled":"")+(state.sel?.kind==="refinement"&&state.sel.index===k?" selected":""),"data-refinement":k},
     h("div",{class:"refinement-head"},
       h("button",{type:"button",class:"refinement-name",onclick:()=>selectRefinement(k)},h("span",{class:"swatch",style:"background:#9d7bff"}),"Box "+(k+1)),
-      h("button",{type:"button",class:"small",onclick:()=>selectRefinement(k,"start",true)},"Edit in 3D"),
+      h("button",{type:"button",class:"small",disabled:!enabled,onclick:()=>selectRefinement(k,"start",true)},"Edit in 3D"),
       h("button",{type:"button",class:"small danger","aria-label":"Remove refinement "+(k+1),onclick:()=>remove("refinement",k)},"×")),
+    h("label",{class:"check-inline"},toggle,"Enabled"),
     ...["start","stop"].map(key=>{
       const field=vec3Field(["mesh","refinements",k,key],{label:"refinement "+(k+1)+" "+key});
       field.addEventListener("focusin",()=>selectRefinement(k,key));
@@ -1716,7 +1726,7 @@ function inspectSim(box, title) {
       doc.mesh?.grid_mode==="uniform" ? h("p",{class:"note warn",text:"Uniform grid ignores local refinements. Select Feature grid in Mesh."}):null,
       h("div",{class:"refinement-actions"},h("button",{type:"button",onclick:()=>addRefinement(false)},"+ Box"),
         h("button",{type:"button",disabled:!feedRegion(),onclick:()=>addRefinement(true)},"+ Around feed")),
-      h("p",{class:"hint",text:"Purple boxes add mesh lines along each axis. Select a box to drag its start and stop corners. Around feed uses 5 mm padding and 0.25 mm spacing in the current case."}),
+      h("p",{class:"hint",text:"Enabled purple boxes add mesh lines along each axis. Disable a box to exclude it without deleting its settings. Select an enabled box to drag its corners. Around feed uses 5 mm padding and 0.25 mm spacing in the current case."}),
       ...refinements.map((r,k)=>refinementFields(k))),
     h("details", { class: "form-section", open: true }, h("summary", { text: "Outputs" }),
       ...s11.map((s, k) => h("div", { class: "note" },
