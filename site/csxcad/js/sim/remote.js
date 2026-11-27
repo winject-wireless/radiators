@@ -27,12 +27,12 @@ export class RemoteRunner {
     if(this.id&&this.submitted&&!this.cancelRequest)this.cancelRequest=this.request("/v1/jobs/"+this.id,"DELETE").catch(e=>{this.cancelRequest=null;throw e;});
     return this.cancelRequest??Promise.resolve();
   }
-  async run(config,{onStatus}={}) {
+  async run(config,{onStatus,requireCapacity=false}={}) {
     this.id=crypto.randomUUID().replaceAll("-","");
     const path="/v1/jobs/"+this.id;
     // Keep the ID on ambiguous network errors so the user can cancel on the host.
     try{
-      await this.request("/v1/jobs","POST",{id:this.id,config});
+      await this.request("/v1/jobs","POST",{id:this.id,config,...(requireCapacity?{require_capacity:true}:{})});
       this.submitted=true;
     }catch(e){
       // The POST may have reached the server before its response was lost.

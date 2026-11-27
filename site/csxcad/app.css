@@ -1004,3 +1004,5 @@ body.json-max #panelJson .panel-head.sheet-only { display: flex; }
   #jsonText, #jsonText:focus { font-size: 16px; line-height: 1.45; }
 }
 @media (min-width: 761px) and (min-height: 521px) { body.json-max #panelJson .sheet-close { display: none; } }
+
+.sim-case-start { flex:0 0 auto; min-width:52px; }

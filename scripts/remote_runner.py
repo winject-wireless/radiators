@@ -86,6 +86,12 @@ class Runner:
                 shutil.rmtree(self.jobs.pop(old)["path"], ignore_errors=True)
             if len(self.jobs) >= 256 or sum(j["state"] not in TERMINAL for j in self.jobs.values()) >= 64:
                 raise RuntimeError("Runner job queue full")
+            if payload.get("require_capacity") is True:
+                # Reserve against the authoritative shared CPU budget, under the same lock as submit.
+                self.dispatch_locked()
+                used = sum(j["cpus"] for j in self.jobs.values() if j["state"] in ("starting", "running"))
+                if used + cpus > self.args.max_cpus:
+                    raise RuntimeError("CPU capacity unavailable; try again when a case finishes")
             path = self.work / ident
             path.mkdir(mode=0o700)
             (path / "config.json").write_text(json.dumps(cfg, allow_nan=False))
@@ -310,7 +316,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, {"api_version": 1, "engine": "native openEMS",
                     "max_cpus": runner.args.max_cpus, "ncpu_pool": runner.args.max_cpus, "parallel_jobs": True, "memory_limit": False, "max_memory_gib": None,
                     "max_cells": runner.args.max_cells, "max_timesteps": runner.args.max_timesteps,
-                    "lease_timeout": runner.lease_timeout, "job_listing": True})
+                    "lease_timeout": runner.lease_timeout, "job_listing": True, "immediate_start": True})
             if method == "GET" and path == "/v1/jobs":
                 return self.reply(200, {"jobs": runner.list_jobs()})
             if method == "POST" and path == "/v1/jobs":

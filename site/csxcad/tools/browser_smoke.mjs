@@ -200,8 +200,15 @@ try {
   await page.getByRole("spinbutton", { name: "CPU pool" }).press("Tab");
   await page.getByRole("spinbutton", { name: "Threads" }).fill("1");
   await page.getByRole("spinbutton", { name: "Threads" }).press("Tab");
-  await page.getByRole("button", { name: "Run all (2)", exact: true }).click();
-  if(hasParallelCPU)await page.getByText(/0\/2 finished · 2 running/).waitFor({timeout:10000});
+  const caseStarts=page.locator("#sim .sim-case-start");
+  assert.equal(await caseStarts.count(),2);
+  if(hasParallelCPU){
+    await caseStarts.nth(0).click();
+    await caseStarts.nth(1).click();
+    await page.getByText(/0\/2 finished · 2 running/).waitFor({timeout:10000});
+    assert.equal(await caseStarts.nth(0).isDisabled(),true);
+    assert.equal(await caseStarts.nth(1).isDisabled(),true);
+  }else await page.getByRole("button", { name: "Run all (2)", exact: true }).click();
   assert.equal(await page.locator("#sim .sim-case-track").count(),2);
   assert.equal(await page.locator("#sim .sim-log-box").count(),0);
   await page.locator('[data-dock="results"]').click();
@@ -333,6 +340,26 @@ try {
   assert.ok(Math.abs((await dock.boundingBox()).height-savedDock)<3,"Dock height not restored");
   await page.locator('[data-dock="results"]').click();
   assert.ok(await page.locator("#resultCharts").getByText("Results · cached on this device",{exact:true}).isVisible());
+  assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
+  // Round-trip a sweep archive including its original project template.
+  const [archive]=await Promise.all([page.waitForEvent("download"),page.getByRole("button",{name:"Download sweep ZIP"}).click()]);
+  const archiveBytes=await readFile(await archive.path());
+  page.once("dialog",dialog=>dialog.dismiss()); // keep matching results
+  await page.locator("#openFile").setInputFiles({name:"sweep-roundtrip.zip",mimeType:"application/zip",buffer:archiveBytes});
+  await page.waitForFunction(()=>[...document.querySelector("#resultCase").options].length===2 && [...document.querySelector("#resultCase").options].every(o=>o.textContent.includes("done")),{}, {timeout:90000});
+  // A different document must not delete the saved sweep or its results.
+  const savedName=await page.evaluate(()=>window.__csxcad.state.doc.name);
+  await page.locator("#menuButton").click();
+  await page.locator('[data-action="save-local"]').click();
+  await page.getByText("Saved to local projects",{exact:true}).waitFor();
+  await page.locator("#menuButton").click();
+  await page.locator('[data-action="new"]').click();
+  await page.waitForFunction(()=>document.querySelector("#resultCase").options.length===1);
+  await page.locator("#menuButton").click();
+  await page.locator('[data-action="local-projects"]').click();
+  await page.locator("#dialog .example-list button").filter({has:page.getByText(savedName,{exact:true})}).first().click();
+  await page.waitForFunction(()=>[...document.querySelector("#resultCase").options].length===2 && [...document.querySelector("#resultCase").options].every(o=>o.textContent.includes("done")),{}, {timeout:90000});
+  await page.locator('[data-dock="results"]').click();
   assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
   // Mobile Results selector stays in the header and swipe navigates without
   // requiring a tap on the select. Vertical scrolling does not change cases.

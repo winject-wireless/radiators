@@ -4,7 +4,8 @@ import { OpenEMS } from "../../vendor/openems/openems.js";
 import { buildModel } from "./model.js";
 import { runSimulation, summarize, hasValidS11 } from "./run.js";
 import { lineChart, polarChart, smithChart } from "./plot.js";
-import { makeZip } from "./zip.js";
+import { makeZip, openZip } from "./zip.js";
+import { resolveCase } from "../params.js";
 import { diagnosticFrame } from "./probe-playback.js";
 import { updateSolverDiagnostics } from "./diagnostics.js";
 import { registerServiceWorker, isolationUnavailableReason, storage } from "../platform.js";
@@ -57,13 +58,16 @@ function workerPoolSize(model, engine, requested) {
 // output compatibility changes. IndexedDB stores large patterns without the
 // small synchronous localStorage quota.
 let runs = new Map(), caseStates = new Map(), cacheAttempts = new Map();
-const CACHE_DB = "radiators-csxcad-results", CACHE_STORE = "resolved-v1";
+const CACHE_DB = "radiators-csxcad-results", CACHE_STORE = "resolved-v1", PROJECT_STORE = "projects-v1";
 let dbPromise;
 function resultDB() {
   if (!dbPromise) dbPromise = new Promise((resolve,reject)=>{
     if (!globalThis.indexedDB) { reject(Error("IndexedDB unavailable")); return; }
-    const req=indexedDB.open(CACHE_DB,1);
-    req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(CACHE_STORE))req.result.createObjectStore(CACHE_STORE);};
+    const req=indexedDB.open(CACHE_DB,2);
+    req.onupgradeneeded=()=>{
+      if(!req.result.objectStoreNames.contains(CACHE_STORE))req.result.createObjectStore(CACHE_STORE);
+      if(!req.result.objectStoreNames.contains(PROJECT_STORE))req.result.createObjectStore(PROJECT_STORE);
+    };
     req.onsuccess=()=>{const db=req.result;db.onversionchange=()=>{db.close();dbPromise=null;};resolve(db);};
     req.onerror=()=>reject(req.error);
     req.onblocked=()=>reject(Error("Result cache blocked by another tab"));
@@ -91,14 +95,92 @@ async function cacheGet(key) {
     req.onerror=()=>reject(req.error);
   });
 }
-async function cachePut(key, run) {
+async function cachePut(key, run, { overwrite=true }={}) {
   const db=await resultDB();
   return new Promise((resolve,reject)=>{
     const tx=db.transaction(CACHE_STORE,"readwrite");
-    tx.oncomplete=()=>resolve();
+    let written=false;
+    tx.oncomplete=()=>resolve(written);
     tx.onerror=tx.onabort=()=>reject(tx.error||Error("Result cache write aborted"));
-    tx.objectStore(CACHE_STORE).put({result:run.result,frequency:run.frequency,log:run.log,savedAt:Date.now()},cacheStorageKey(key));
+    const store=tx.objectStore(CACHE_STORE), id=cacheStorageKey(key);
+    const put=()=>{store.put({result:run.result,frequency:run.frequency,log:run.log,savedAt:Date.now()},id);written=true;};
+    if(overwrite)put();else{const request=store.getKey(id);request.onsuccess=()=>{if(request.result===undefined)put();};}
   });
+}
+// Each distinct template is a locally saved revision; saving the same template
+// updates its timestamp and selected case, never deletes another revision.
+export async function saveLocalProject(doc, caseIndex=0, label="") {
+  const serialized=JSON.stringify(doc), key=label?JSON.stringify([label,serialized]):serialized, db=await resultDB();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(PROJECT_STORE,"readwrite");
+    tx.oncomplete=()=>resolve();
+    tx.onerror=tx.onabort=()=>reject(tx.error||Error("Project save aborted"));
+    tx.objectStore(PROJECT_STORE).put({doc:JSON.parse(serialized),caseIndex,label,savedAt:Date.now()},key);
+  });
+}
+export async function listLocalProjects() {
+  const db=await resultDB();
+  return new Promise((resolve,reject)=>{
+    const req=db.transaction(PROJECT_STORE,"readonly").objectStore(PROJECT_STORE).getAll();
+    req.onsuccess=()=>resolve(req.result.sort((a,b)=>b.savedAt-a.savedAt));
+    req.onerror=()=>reject(req.error);
+  });
+}
+// Imported results are stored under their own exact resolved input, never
+// attached to whichever unrelated project happens to be open.
+function importedConfig(cfg){
+  if(cfg?.schema_version!==2||!Array.isArray(cfg.geometry)||!Array.isArray(cfg.materials)||!Number.isFinite(cfg.excitation?.center_hz))
+    throw Error("Result does not contain a supported schema v2 input configuration");
+  const doc=structuredClone(cfg);doc.units??="mm";doc.ports??=[];
+  return doc;
+}
+async function importOneResult(data,{overwrite=false}={}){
+  const {editor_resolved_config,...result}=data??{};
+  const doc=importedConfig(editor_resolved_config??result.input_config);
+  if(!hasValidS11(result)||!Array.isArray(result.patterns)||!Array.isArray(result.s11.frequency_hz)||
+      !["real","imag","phase_deg","vswr"].every(k=>Array.isArray(result.s11[k])&&result.s11[k].length===result.s11.frequency_hz.length))
+    throw Error("Result has incomplete or invalid frequency response");
+  importedConfig(result.input_config);
+  const key=JSON.stringify(resolveCase(doc,{}));
+  const run={result,frequency:result.patterns.findIndex(p=>p?.record?.radiation_valid),log:[]};
+  const written=await cachePut(key,run,{overwrite});
+  return {doc,written};
+}
+export async function importResultArchive(file,{overwrite=false}={}){
+  const files=await openZip(file);
+  const manifestFile=[...files.keys()].find(n=>n.split("/").pop()==="manifest.json");
+  const manifest=manifestFile?await files.get(manifestFile)():null;
+  const folder=manifestFile?.slice(0,manifestFile.lastIndexOf("/")+1)??"";
+  const templateFile=folder+"project.json";
+  const project=files.has(templateFile)?await files.get(templateFile)():null;
+  const entries=Array.isArray(manifest?.cases)
+    ?manifest.cases.filter(c=>c?.file).map(c=>({name:files.has(folder+c.file)?folder+c.file:c.file,label:c.label||c.id||c.file}))
+    :[...files.keys()].filter(n=>n.endsWith(".result.json")).map(name=>({name,label:name.split("/").pop()}));
+  if(!entries.length)throw Error("No simulation result JSON files found in ZIP");
+  // A source template may contain parameter expressions in excitation and geometry.
+  if(project&&(project.schema_version!==2||!Array.isArray(project.geometry)||!Array.isArray(project.materials)))
+    throw Error("ZIP project.json is not a supported schema v2 template");
+  let imported=0,kept=0,first=null;
+  const errors=[];
+  for(const entry of entries){
+    try{
+      const read=files.get(entry.name);if(!read)throw Error("Result file missing");
+      const {doc,written}=await importOneResult(await read(),{overwrite});
+      if(written)imported++;else kept++;
+      if(!first)first=doc;
+      // Legacy exports lack a source template. Save each resolved case as
+      // its own project with an archive/case label for later review.
+      if(!project)await saveLocalProject(doc,0,(manifest?.simulation||file.name||"Sweep")+" · "+entry.label);
+    }catch(e){errors.push(entry.name+": "+e.message);}
+  }
+  if(!first)throw Error(errors[0]||"No valid results in ZIP");
+  if(project)await saveLocalProject(project);
+  return {doc:project??first,imported,kept,errors,grouped:!!project};
+}
+export async function importResultFile(data, options={}){
+  const {doc,written}=await importOneResult(data,options);
+  await saveLocalProject(doc);
+  return {doc,imported:written?1:0,kept:written?0:1,errors:[],grouped:false};
 }
 export function clearResults() {
   if (sim.running) stop();
@@ -137,6 +219,7 @@ export async function restoreResults(ctx) {
   if(changed)ctx.refresh();
 }
 
+const canStartCase = id => !sim.running || (!sim.aborting && !!sim.batch?.canAdd?.(id));
 const fraction = () => sim.batch ? (sim.batch.finished + [...sim.active.values()].reduce((n,j)=>n+(j.progress?.fraction??0),0)) / sim.batch.total : sim.progress?.fraction ?? 0;
 const cpuSettings=()=>{
   const remote=sim.runner==="remote",cap=remote?128:Math.min(navigator.hardwareConcurrency||4,64);
@@ -168,6 +251,7 @@ export function renderRunPanel(box, ctx) {
     storage.set("radiators.cpu."+sim.runner,{pool:n,perJob:t});
     sim.threads=t;pool.value=n;threads.value=t;threads.max=n;
     parallel.textContent=Math.min(cases.length,Math.floor(n/t))+" concurrent case(s) maximum";
+    updateProgress();
   };
   const parallel=h("span",{class:"hint",text:Math.min(cases.length,Math.floor(cpu.pool/cpu.perJob))+" concurrent case(s) maximum"});
   pool.addEventListener("change",saveCPU);threads.addEventListener("change",saveCPU);
@@ -213,7 +297,7 @@ export function renderRunPanel(box, ctx) {
   manage.addEventListener("toggle",()=>{if(manage.open)void refreshJobs();});
   const unavailable = remote ? null : OpenEMS.unsupportedReason();
   const isolationBlocked = remote ? null : isolationUnavailableReason();
-  const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config || !!unavailable, onclick: () => start(ctx, false) }, sim.running ? "Running…" : sweep ? "Run case" : remote?"Run remotely":"Run in browser");
+  const runBtn = h("button", { type: "button", class: "primary", disabled: !canStartCase(c.id) || !c.config || !!unavailable, onclick: () => start(ctx, false, c.id) }, sweep ? "Run case" : remote?"Run remotely":"Run in browser");
   const validateBtn = h("button",{type:"button",hidden:remote,disabled:sim.running||!c.config||!!unavailable,onclick:()=>validateMesh(ctx),title:"Run openEMS operator setup only and download the actual discretized PEC edges (VTP)."},"Validate mesh / export PEC");
   const allBtn = sweep ? h("button", { type: "button", class: "primary", disabled: sim.running || pending || !!unavailable || !cases.some(x=>x.config), onclick: () => start(ctx, true) }, `Run all (${cases.length})`) : null;
   if (sweep) runBtn.classList.remove("primary");
@@ -237,9 +321,10 @@ export function renderRunPanel(box, ctx) {
     const fill=h("div",{class:"sim-case-fill"});
     const track=h("div",{class:"sim-case-track",role:"progressbar","aria-label":label,"aria-valuemin":0,"aria-valuemax":100},fill);
     const detail=h("div",{class:"sim-case-detail"});
-    const row=h("div",{class:"sim-case-row","data-case-id":c.id},h("div",{class:"sim-case-top"},h("strong",{class:"sim-case-name",text:label,title:c.id}),state,percent),track,detail);
+    const startBtn=h("button",{type:"button",class:"sim-case-start small","aria-label":"Start "+c.id,disabled:!c.config||!!unavailable,onclick:()=>start(ctx,false,c.id)},"Start");
+    const row=h("div",{class:"sim-case-row","data-case-id":c.id},h("div",{class:"sim-case-top"},h("strong",{class:"sim-case-name",text:label,title:c.id}),state,percent,startBtn),track,detail);
     caseList.append(row);
-    return {id:c.id,key:c.config?JSON.stringify(c.config):null,row,state,percent,fill,track,detail};
+    return {id:c.id,key:c.config?JSON.stringify(c.config):null,row,state,percent,fill,track,detail,startBtn,available:!!c.config&&!unavailable};
   });
   ui = { bar, stats, runBtn, abortBtn, warningBox, caseRows, countRefs, counts, caseList, caseId:c.id };
 
@@ -338,8 +423,13 @@ function updateProgress() {
     ref.fill.style.width=v.progress+"%";
     ref.track.setAttribute("aria-valuenow",String(v.progress));
     ref.detail.textContent=v.detail;
+    ref.startBtn.disabled=!ref.available||!canStartCase(ref.id);
+    ref.startBtn.textContent=v.status==="done"||v.status==="partial"?"Rerun":"Start";
+    ref.startBtn.title=ref.startBtn.disabled?"Case unavailable, already submitted, or CPU pool full":"Start this case if CPU capacity is available";
   }
   for(const k of Object.keys(counts))ui.countRefs[k].textContent=counts[k];
+  const selectedRow=ui.caseRows.find(r=>r.id===ui.caseId);
+  ui.runBtn.disabled=!selectedRow?.available||!canStartCase(ui.caseId);
   const pct=sim.batch?Math.round(Math.min(1,fraction())*100):Math.round(sum/Math.max(1,ui.caseRows.length));
   ui.bar.firstChild.style.width=pct+"%";
   const el = sim.running ? Math.round((Date.now()-sim.startedAt)/1000):null;
@@ -395,9 +485,13 @@ async function validateMesh(ctx) {
     ctx.onBadge(simStatus());ctx.refresh();
   }
 }
-async function start(ctx, all = false) {
-  if (sim.running) return;
-  const cases = all ? ctx.getCases() : [ctx.getCase()];
+async function start(ctx, all = false, id = ctx.getCase().id) {
+  const chosen=ctx.getCases().find(c=>c.id===id);
+  if(sim.running){
+    if(!all&&chosen?.config&&!chosen.pending&&sim.batch?.canAdd?.(id))sim.batch.add(chosen);
+    return;
+  }
+  const cases = all ? ctx.getCases() : chosen?[chosen]:[];
   if (!cases.some(c=>c.config) || cases.some(c=>c.pending)) return;
   const remote=sim.runner==="remote";
   const why = remote ? null : OpenEMS.unsupportedReason();
@@ -405,14 +499,18 @@ async function start(ctx, all = false) {
   if (why) { sim.error = isolationUnavailableReason() || why; ctx.refresh(); return; }
   // Capture immutable resolved configs; selecting another case or editing the document
   // during the sweep cannot change the queued simulation inputs.
-  const queue = cases.map(c=>({...c, config:c.config ? structuredClone(c.config) : null}));
+  ctx.archiveProject?.();
+  const snapshot=(c,immediate)=>({...c,immediate,config:c.config?structuredClone(c.config):null});
+  const queue = cases.map(c=>snapshot(c,!all));
   const runCases = runs, states = caseStates;
-  for (const c of queue) { states.set(c.id,{status:"queued",key: c.config ? JSON.stringify(c.config) : null}); }
+  const previous=new Map();
+  const markQueued=c=>{previous.set(c.id,states.get(c.id));states.set(c.id,{status:"queued",key:c.config?JSON.stringify(c.config):null});};
+  for(const c of queue)markQueued(c);
   const cpu=cpuSettings(),engine=sim.engine;
   const endpoint=sim.remoteUrl,token=sim.remoteToken;
   Object.assign(sim,{running:true,aborting:false,error:null,warning:null,cacheWarning:null,summary:"",log:[],progress:null,model:null,active:new Map(),
     batch:{total:queue.length,finished:0},stage:"preparing",startedAt:Date.now()});
-  let completed=0, failed=0, stopped=0, partial=0;
+  let completed=0, failed=0, stopped=0, partial=0, notStarted=0;
   const publish=()=>{ctx.onBadge(simStatus());ctx.refresh();};
   publish();
   const tick=setInterval(updateProgress,1000);
@@ -422,15 +520,22 @@ async function start(ctx, all = false) {
       sim.active.set(c.id,job);
       states.set(c.id,{status:"running",key});
       let partialRun=null;
+      let retained=runCases.get(c.id);
+      if(retained?.key!==key)retained=null;
       publish();
       try {
         if (!c.config) throw Error(c.error || "Case configuration unavailable");
+        if(!retained){
+          try{const cached=await cacheGet(key);if(cached?.result&&hasValidS11(cached.result))retained={...cached,key,cached:true};}catch{}
+          if(retained)runCases.set(c.id,retained);
+        }
+        if(sim.aborting)throw Error("Stopped");
         let result;
         if(remote){
           job.remote=new RemoteRunner(endpoint,token);
           const config=structuredClone(c.config);config.solver??={};config.solver.resources??={};config.solver.resources.cpus=cpu.perJob;
           job.stage="submitting remote job";updateProgress();
-          result=await job.remote.run(config,{onStatus:status=>{
+          result=await job.remote.run(config,{requireCapacity:c.immediate,onStatus:status=>{
             job.remoteState=status.state;
             job.stage=status.state==="queued"?"Waiting for server resources":status.state==="starting"?"Starting native solver":status.state==="done"?"Retrieving result":"Native solver · "+status.state;
             job.log=(status.log||"").split("\n").slice(-2000);
@@ -455,7 +560,7 @@ async function start(ctx, all = false) {
           onPartial:r=>{
             const previous=partialRun;
             partialRun={...previous,result:r,key,frequency:previous?.frequency>=0?previous.frequency:r.patterns.findIndex(p=>p.record.radiation_valid)};
-            runCases.set(c.id,partialRun);
+            if(!retained)runCases.set(c.id,partialRun);
             publish();
           }
         });
@@ -464,31 +569,38 @@ async function start(ctx, all = false) {
         result.aborted=!!(result.aborted||sim.aborting);
         const firstValid=result.patterns.findIndex(p=>p.record.radiation_valid);
         const run={...partialRun,result,key,log:job.log.slice(-2000),frequency:partialRun?.frequency>=0?partialRun.frequency:firstValid};
-        runCases.set(c.id,run);
-        publish();
+        const keepPrevious=!!retained&&(result.aborted||result.postprocessing_incomplete);
+        if(!keepPrevious){runCases.set(c.id,run);publish();}
         job.stage="saving result";updateProgress();
         // Commit the cache before publishing completion, so an immediate reload
         // after the completion badge cannot race the persistent write.
-        if(!result.aborted)try{await cachePut(key,run);}catch(e){sim.cacheWarning="Result cache unavailable: "+e.message;}
-        runCases.set(c.id,run);
+        if(!keepPrevious&&!result.aborted)try{await cachePut(key,run);}catch(e){sim.cacheWarning="Result cache unavailable: "+e.message;}
+        runCases.set(c.id,keepPrevious?retained:run);
         states.set(c.id,{status:result.aborted?"stopped":result.postprocessing_incomplete?"partial":"done",key});
         if(result.aborted)stopped++;else if(result.postprocessing_incomplete)partial++;else completed++;
         const s=summarize(result,c.config.excitation.center_hz);
         ctx.notify(`${c.id}: ${result.aborted?"Stopped":result.postprocessing_incomplete?"Partial result":"Done"} · S11 ${fmt(s.bestDb,1)} dB at ${ghz(s.bestHz)}`);
       } catch(e) {
-        if(partialRun){
+        if(c.immediate&&/CPU capacity unavailable/.test(e.message)){
+          const old=previous.get(c.id);if(old)states.set(c.id,old);else states.delete(c.id);
+          job.notStarted=true;notStarted++;sim.error=e.message;ctx.notify(sim.error,true);
+        } else if(retained){
+          runCases.set(c.id,retained);
+          states.set(c.id,{status:sim.aborting?"stopped":"failed",key,error:e.message});
+          if(sim.aborting)stopped++;else {failed++;sim.error=c.id+": "+e.message;ctx.notify(sim.error,true);}
+        } else if(partialRun){
           const result={...partialRun.result,postprocessing_pending:false,postprocessing_incomplete:true,aborted:sim.aborting,solver_warnings:[...(partialRun.result.solver_warnings??[]),"Post-processing interrupted: "+e.message]};
           runCases.set(c.id,{...partialRun,result});
           states.set(c.id,{status:sim.aborting?"stopped":"partial",key,error:e.message});
           if(sim.aborting)stopped++;else {partial++;sim.error=c.id+": "+e.message;ctx.notify(sim.error,true);}
         } else if(sim.aborting){states.set(c.id,{status:"stopped",key});stopped++;}
-        else {runCases.delete(c.id);states.set(c.id,{status:"failed",key,error:e.message});sim.error=c.id+": "+e.message;failed++;ctx.notify(sim.error,true);}
+        else {states.set(c.id,{status:"failed",key,error:e.message});sim.error=c.id+": "+e.message;failed++;ctx.notify(sim.error,true);}
       } finally {
         clearTimeout(job.stopTimer);
         job.ems?.terminate();
         job.ems=null;job.remote=null;
         const last=states.get(c.id);
-        if(last)states.set(c.id,{...last,log:job.log.slice(-2000),progress:job.progress?.fraction??0});
+        if(last&&!job.notStarted)states.set(c.id,{...last,log:job.log.slice(-2000),progress:job.progress?.fraction??0});
         sim.active.delete(c.id);
         sim.batch.finished++;
         job.progress=null;
@@ -504,25 +616,47 @@ async function start(ctx, all = false) {
       if(cpu.perJob>Math.min(info.max_cpus,info.ncpu_pool??info.max_cpus))throw Error("ncpu_per_job exceeds remote CPU limit");
       limit=Math.min(limit,info.ncpu_pool??info.max_cpus);
       if(!info.parallel_jobs)limit=cpu.perJob; // older single-job server
+      if(!info.immediate_start&&queue.some(c=>c.immediate))throw Error("Update remote runner for immediate case start");
+      if(!info.immediate_start)sim.batch.legacyRemote=true;
     }
     const slots=Math.max(1,Math.floor(limit/cpu.perJob));
     let next=0;
-    await Promise.all(Array.from({length:Math.min(slots,queue.length)},async()=>{
-      while(!sim.aborting&&runs===runCases&&next<queue.length){const c=queue[next++];await runCase(c);}
-    }));
+    const tasks=new Set();
+    const pump=()=>{
+      while(!sim.aborting&&runs===runCases&&tasks.size<slots&&next<queue.length){
+        const c=queue[next++];
+        const task=runCase(c);
+        tasks.add(task);
+        task.then(()=>tasks.delete(task),()=>tasks.delete(task));
+      }
+    };
+    sim.batch.canAdd=id=>!sim.batch.legacyRemote&&!sim.aborting&&runs===runCases&&next===queue.length&&tasks.size<slots&&!sim.active.has(id);
+    sim.batch.add=c=>{
+      if(!sim.batch.canAdd(c.id))return;
+      ctx.archiveProject?.();
+      const copy=snapshot(c,true);queue.push(copy);markQueued(copy);
+      sim.batch.total++;pump();publish();
+    };
+    pump();publish();
+    while(tasks.size){await Promise.race(tasks);pump();updateProgress();}
+    sim.batch.canAdd=()=>false;
   } catch(e){
     sim.error=e.message;
     for(const c of queue)if(states.get(c.id)?.status==="queued"){
-      states.set(c.id,{...states.get(c.id),status:sim.aborting?"cancelled":"failed",error:e.message});
-      if(!sim.aborting)failed++;
+      if(c.immediate&&/Update remote runner for immediate case start/.test(e.message)){
+        const old=previous.get(c.id);if(old)states.set(c.id,old);else states.delete(c.id);notStarted++;
+      }else{
+        states.set(c.id,{...states.get(c.id),status:sim.aborting?"cancelled":"failed",error:e.message});
+        if(!sim.aborting)failed++;
+      }
     }
     ctx.notify(sim.error,true);
   }
   finally {
     clearTimeout(sim.stopTimer);clearInterval(tick);
     for(const c of queue)if(states.get(c.id)?.status==="queued")states.set(c.id,{...states.get(c.id),status:"cancelled"});
-    const cancelled=queue.length-completed-failed-stopped-partial;
-    sim.summary=`${completed}/${queue.length} completed${partial?" · "+partial+" partial":""}${failed?" · "+failed+" failed":""}${stopped?" · "+stopped+" stopped":""}${cancelled?" · "+cancelled+" cancelled":""}`;
+    const cancelled=queue.length-completed-failed-stopped-partial-notStarted;
+    sim.summary=`${completed}/${queue.length} completed${partial?" · "+partial+" partial":""}${failed?" · "+failed+" failed":""}${stopped?" · "+stopped+" stopped":""}${cancelled?" · "+cancelled+" cancelled":""}${notStarted?" · "+notStarted+" not started":""}`;
     Object.assign(sim,{ems:null,running:false,aborting:false,stage:"",batch:null,progress:null,active:new Map()});
     publish();
     ctx.notify(sim.summary,failed>0||partial>0);
@@ -564,7 +698,7 @@ export function syncSweepDownload(box,ctx){
     bar.append(h("span",{class:"hint"}),h("button",{type:"button",class:"small result-download"}));
     bar.lastChild.addEventListener("click",async()=>{
       if(exportingSweep)return;
-      const snapshot=sweepSnapshot(ctx),slug=ctx.slug();
+      const snapshot=sweepSnapshot(ctx),slug=ctx.slug(),project=ctx.getTemplate?.();
       const available=snapshot.filter(c=>c.run);
       if(!available.length)return;
       exportingSweep=true;syncSweepDownload(box,ctx);
@@ -576,9 +710,10 @@ export function syncSweepDownload(box,ctx){
         // Serialize lazily per entry to avoid keeping all JSON strings in memory.
         function* entries(){
           yield {name:"manifest.json",text:JSON.stringify(manifest,null,1)};
-          for(const c of available)yield {name:slug+"__"+c.id+".result.json",text:JSON.stringify(c.run.result)};
+          if(project)yield {name:"project.json",text:JSON.stringify(project)};
+          for(const c of available)yield {name:slug+"__"+c.id+".result.json",text:JSON.stringify({...c.run.result,editor_resolved_config:JSON.parse(c.run.key)})};
         }
-        const blob=await makeZip(entries(),available.length+1);
+        const blob=await makeZip(entries(),available.length+1+(project?1:0));
         const url=URL.createObjectURL(blob);
         const a=h("a",{href:url,download:slug+"__sweep.zip"});
         document.body.append(a);a.click();a.remove();
@@ -610,6 +745,7 @@ export function renderResults(box, ctx, run, caseId, stale) {
   }
   const r = run.result;
   const s = summarize(r, r.input_config.excitation.center_hz);
+  const latest=caseRunState(caseId);
   const f = r.s11.frequency_hz.map(v => v / 1e9);
   const ports = r.input_config.ports ?? r.input_config.sources ?? [];
   const driven = ports.find(p => Number(p.id ?? p.port_number ?? 1) === Number(r.port_id)) ?? ports.find(p => p.excite ?? p.enabled);
@@ -625,6 +761,8 @@ export function renderResults(box, ctx, run, caseId, stale) {
     h("div",{class:"result-summary-head"},
       h("h3",{text:run.cached?"Results · cached on this device":"Overview"}),
       h("button",{type:"button",class:"small result-download",onclick:download},"Download result.json")),
+    latest?.status==="failed"||latest?.status==="stopped"?h("div",{class:"note warn",text:"Latest run "+latest.status+". Showing retained results when available."}):null,
+    ["queued","running"].includes(latest?.status)&&!r.postprocessing_pending?h("div",{class:"note",text:"New run in progress. Showing previous results until a replacement is ready."}):null,
     r.postprocessing_pending ? h("div",{class:"note",text:"Port results available. Radiation post-processing is still running."}) : null,
     r.postprocessing_incomplete ? h("div",{class:"note warn",text:"Partial result: S11 and impedance are available, but some radiation results are unavailable."}) : null,
     r.aborted ? h("div", { class: "note warn", text: "Stopped early: the results use the time steps computed so far." }) : null,
