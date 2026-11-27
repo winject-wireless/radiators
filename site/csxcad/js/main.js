@@ -16,6 +16,8 @@ import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS
 import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
 import { storage, saveFile, registerServiceWorker, isNative } from "./platform.js";
 import { sampleDirection, defaultProbe } from "./sim/radiation.js";
+import { buildModel } from "./sim/model.js";
+import { meshSegments, meshMinima, nearestLine, planeAxes, validMeshLines } from "./sim/mesh-view.js";
 
 const $ = id => document.getElementById(id);
 const h = (tag, attrs = {}, ...kids) => {
@@ -1076,6 +1078,52 @@ function updateProbe() {
   $("probeFrequency").textContent = `${probeFmt(record.frequency_hz / 1e9,4)} GHz · Radiated power (global) ${Number.isFinite(s.radiatedPower)?s.radiatedPower.toPrecision(3)+" W":"—"}`;
   $("probeEfficiency").textContent = `Radiation η ${probeFmt(s.radiationEfficiency === null ? null : s.radiationEfficiency * 100,1)}% · Mismatch η ${probeFmt(s.mismatchEfficiency === null ? null : s.mismatchEfficiency * 100,1)}%`;
 }
+// Mesh preview is lazy and independent of the ground grid and radiation cuts.
+let meshPreviewKey=null,meshPreview=null,meshPreviewError=null,meshViewKey=null,meshDisplayedLines=null;
+function syncMeshView({resetSlice=false,jump=false}={}){
+  const enabled=$("meshToggle").getAttribute("aria-pressed")==="true";
+  $("meshTools").hidden=!enabled;
+  if(!viewport)return;
+  if(!enabled){if(meshViewKey!==null)viewport.setMeshView(null);meshViewKey=null;return;}
+  const current=simContext.getCase(),cfg=current.config,run=resultFor(current.id),key=cfg?JSON.stringify(cfg):null;
+  let lines=null,label="";
+  if(key&&run?.key===key&&validMeshLines(run.result.mesh_lines_mm)){
+    lines=run.result.mesh_lines_mm;label="Recorded solver mesh";
+  }else if(cfg){
+    if(key!==meshPreviewKey){
+      meshPreviewKey=key;meshPreview=null;meshPreviewError=null;
+      try{meshPreview=buildModel(cfg,{meshOnly:true}).meshLines;}catch(e){meshPreviewError=e.message;}
+    }
+    lines=meshPreview;label="Generated mesh preview";
+  }
+  const readout=$("meshReadout"),slider=$("meshSlice"),selector=$("meshPlane");
+  if(!validMeshLines(lines)){
+    viewport.setMeshView(null);meshViewKey=null;meshDisplayedLines=null;
+    slider.disabled=true;$("meshSmallest").disabled=true;
+    readout.textContent=meshPreviewError||current.error||"Mesh unavailable until geometry resolves";return;
+  }
+  $("meshSmallest").disabled=false;
+  const minima=meshMinima(lines),worst=minima.reduce((a,b)=>a.min<=b.min?a:b);
+  if(jump){
+    selector.value=["XY","XY","XZ"][worst.axis];
+    $("meshHighlight").checked=true;
+  }
+  const plane=selector.value,normal=planeAxes[plane]?.[2];
+  slider.disabled=normal===undefined;
+  if(normal!==undefined){
+    slider.max=String(lines[normal].length-1);
+    if(resetSlice||lines!==meshDisplayedLines||jump)slider.value=String(nearestLine(lines[normal],0));
+  }
+  meshDisplayedLines=lines;
+  const options={plane,index:Number(slider.value),highlight:$("meshHighlight").checked,pml:$("meshPml").checked,boundary:cfg.domain?.boundary??Array(6).fill("PML_8")};
+  const opacity=Number($("meshOpacity").value);
+  const renderKey=JSON.stringify([lines,options,opacity]);
+  if(renderKey!==meshViewKey){viewport.setMeshView(meshSegments(lines,options),opacity);meshViewKey=renderKey;}
+  const dims=lines.map(a=>a.length-1);
+  const pos=normal===undefined?"3D (decimated)":"XYZ"[normal]+" = "+Number(lines[normal][Number(slider.value)].toPrecision(7))+" mm";
+  readout.textContent=label+" · "+dims.join(" × ")+" · "+pos+" · Min "+"XYZ"[worst.axis]+" "+worst.min.toPrecision(4)+" mm ("+worst.start.toPrecision(6)+" → "+worst.stop.toPrecision(6)+")";
+}
+
 function syncResults() {
   void restoreResults(simContext);
   const caseId = state.derived.case.id;
@@ -1110,6 +1158,7 @@ function syncResults() {
     activeProbe = { run, record };
   } else { activeProbe = null; if (state.handle === "result-probe") state.handle = null; }
   updateProbe();
+  syncMeshView();
   syncHandles();
 }
 
@@ -2508,6 +2557,12 @@ async function boot() {
   for (const id of ["caseSelect", "resultCase"]) {
     $(id).addEventListener("change", e => changeCase(Number(e.target.value)));
   }
+  $("meshToggle").addEventListener("click",()=>{
+    const b=$("meshToggle");b.setAttribute("aria-pressed",String(b.getAttribute("aria-pressed")!=="true"));syncMeshView();
+  });
+  $("meshPlane").addEventListener("change",()=>syncMeshView({resetSlice:true}));
+  for(const id of ["meshSlice","meshOpacity","meshHighlight","meshPml"])$(id).addEventListener("input",()=>syncMeshView());
+  $("meshSmallest").addEventListener("click",()=>syncMeshView({jump:true}));
   $("patternSelect").addEventListener("change", e => {
     const run = resultFor(state.derived.case.id);
     if (run) { run.frequency = Number(e.target.value); syncResults(); }
