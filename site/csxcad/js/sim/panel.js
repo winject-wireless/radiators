@@ -411,7 +411,6 @@ async function start(ctx, all = false) {
           }});
           if(!hasValidS11(result))throw Error("Remote solver returned no valid S11");
         }else{
-        if(c.config.probes?.some(p=>p.enabled!==false))throw Error("Diagnostic probes require the Remote native runner");
         const model=buildModel(c.config);
         job.model=model;
         job.stage="starting openEMS";
