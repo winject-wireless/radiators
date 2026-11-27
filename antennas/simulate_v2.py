@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from v2_geometry import install_geometry, positive, vec3
-from mesh_refinement import refine_axis
+from mesh_refinement import refinement_seeds
 from v2_diagnostics import prepare as prepare_probes, install as install_probes, collect as collect_probes
 
 
@@ -227,12 +227,20 @@ def setup_mesh(mesh, cfg, geometry_bounds, source_bounds, geometry_previews, por
         if added:
             mesh.SetLines(axis, sorted(seeds))
             mesh.SmoothMeshLines(axis, resolution, growth)
-    if regions:
-        limit=min(2500,int(mesh_cfg.get("max_cells",5000000)))
-        for i,axis in enumerate("xyz"):
-            mesh.SetLines(axis,refine_axis(mesh.GetLines(axis),
-                          [(lo[i],hi[i],step) for lo,hi,step in regions],
-                          resolution,growth,limit))
+        if regions:
+            base_lines=list(mesh.GetLines(axis))
+            def boundary_offset(bc):
+                return int(bc[4:])+1 if bc.startswith("PML_") else 2 if bc=="MUR" else 0
+            low,high=boundary_offset(boundary[2*i]),boundary_offset(boundary[2*i+1])
+            hard=seeds+base_lines[:low+1]+base_lines[-high-1:]
+            limit=min(2500,int(mesh_cfg.get("max_cells",5000000)))
+            refined=refinement_seeds(base_lines,hard,
+                       [(lo[i],hi[i],step) for lo,hi,step in regions],resolution,limit)
+            if refined is not None:
+                mesh.SetLines(axis,refined)
+                mesh.SmoothMeshLines(axis,resolution,growth)
+                require(len(mesh.GetLines(axis))-1<=max(len(base_lines)-1,limit),
+                        "Refined mesh axis exceeds cell budget")
     counts=[len(mesh.GetLines(axis))-1 for axis in "xyz"]
     cells=math.prod(counts)
     max_cells=int(mesh_cfg.get("max_cells",5000000))
