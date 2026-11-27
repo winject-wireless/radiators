@@ -591,6 +591,7 @@ export function syncSweepDownload(box,ctx){
   }
   const cases=sweepSnapshot(ctx),count=cases.filter(c=>c.run).length;
   bar.hidden=cases.length<2;
+  bar.style.display=bar.hidden?"none":"";
   bar.firstChild.textContent=count+"/"+cases.length+" results available";
   bar.lastChild.disabled=exportingSweep||!count;
   bar.lastChild.textContent=exportingSweep?"Preparing ZIP…":"Download sweep ZIP";
