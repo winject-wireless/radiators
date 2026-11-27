@@ -80,9 +80,19 @@ def prepare(config, ds, de):
         if not isinstance(fs,list) or len(fs)>12 or any(type(f) not in (int,float) or not math.isfinite(f) or f<=0 for f in fs):
             raise ValueError(name+": invalid diagnostic frequencies")
         if not td and not fs: raise ValueError(name+": enable time or frequency capture")
+        ex=config.get("excitation", {})
+        f0,fc=ex.get("center_hz"),ex.get("bandwidth_hz")
+        if f0 is not None and fc is not None and any(not f0-fc<=f<=f0+fc for f in fs):
+            raise ValueError(name+": diagnostic frequencies outside excitation band")
+        dump_mode=p.get("dump_mode","node")
+        if dump_mode not in ("node","cell"): raise ValueError(name+": use node or cell interpolation")
+        oversampling=p.get("time_domain",{}).get("oversampling")
+        if oversampling is not None and (type(oversampling)!=int or not 1<=oversampling<=100):
+            raise ValueError(name+": oversampling must be an integer from 1 to 100")
         # Scalar probes always capture their native TD files; FD uses native accumulated DFT.
         out.append(dict(id="diag_%03d"%i, name=name, type=kind, start=lo.tolist(), stop=hi.tolist(),
-                        axis=axis, sign=sign, field=p.get("field","E"), td=bool(td), fs=fs, sub=sub))
+                        axis=axis, sign=sign, field=p.get("field","E"), td=bool(td), fs=fs, sub=sub,
+                        dump_mode=1 if dump_mode=="node" else 2, oversampling=oversampling))
     return out
 
 
@@ -94,7 +104,8 @@ def install(csx, objects):
             for mode, enabled in (("td", p["td"]), ("fd", bool(p["fs"]))):
                 if not enabled: continue
                 kw = dict(dump_type=code+(10 if mode=="fd" else 0), file_type=1,
-                          dump_mode=1, sub_sampling=p["sub"])
+                          dump_mode=p["dump_mode"], sub_sampling=p["sub"])
+                if mode=="td" and p["oversampling"] is not None: kw["over_sampling"]=p["oversampling"]
                 if mode=="fd": kw["frequency"]=p["fs"]
                 csx.AddDump(p["id"]+"_"+mode, **kw).AddBox(a,b)
         else:
@@ -102,6 +113,7 @@ def install(csx, objects):
             kw = {}
             if p["type"]=="current": kw["norm_dir"]=p["axis"]
             if p["fs"]: kw["frequency"]=p["fs"]
+            if p["oversampling"] is not None: kw["over_sampling"]=p["oversampling"]
             csx.AddProbe(p["id"],code,**kw).AddBox(a,b)
 
 
@@ -111,7 +123,7 @@ def packed(a):
     return base64.b64encode(a.tobytes(order="C")).decode("ascii")
 
 
-def read_probe(path, p):
+def read_probe(path, p, budget):
     n = 3 if p["type"] in ("electric_field","magnetic_field") else 1
     unit = {"voltage":"V","current":"A","electric_field":"V/m","magnetic_field":"A/m"}[p["type"]]
     out = dict(unit=unit, components=n)
@@ -122,7 +134,8 @@ def read_probe(path, p):
         return data
     if p["td"]:
         d = table(path/p["id"],1+n)
-        if len(d)>1000000: raise ValueError("Probe sample limit exceeded")
+        if d.size>budget: raise ValueError("Probe sample limit exceeded; reduce capture sampling")
+        if np.any(np.diff(d[:,0])<=0): raise ValueError("Non-increasing probe timestamps")
         out.update(time_s=d[:,0].tolist(), values=(d[:,1:]*p["sign"]).tolist())
         # The native header reports the actual snapped measurement coordinates in metres.
         with (path/p["id"]).open() as f:
@@ -192,7 +205,7 @@ def read_dump(file, mode, budget):
 def collect(path, objects):
     records=[]; budget=MAX_FLOATS
     for p in objects:
-        record={k:p[k] for k in ("id","name","type","start","stop","axis","field")}
+        record={k:p[k] for k in ("id","name","type","start","stop","axis","sign","field")}
         errors=[]
         if p["type"]=="field_dump":
             record["unit"]=FIELDS[p["field"]][1]
@@ -203,7 +216,10 @@ def collect(path, objects):
                     budget-=used
                 except Exception as exc: errors.append(mode+": "+str(exc))
         else:
-            try: record.update(read_probe(path,p))
+            try:
+                data=read_probe(path,p,budget)
+                budget-=len(data.get("time_s",[]))*(data["components"]+1)
+                record.update(data)
             except Exception as exc: errors.append(str(exc))
         if errors: record["warning"]="; ".join(errors)
         records.append(record)
