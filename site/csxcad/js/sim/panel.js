@@ -57,13 +57,16 @@ function workerPoolSize(model, engine, requested) {
 // output compatibility changes. IndexedDB stores large patterns without the
 // small synchronous localStorage quota.
 let runs = new Map(), caseStates = new Map(), cacheAttempts = new Map();
-const CACHE_DB = "radiators-csxcad-results", CACHE_STORE = "resolved-v1";
+const CACHE_DB = "radiators-csxcad-results", CACHE_STORE = "resolved-v1", PROJECT_STORE = "projects-v1";
 let dbPromise;
 function resultDB() {
   if (!dbPromise) dbPromise = new Promise((resolve,reject)=>{
     if (!globalThis.indexedDB) { reject(Error("IndexedDB unavailable")); return; }
-    const req=indexedDB.open(CACHE_DB,1);
-    req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(CACHE_STORE))req.result.createObjectStore(CACHE_STORE);};
+    const req=indexedDB.open(CACHE_DB,2);
+    req.onupgradeneeded=()=>{
+      if(!req.result.objectStoreNames.contains(CACHE_STORE))req.result.createObjectStore(CACHE_STORE);
+      if(!req.result.objectStoreNames.contains(PROJECT_STORE))req.result.createObjectStore(PROJECT_STORE);
+    };
     req.onsuccess=()=>{const db=req.result;db.onversionchange=()=>{db.close();dbPromise=null;};resolve(db);};
     req.onerror=()=>reject(req.error);
     req.onblocked=()=>reject(Error("Result cache blocked by another tab"));
@@ -98,6 +101,25 @@ async function cachePut(key, run) {
     tx.oncomplete=()=>resolve();
     tx.onerror=tx.onabort=()=>reject(tx.error||Error("Result cache write aborted"));
     tx.objectStore(CACHE_STORE).put({result:run.result,frequency:run.frequency,log:run.log,savedAt:Date.now()},cacheStorageKey(key));
+  });
+}
+// Each distinct template is a locally saved revision; saving the same template
+// updates its timestamp and selected case, never deletes another revision.
+export async function saveLocalProject(doc, caseIndex=0) {
+  const key=JSON.stringify(doc), db=await resultDB();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(PROJECT_STORE,"readwrite");
+    tx.oncomplete=()=>resolve();
+    tx.onerror=tx.onabort=()=>reject(tx.error||Error("Project save aborted"));
+    tx.objectStore(PROJECT_STORE).put({doc:JSON.parse(key),caseIndex,savedAt:Date.now()},key);
+  });
+}
+export async function listLocalProjects() {
+  const db=await resultDB();
+  return new Promise((resolve,reject)=>{
+    const req=db.transaction(PROJECT_STORE,"readonly").objectStore(PROJECT_STORE).getAll();
+    req.onsuccess=()=>resolve(req.result.sort((a,b)=>b.savedAt-a.savedAt));
+    req.onerror=()=>reject(req.error);
   });
 }
 export function clearResults() {
@@ -417,6 +439,7 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
   if (why) { sim.error = isolationUnavailableReason() || why; ctx.refresh(); return; }
   // Capture immutable resolved configs; selecting another case or editing the document
   // during the sweep cannot change the queued simulation inputs.
+  ctx.archiveProject?.();
   const snapshot=(c,immediate)=>({...c,immediate,config:c.config?structuredClone(c.config):null});
   const queue = cases.map(c=>snapshot(c,!all));
   const runCases = runs, states = caseStates;
@@ -437,9 +460,16 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
       sim.active.set(c.id,job);
       states.set(c.id,{status:"running",key});
       let partialRun=null;
+      let retained=runCases.get(c.id);
+      if(retained?.key!==key)retained=null;
       publish();
       try {
         if (!c.config) throw Error(c.error || "Case configuration unavailable");
+        if(!retained){
+          try{const cached=await cacheGet(key);if(cached?.result&&hasValidS11(cached.result))retained={...cached,key,cached:true};}catch{}
+          if(retained)runCases.set(c.id,retained);
+        }
+        if(sim.aborting)throw Error("Stopped");
         let result;
         if(remote){
           job.remote=new RemoteRunner(endpoint,token);
@@ -470,7 +500,7 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
           onPartial:r=>{
             const previous=partialRun;
             partialRun={...previous,result:r,key,frequency:previous?.frequency>=0?previous.frequency:r.patterns.findIndex(p=>p.record.radiation_valid)};
-            runCases.set(c.id,partialRun);
+            if(!retained)runCases.set(c.id,partialRun);
             publish();
           }
         });
@@ -479,13 +509,13 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
         result.aborted=!!(result.aborted||sim.aborting);
         const firstValid=result.patterns.findIndex(p=>p.record.radiation_valid);
         const run={...partialRun,result,key,log:job.log.slice(-2000),frequency:partialRun?.frequency>=0?partialRun.frequency:firstValid};
-        runCases.set(c.id,run);
-        publish();
+        const keepPrevious=!!retained&&(result.aborted||result.postprocessing_incomplete);
+        if(!keepPrevious){runCases.set(c.id,run);publish();}
         job.stage="saving result";updateProgress();
         // Commit the cache before publishing completion, so an immediate reload
         // after the completion badge cannot race the persistent write.
-        if(!result.aborted)try{await cachePut(key,run);}catch(e){sim.cacheWarning="Result cache unavailable: "+e.message;}
-        runCases.set(c.id,run);
+        if(!keepPrevious&&!result.aborted)try{await cachePut(key,run);}catch(e){sim.cacheWarning="Result cache unavailable: "+e.message;}
+        runCases.set(c.id,keepPrevious?retained:run);
         states.set(c.id,{status:result.aborted?"stopped":result.postprocessing_incomplete?"partial":"done",key});
         if(result.aborted)stopped++;else if(result.postprocessing_incomplete)partial++;else completed++;
         const s=summarize(result,c.config.excitation.center_hz);
@@ -494,13 +524,17 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
         if(c.immediate&&/CPU capacity unavailable/.test(e.message)){
           const old=previous.get(c.id);if(old)states.set(c.id,old);else states.delete(c.id);
           job.notStarted=true;notStarted++;sim.error=e.message;ctx.notify(sim.error,true);
+        } else if(retained){
+          runCases.set(c.id,retained);
+          states.set(c.id,{status:sim.aborting?"stopped":"failed",key,error:e.message});
+          if(sim.aborting)stopped++;else {failed++;sim.error=c.id+": "+e.message;ctx.notify(sim.error,true);}
         } else if(partialRun){
           const result={...partialRun.result,postprocessing_pending:false,postprocessing_incomplete:true,aborted:sim.aborting,solver_warnings:[...(partialRun.result.solver_warnings??[]),"Post-processing interrupted: "+e.message]};
           runCases.set(c.id,{...partialRun,result});
           states.set(c.id,{status:sim.aborting?"stopped":"partial",key,error:e.message});
           if(sim.aborting)stopped++;else {partial++;sim.error=c.id+": "+e.message;ctx.notify(sim.error,true);}
         } else if(sim.aborting){states.set(c.id,{status:"stopped",key});stopped++;}
-        else {runCases.delete(c.id);states.set(c.id,{status:"failed",key,error:e.message});sim.error=c.id+": "+e.message;failed++;ctx.notify(sim.error,true);}
+        else {states.set(c.id,{status:"failed",key,error:e.message});sim.error=c.id+": "+e.message;failed++;ctx.notify(sim.error,true);}
       } finally {
         clearTimeout(job.stopTimer);
         job.ems?.terminate();
@@ -539,6 +573,7 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
     sim.batch.canAdd=id=>!sim.batch.legacyRemote&&!sim.aborting&&runs===runCases&&next===queue.length&&tasks.size<slots&&!sim.active.has(id);
     sim.batch.add=c=>{
       if(!sim.batch.canAdd(c.id))return;
+      ctx.archiveProject?.();
       const copy=snapshot(c,true);queue.push(copy);markQueued(copy);
       sim.batch.total++;pump();publish();
     };
@@ -649,6 +684,7 @@ export function renderResults(box, ctx, run, caseId, stale) {
   }
   const r = run.result;
   const s = summarize(r, r.input_config.excitation.center_hz);
+  const latest=caseRunState(caseId);
   const f = r.s11.frequency_hz.map(v => v / 1e9);
   const ports = r.input_config.ports ?? r.input_config.sources ?? [];
   const driven = ports.find(p => Number(p.id ?? p.port_number ?? 1) === Number(r.port_id)) ?? ports.find(p => p.excite ?? p.enabled);
@@ -664,6 +700,8 @@ export function renderResults(box, ctx, run, caseId, stale) {
     h("div",{class:"result-summary-head"},
       h("h3",{text:run.cached?"Results · cached on this device":"Overview"}),
       h("button",{type:"button",class:"small result-download",onclick:download},"Download result.json")),
+    latest?.status==="failed"||latest?.status==="stopped"?h("div",{class:"note warn",text:"Latest run "+latest.status+". Showing retained results when available."}):null,
+    ["queued","running"].includes(latest?.status)&&!r.postprocessing_pending?h("div",{class:"note",text:"New run in progress. Showing previous results until a replacement is ready."}):null,
     r.postprocessing_pending ? h("div",{class:"note",text:"Port results available. Radiation post-processing is still running."}) : null,
     r.postprocessing_incomplete ? h("div",{class:"note warn",text:"Partial result: S11 and impedance are available, but some radiation results are unavailable."}) : null,
     r.aborted ? h("div", { class: "note warn", text: "Stopped early: the results use the time steps computed so far." }) : null,
