@@ -10,7 +10,7 @@ import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { currentDirection, currentPlaneAxis, currentPlaneLinked, setCurrentPosition, setCurrentDirection, moveCurrentCorner } from "./current-plane.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
-import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload } from "./sim/panel.js";
+import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
@@ -264,14 +264,16 @@ function normalizeDoc(cfg) {
   return doc;
 }
 
-function loadDoc(cfg, message) {
-  state.doc = normalizeDoc(cfg);
+function loadDoc(cfg, message, caseIndex = 0) {
+  const next=normalizeDoc(cfg);
+  if(state.doc)void archiveProject();
+  state.doc = next;
   jsonDraft = jsonBase = null;
   clearResults();
   for (const [k, v] of scriptRT.cache) if (!v.ok && /^timed out/.test(v.error)) scriptRT.cache.delete(k); // retry slow scripts
   state.sel = null; // open showing the whole model; selecting a part fades the rest
   state.hidden.clear();
-  state.caseIndex = 0;
+  state.caseIndex = Math.max(0,Math.trunc(Number(caseIndex)||0));
   history.undo = []; history.redo = [];
   if (viewport) viewport._fitted = false;
   persist();
@@ -1054,6 +1056,7 @@ const simContext = {
   },
   getCases() { return state.derived.cases.map(c=>this.getCase(c)); },
   slug: () => slug(),
+  archiveProject: () => { void archiveProject(); },
   onBadge(text) { for (const id of ["simBadge", "simBadgeMobile"]) { const b = $(id); if (b) b.textContent = text; } },
   notify: (msg, error = false) => setStatus(msg, error),
   refresh: () => { renderSim(); syncResults(); },
@@ -2436,8 +2439,32 @@ async function showExamples() {
 
 const slug = () => (state.doc?.name || "antenna").toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "antenna";
 
+async function archiveProject({explicit=false}={}) {
+  if(!state.doc)return false;
+  try{
+    await saveLocalProject(state.doc,state.caseIndex);
+    if(explicit){
+      try{await navigator.storage?.persist?.();}catch{}
+      setStatus("Saved to local projects");
+    }
+    return true;
+  }catch(e){setStatus("Local project save failed: "+e.message,true);return false;}
+}
+async function showLocalProjects() {
+  try{
+    const projects=await listLocalProjects();
+    const list=h("div",{class:"example-list"},projects.map(project=>h("button",{type:"button",onclick:()=>{
+      $("dialog").close();
+      loadDoc(project.doc,"Opened local project",project.caseIndex);
+      void restoreResults(simContext);
+    }},h("strong",{text:project.doc.name||"Untitled antenna"}),h("small",{text:new Date(project.savedAt).toLocaleString()+" · "+(project.doc.geometry?.length??0)+" parts"}))));
+    openDialog("Local projects",h("div",{},h("p",{class:"hint",text:"Saved project revisions and matching simulation results are stored on this device. Opening a project does not rerun it. Export important files for backup."}),projects.length?list:h("p",{class:"hint",text:"No saved projects yet. Use Save locally or run a simulation."})),[["Save current project",()=>void archiveProject({explicit:true})]]);
+  }catch(e){setStatus("Local projects unavailable: "+e.message,true);}
+}
 async function save() {
-  try { setStatus(await saveFile(slug() + ".json", JSON.stringify(state.doc, null, 2) + "\n")); }
+  const doc=JSON.stringify(state.doc,null,2)+"\n", filename=slug()+".json";
+  const saved=await archiveProject({explicit:true});
+  try { setStatus((await saveFile(filename,doc))+(saved?" · saved locally":" · local save failed"),!saved); }
   catch (e) { setStatus("Save failed: " + e.message, true); }
 }
 
@@ -2466,6 +2493,8 @@ async function menuAction(action) {
   switch (action) {
     case "new": loadDoc(STARTER, "New parametric starter"); break;
     case "examples": showExamples(); break;
+    case "local-projects": await showLocalProjects(); break;
+    case "save-local": await archiveProject({explicit:true}); break;
     case "json": openSheet("json"); break;
     case "export-case":
       try {
