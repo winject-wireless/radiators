@@ -461,7 +461,7 @@ function numField(path, { optional = false, def, int = false, unit, placeholder,
         wrap.classList.add("invalid"); hint.textContent = "Must be an integer"; return;
       }
     }
-    if(edit(doc => { prepare?.(doc); if(write)write(doc,value); else setPath(doc, path, value); }, { inspector: false }))input.value=display(value);
+    if(edit(doc => { prepare?.(doc); if(write)write(doc,value); else setPath(doc, path, value); }, { inspector: !!write }))input.value=display(value);
   };
   input.addEventListener("change", commit);
   input.addEventListener("keydown", e => {
