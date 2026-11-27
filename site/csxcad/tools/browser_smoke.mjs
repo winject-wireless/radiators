@@ -341,6 +341,12 @@ try {
   await page.locator('[data-dock="results"]').click();
   assert.ok(await page.locator("#resultCharts").getByText("Results · cached on this device",{exact:true}).isVisible());
   assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
+  // Round-trip a sweep archive including its original project template.
+  const [archive]=await Promise.all([page.waitForEvent("download"),page.getByRole("button",{name:"Download sweep ZIP"}).click()]);
+  const archiveBytes=await readFile(await archive.path());
+  page.once("dialog",dialog=>dialog.dismiss()); // keep matching results
+  await page.locator("#openFile").setInputFiles({name:"sweep-roundtrip.zip",mimeType:"application/zip",buffer:archiveBytes});
+  await page.waitForFunction(()=>[...document.querySelector("#resultCase").options].length===2 && [...document.querySelector("#resultCase").options].every(o=>o.textContent.includes("done")),{}, {timeout:90000});
   // A different document must not delete the saved sweep or its results.
   const savedName=await page.evaluate(()=>window.__csxcad.state.doc.name);
   await page.locator("#menuButton").click();
