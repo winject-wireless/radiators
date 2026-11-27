@@ -6,6 +6,7 @@
 import { lumpedPort, nf2ffXml, parseProbe } from "../../vendor/openems/openems-post.js";
 
 import { probeDiagnostics, updateSolverDiagnostics, diagnosticWarnings } from "./diagnostics.js";
+import { collectDiagnostics } from "./wasm-diagnostics.js";
 
 const finite = x => (Number.isFinite(x) ? x : null);
 const finiteArr = a => Array.from(a, finite);
@@ -165,6 +166,14 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
     }
     result.seconds = (Date.now() - t0) / 1000;
     onPartial?.({...result, patterns:[...result.patterns], solver_warnings:[...warnings]});
+  }
+  if(model.diagnosticObjects?.length){
+    onStage?.("diagnostic capture");
+    result.diagnostic_probes=await collectDiagnostics(ems,model.diagnosticObjects);
+    for(const record of result.diagnostic_probes)if(record.warning){
+      const message="Diagnostic "+record.name+": "+record.warning;
+      warnings.push(message);onWarning?.({message,fatal:false});
+    }
   }
   result.postprocessing_pending = false;
   result.seconds = (Date.now() - t0) / 1000;
