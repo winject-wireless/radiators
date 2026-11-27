@@ -36,6 +36,17 @@ class ScriptTests(unittest.TestCase):
                 self.assertEqual((g["shape"], g["material"]), ("cylinder", "pec-metal"))
                 self.assertNotIn("script", g)
 
+    def test_disabled_objects_skip_resolution_and_scripts(self):
+        path = ROOT / "examples" / "script_radials_sweep.json"
+        config = json.loads(path.read_text())
+        expected = expand_cases(config, path)
+        config["geometry"].extend([
+            {"name": "disabled", "enabled": False, "shape": "box", "stop": [{"$expr": "missing_parameter"}]},
+            {"name": "disabled-script", "enabled": False, "script": "undefined", "args": {}},
+        ])
+        self.assertEqual(expand_cases(config, path), expected)
+        self.assertFalse(config["geometry"][-1]["enabled"])
+
     def test_script_errors_are_reported(self):
         path = ROOT / "examples" / "script_radials_sweep.json"
         config = json.loads(path.read_text())

@@ -32,6 +32,8 @@ const h = (tag, attrs = {}, ...kids) => {
 const clone = v => structuredClone(v);
 // Line icons (24x24, stroked) so every control shares one visual language.
 const ICONS = {
+  enableOn: "M4 4h16v16H4zM7 12l3 3 7-7",
+  enableOff: "M4 4h16v16H4z",
   eye: "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   eyeOff: "M3 3l18 18M10.6 5.6A9.7 9.7 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.9 3.7M6.5 7.2C3.9 8.9 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.3-1M9.9 9.9a3 3 0 0 0 4.2 4.2",
   bolt: "M13 2.5 4.5 13.5H12l-1 8 8.5-11H12z",
@@ -340,7 +342,7 @@ function derive() {
   const lenient = (v, onErr) => { try { return resolveTemplate(v, d.params); } catch (e) { onErr(e.message); return undefined; } };
   for (const [k, v] of Object.entries(doc)) {
     if (k === "sweep" || k === "parameters" || k === "generator") continue;
-    if (k === "geometry") d.geometry = v.map((g, i) => lenient(g, m => { d.errors.geometry[i] = m; }));
+    if (k === "geometry") d.geometry = v.map((g, i) => g.enabled===false ? null : lenient(g, m => { d.errors.geometry[i] = m; }));
     else if (k === "ports") d.ports = (v || []).map((p, i) => lenient(p, m => { d.errors.port[i] = m; }));
     else d.resolved[k] = lenient(v, m => d.errors.other.push(`${k}: ${m}`));
   }
@@ -373,7 +375,15 @@ function runChecks(doc, d) {
     if (ex.pending) continue; // a script is still running; checks refresh when it finishes
     if (ex.error) { add({ level: "error", where: ex.where, msg: ex.error, ref: ex.ref }, c.id); continue; }
     cfg = ex.cfg;
-    for (const item of checkCase(cfg)) add(item, c.id);
+    for (const item of checkCase(cfg)) {
+      // Solver case indices can differ after disabling or expanding objects.
+      if(item.ref?.kind==="geometry"){
+        const name=cfg.geometry[item.ref.index]?.name;
+        const index=doc.geometry.findIndex(g=>typeof name==="string"&&(g.name===name||(isScriptInstance(g)&&name.startsWith(g.name+"/"))));
+        if(index>=0)item.ref={...item.ref,index};
+      }
+      add(item,c.id);
+    }
   }
   return { list: [...merged.values()].sort((a, b) => (a.level === "error" ? 0 : 1) - (b.level === "error" ? 0 : 1)), caseCount: cases.length };
 }
@@ -560,6 +570,16 @@ function pointsField(path) {
 }
 
 // ---------------------------------------------------------------- tree
+function toggleGeometry(i) {
+  edit(doc=>{
+    const g=doc.geometry[i];
+    if(g.enabled===false)delete g.enabled;
+    else g.enabled=false;
+  });
+}
+function objectEnabledRow(g,i) {
+  return row("Simulation",h("button",{type:"button",class:"small","aria-pressed":String(g.enabled!==false),onclick:()=>toggleGeometry(i)},g.enabled===false?"Disabled · enable":"Enabled · disable"));
+}
 function renderTree() {
   const doc = state.doc, d = state.derived;
   const tree = $("tree");
@@ -575,19 +595,21 @@ function renderTree() {
       list);
   };
   const geomRows = doc.geometry.map((g, i) => {
+    const disabled = g.enabled === false;
     const hidden = state.hidden.has(i);
     const script = isScriptInstance(g);
     const ex = d.expanded[i];
     const m = mats.get(script ? (ex?.objects?.[0]?.material ?? "") : typeof g.material === "string" ? g.material : "");
-    return h("li", { class: "tree-row" + (isSel("geometry", i) ? " active" : "") + (d.errors.geometry[i] ? " invalid" : "") + (hidden ? " tree-hidden" : "") },
+    return h("li", { class: "tree-row" + (isSel("geometry", i) ? " active" : "") + (d.errors.geometry[i] ? " invalid" : "") + (hidden ? " tree-hidden" : "") + (disabled ? " tree-disabled" : "") },
       h("button", { type: "button", class: "vis", title: hidden ? "Show" : "Hide (preview only)", "aria-label": (hidden ? "Show " : "Hide ") + (g.name || g.shape),
         onclick: () => { hidden ? state.hidden.delete(i) : state.hidden.add(i); refresh({ inspector: false, params: false }); } }, icon(hidden ? "eyeOff" : "eye")),
+      h("button",{type:"button",class:"vis object-enable",title:disabled?"Enable in simulation":"Disable in simulation","aria-label":(disabled?"Enable ":"Disable ")+(g.name||g.shape),"aria-pressed":String(!disabled),onclick:()=>toggleGeometry(i)},icon(disabled?"enableOff":"enableOn")),
       h("button", { type: "button", class: "tree-name", onclick: () => select({ kind: "geometry", index: i }) },
         h("span", { class: "swatch", style: `background:${swatch(m)}` }),
         h("span", { class: "nm", text: g.name || g.shape }),
         h("span", { class: "kind", title: primitiveLabel(g, d.geometry[i]) },
           h("span", { class: "kind-prim", text: script ? "script" : primitiveLabel(g, d.geometry[i]).startsWith("Sheet") ? "sheet" : SHORT_SHAPE[g.shape] || g.shape }), " ",
-          script ? `${g.script} · ${ex?.objects ? ex.objects.length + " obj" : ex?.pending ? "…" : "error"}` : summarize(d.geometry[i]))));
+          disabled ? "disabled" : script ? `${g.script} · ${ex?.objects ? ex.objects.length + " obj" : ex?.pending ? "…" : "error"}` : summarize(d.geometry[i]))));
   });
   const portRows = doc.ports.map((p, i) => h("li", { class: "tree-row" + (isSel("port", i) ? " active" : "") + (d.errors.port[i] ? " invalid" : "") },
     h("span", { class: "vis" + (p.excite ? " excited" : ""), title: p.excite ? "Excited port" : "Passive port" }, icon(p.excite ? "bolt" : "dot")),
@@ -654,7 +676,7 @@ const fmtLen = v => `${+v.toPrecision(5)} mm`;
 function computeHandles() {
   const out = new Map();
   const s = state.sel, d = state.derived;
-  if (!s || !d) return out;
+  if (!s || !d || (s.kind==="geometry" && state.doc.geometry[s.index]?.enabled===false)) return out;
   const identity = { fwd: p => p, inv: p => p, dir: p => p, rotated: false };
   const point = (path, local, raw, xf) => {
     if (!nums3(local)) return;
@@ -1222,6 +1244,7 @@ function inspectGeometry(box, title, i) {
   const g = state.doc.geometry[i];
   const def = SHAPES[g.shape];
   title.replaceChildren(g.name || g.shape);
+  add(box,objectEnabledRow(g,i));
   $("inspectActions").append(
     iconBtn("copy", "Duplicate (Ctrl+D)", () => duplicate("geometry", i)),
     iconBtn("array", "Array…", () => arrayDialog(i)),
@@ -1274,7 +1297,7 @@ function inspectGeometry(box, title, i) {
     bounds,
     h("p", { class: "hint", text: (def.hint ? def.hint + " " : "") + "Transform: rotate X→Y→Z, then translate. Higher priority wins where primitives overlap (default 10; ports 5)." }),
     g.transform ? h("div", { class: "actions" }, h("button", { type: "button", class: "small", onclick: () => edit(doc => { delete doc.geometry[i].transform; }) }, "Clear transform")) : null,
-    knownKeysNote(g, ["name", "material", "shape", "transform", "priority", "editor_id", ...def.fields.map(f => f.key)])));
+    knownKeysNote(g, ["name", "material", "shape", "transform", "priority", "editor_id", "enabled", ...def.fields.map(f => f.key)])));
 }
 
 const LEGACY_SHAPES = new Set(["helix", "hemisphere", "hemispherical_shell"]);
@@ -1315,6 +1338,7 @@ function inspectScriptInstance(box, title, i) {
   const g = state.doc.geometry[i];
   const base = ["geometry", i];
   title.replaceChildren(g.name || g.script);
+  add(box,objectEnabledRow(g,i));
   $("inspectActions").append(
     iconBtn("copy", "Duplicate (Ctrl+D)", () => duplicate("geometry", i)),
     iconBtn("array", "Array…", () => arrayDialog(i)),

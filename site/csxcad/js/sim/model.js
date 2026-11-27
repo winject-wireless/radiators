@@ -174,9 +174,10 @@ export function buildModel(config) {
     require(!mats.has(m.name), `Duplicate material ${m.name}`);
     mats.set(m.name, { def: m, prims: [] });
   }
-  require((config.geometry ?? []).length > 0, "At least one geometry object required");
+  const geometry=(config.geometry??[]).filter(g=>g.enabled!==false);
+  require(geometry.length > 0, "At least one enabled geometry object required");
   const geometryBounds = [], previews = [];
-  for (const g of config.geometry) {
+  for (const g of geometry) {
     require(!("script" in g), "Script instances must be expanded before building the model");
     require(mats.has(g.material), `Undefined material ${g.material}`);
     const md = mats.get(g.material).def;

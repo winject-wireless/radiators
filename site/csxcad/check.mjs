@@ -438,3 +438,16 @@ assert.match(msgs, /must fit inside domain/);
 
 console.log(`CSXCAD editor: ${exprs.length} expressions + ${ranges.length} ranges match sweep.py; ` +
   `${compared} case(s) from ${files.length} configs resolve identically; ${parts} parts tessellated: OK`);
+
+// Disabled objects never reach scripts, validation, material primitives or mesh.
+{
+  const cfg=resolveCase(STARTER,parameterSets(STARTER)[0].parameters);
+  const disabled={name:"disabled-test",shape:"box",material:"missing",enabled:false,start:[0,0,0],stop:[1000,1000,1000]};
+  const withDisabled={...cfg,geometry:[...cfg.geometry,disabled]};
+  assert.equal(buildModel(withDisabled).xml,buildModel(cfg).xml);
+  assert.deepEqual(checkCase(withDisabled),checkCase(cfg));
+  const raw={...STARTER,geometry:[...STARTER.geometry,{...disabled,stop:[0,0,{$expr:"missing_parameter"}]},{name:"bad-script",script:"missing",enabled:false}]};
+  assert.deepEqual(resolveCase(raw,parameterSets(STARTER)[0].parameters),cfg);
+  assert.equal(raw.geometry.at(-1).enabled,false);
+  assert.throws(()=>buildModel({...cfg,geometry:[disabled]}),/enabled geometry/);
+}

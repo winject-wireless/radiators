@@ -268,10 +268,11 @@ def output_data(config, resultdir):
         require(name not in props,f"Duplicate material {name}")
         props[name]=add_material(csx,m)
         material_defs[name]=m
-    require(bool(config["geometry"]),"At least one geometry object required")
+    geometry = [g for g in config["geometry"] if g.get("enabled") is not False]
+    require(bool(geometry),"At least one enabled geometry object required")
     geometry_bounds=[]
     previews=[]
-    for g in config["geometry"]:
+    for g in geometry:
         mat=g["material"]
         require(mat in props,f"Undefined material {mat}")
         if material_defs[mat]["type"]=="conducting_sheet":

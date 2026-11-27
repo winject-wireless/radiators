@@ -251,7 +251,11 @@ def expand_cases(config, source):
         base.pop("workspace_units", None)  # editor-only display metadata
         if generator is not None:
             base = _run_generator(generator, base, parameters)
+        if base.get("schema_version") == 2 and isinstance(base.get("geometry"), list):
+            base["geometry"] = [g for g in base["geometry"] if not isinstance(g, dict) or g.get("enabled") is not False]
         resolved = resolve_template(base, parameters)
+        if resolved.get("schema_version") == 2 and isinstance(resolved.get("geometry"), list):
+            resolved["geometry"] = [g for g in resolved["geometry"] if not isinstance(g, dict) or g.get("enabled") is not False]
         if _uses_scripts(resolved):
             resolved = _expand_scripts(resolved)
         if resolved.get("schema_version") != config["schema_version"]:
