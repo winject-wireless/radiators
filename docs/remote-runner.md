@@ -103,7 +103,7 @@ A Ctrl+C or SIGTERM requests cancellation of active containers.
 ## Limits and verification
 
 Jobs are automatically dispatched within aggregate CPU and RAM budgets (up to 64 outstanding jobs and 256 retained records). Results are retained in temporary storage until restart or eviction, not in a durable queue. Unretrieved results are protected from eviction for at least one hour.
-Client disconnects do not cancel jobs. Native solver output is rendered
+Status polling renews a per-job lease. Jobs with no status poll for 300 seconds are cancelled automatically (including queued jobs); set lease_timeout in config.json to change the grace period (minimum 60 seconds). Mobile backgrounding may suspend polling, so use a longer lease if needed. Existing configurations default to 300 seconds. The authenticated GET /v1/jobs endpoint lists active/queued jobs without renewing leases; DELETE /v1/jobs/{id} cancels one job. Native solver output is rendered
 in the existing viewer; remote diagnostic plots and PEC export are not yet
 implemented. Docker enforces CPU and RAM caps, but there is no separate
 output-disk quota. Run on a trusted machine with sufficient disk space.

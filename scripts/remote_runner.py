@@ -70,6 +70,7 @@ class Runner:
         self.lock = threading.Lock()
         self.jobs = {}
         self.closing = False
+        self.lease_timeout = getattr(args, "lease_timeout", 300)
 
     def submit(self, payload):
         ident, cfg, cpus, memory = validate(payload, self.args)
@@ -89,7 +90,8 @@ class Runner:
             path.mkdir(mode=0o700)
             (path / "config.json").write_text(json.dumps(cfg, allow_nan=False))
             j = {"id": ident, "path": path, "state": "queued", "created": time.monotonic(),
-                 "cancel": threading.Event(), "error": None, "cpus": cpus, "memory": memory}
+                 "cancel": threading.Event(), "error": None, "cpus": cpus, "memory": memory,
+                 "last_contact": time.monotonic(), "name": str(cfg.get("name", ""))[:160]}
             self.jobs[ident] = j
             self.dispatch_locked()
             return ident
@@ -104,8 +106,8 @@ class Runner:
         for j in self.jobs.values():
             if j["state"] != "queued":
                 continue
-            if j["cancel"].is_set():
-                j.update(state="cancelled", error=None, seconds=0, finished_at=time.monotonic())
+            if j["cancel"].is_set() or time.monotonic()-j["last_contact"] >= self.lease_timeout:
+                j.update(state="cancelled", error=j.get("error") or ("Client lease expired" if not j["cancel"].is_set() else None), seconds=0, finished_at=time.monotonic())
                 continue
             if j["cpus"] > free_cpu or j["memory"] > free_mem:
                 continue
@@ -124,13 +126,35 @@ class Runner:
                 j["finished_at"] = time.monotonic()
                 self.dispatch_locked()
 
-    def cancel(self, j):
+    def cancel(self, j, reason=None):
         with self.lock:
-            if j["state"] not in TERMINAL:
-                j["cancel"].set()
-                if j["state"] == "queued":
-                    j.update(state="cancelled", error=None, seconds=0, finished_at=time.monotonic())
-                    self.dispatch_locked()
+            self.cancel_locked(j, reason)
+            self.dispatch_locked()
+
+    def cancel_locked(self, j, reason=None):
+        if j["state"] not in TERMINAL:
+            j["cancel"].set()
+            j["error"] = reason or j.get("error")
+            if j["state"] == "queued":
+                j.update(state="cancelled", seconds=0, finished_at=time.monotonic())
+
+    def expire_leases(self):
+        with self.lock:
+            now = time.monotonic()
+            for j in self.jobs.values():
+                if j["state"] not in TERMINAL and not j["cancel"].is_set() and now-j["last_contact"] >= self.lease_timeout:
+                    self.cancel_locked(j, "Client lease expired")
+            self.dispatch_locked()
+
+    def list_jobs(self):
+        # Listing does not renew leases.
+        with self.lock:
+            now = time.monotonic()
+            return [{"id": j["id"], "state": j["state"], "name": j["name"],
+                     "cpus": j["cpus"], "memory_gib": j["memory"]/1024**3,
+                     "last_contact_seconds": round(now-j["last_contact"]),
+                     "cancel_requested": j["cancel"].is_set()}
+                    for j in self.jobs.values() if j["state"] not in TERMINAL]
 
     def execute(self, j, cpus, memory):
         name = "radiators-remote-" + j["id"]
@@ -182,7 +206,7 @@ class Runner:
                 proc.kill()
                 proc.wait()
             with self.lock:
-                j.update(state=state, error=error, seconds=time.monotonic()-j["created"])
+                j.update(state=state, error=j.get("error") if state=="cancelled" else error, seconds=time.monotonic()-j["created"])
 
     def remove_container(self, name):
         try:
@@ -193,6 +217,8 @@ class Runner:
 
     def snapshot(self, j):
         with self.lock:
+            if j["state"] not in TERMINAL and not j["cancel"].is_set():
+                j["last_contact"] = time.monotonic()
             out = {k: j[k] for k in ("id", "state", "error")}
             out["seconds"] = j.get("seconds", time.monotonic()-j["created"])
             if j["state"] in ("failed", "cancelled"):
@@ -286,7 +312,10 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and path == "/v1/health":
                 return self.reply(200, {"api_version": 1, "engine": "native openEMS",
                     "max_cpus": runner.args.max_cpus, "ncpu_pool": runner.args.max_cpus, "parallel_jobs": True, "max_memory_gib": runner.args.max_memory_gib,
-                    "max_cells": runner.args.max_cells, "max_timesteps": runner.args.max_timesteps})
+                    "max_cells": runner.args.max_cells, "max_timesteps": runner.args.max_timesteps,
+                    "lease_timeout": runner.lease_timeout, "job_listing": True})
+            if method == "GET" and path == "/v1/jobs":
+                return self.reply(200, {"jobs": runner.list_jobs()})
             if method == "POST" and path == "/v1/jobs":
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= MAX_BODY:
@@ -334,10 +363,11 @@ def main():
     p.add_argument("--max-timesteps", type=int, default=2000000)
     p.add_argument("--timeout", type=int, default=3600)
     p.add_argument("--retain", type=int, default=4)
+    p.add_argument("--lease-timeout", type=int, default=300, help="Cancel jobs without status polling for this many seconds")
     args = p.parse_args()
     args.token = os.environ.get("RADIATORS_RUNNER_TOKEN", "")
-    if len(args.token) < 24 or not args.origin or args.retain < 1 or args.timeout < 1:
-        p.error("Set RADIATORS_RUNNER_TOKEN (at least 24 chars), --origin, positive --retain and --timeout")
+    if len(args.token) < 24 or not args.origin or args.retain < 1 or args.timeout < 1 or args.lease_timeout < 60:
+        p.error("Set RADIATORS_RUNNER_TOKEN (at least 24 chars), --origin, positive --retain and --timeout, --lease-timeout >= 60")
     if bool(args.tls_cert) != bool(args.tls_key):
         p.error("TLS requires both --tls-cert and --tls-key")
     if not args.tls_cert and args.bind not in ("127.0.0.1", "localhost"):
@@ -362,11 +392,19 @@ def main():
             signal.signal(signal.SIGTERM, terminate)
             scheme = "https" if tls else "http"
             print(f"Radiators runner listening on {scheme}://{args.bind}:{args.port}", flush=True)
+            stop_reaper = threading.Event()
+            def reap():
+                while not stop_reaper.wait(2):
+                    runner.expire_leases()
+            reaper = threading.Thread(target=reap, daemon=True)
+            reaper.start()
             try:
                 http.serve_forever()
             except KeyboardInterrupt:
                 pass
             finally:
+                stop_reaper.set()
+                reaper.join()
                 with runner.lock:
                     runner.closing = True
                     for j in runner.jobs.values():

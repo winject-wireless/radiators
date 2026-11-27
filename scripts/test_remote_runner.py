@@ -100,6 +100,38 @@ class RemoteTests(unittest.TestCase):
                 self.assertEqual(self.runner.jobs["1"*32]["state"],"done")
             finally:gate.set()
 
+    def test_expired_leases_cancel_running_and_queued(self):
+        entered = threading.Event()
+        def fake(j, cpus, memory):
+            with self.runner.lock:
+                j["state"] = "running"
+            entered.set()
+            j["cancel"].wait(3)
+            with self.runner.lock:
+                j.update(state="cancelled", seconds=.01)
+        cfg = copy.deepcopy(CONFIG)
+        cfg["solver"]["resources"]["cpus"] = 4
+        with patch.object(self.runner, "execute", side_effect=fake):
+            self.runner.submit({"id":ID,"config":copy.deepcopy(cfg)})
+            self.assertTrue(entered.wait(2))
+            self.runner.submit({"id":"2"*32,"config":copy.deepcopy(cfg)})
+            self.runner.submit({"id":"3"*32,"config":copy.deepcopy(cfg)})
+            with self.runner.lock:
+                for j in self.runner.jobs.values():
+                    j["last_contact"] -= self.runner.lease_timeout+1
+            self.runner.snapshot(self.runner.jobs["3"*32])
+            self.assertEqual(len(self.runner.list_jobs()),3)
+            self.runner.expire_leases()
+            self.assertTrue(self.runner.jobs[ID]["cancel"].is_set())
+            self.assertEqual(self.runner.jobs["2"*32]["state"],"cancelled")
+            self.assertEqual(self.runner.jobs["2"*32]["error"],"Client lease expired")
+            self.assertFalse(self.runner.jobs["3"*32]["cancel"].is_set())
+            self.runner.cancel(self.runner.jobs["3"*32])
+            for _ in range(200):
+                if all(j["state"]=="cancelled" for j in self.runner.jobs.values()):break
+                time.sleep(.01)
+            self.assertTrue(all(j["state"]=="cancelled" for j in self.runner.jobs.values()))
+
     def test_api(self):
         def fake(j, cpus, memory):
             path=j["path"]/"out"
@@ -133,6 +165,8 @@ class RemoteTests(unittest.TestCase):
             request("/v1/health",origin="https://wrong.example")
         self.assertEqual(json.load(e.exception)["error"],"Origin not allowed by runner")
         self.assertEqual(request("/v1/health")["api_version"],1)
+        self.assertEqual(request("/v1/health")["lease_timeout"],300)
+        self.assertEqual(request("/v1/jobs"),{"jobs":[]})
         with patch.object(self.runner,"execute",side_effect=fake):
             self.assertEqual(request("/v1/jobs","POST",{"id":ID,"config":CONFIG})["id"],ID)
             for _ in range(100):

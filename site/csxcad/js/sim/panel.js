@@ -179,6 +179,30 @@ export function renderRunPanel(box, ctx) {
       connection.textContent="Connected · "+info.max_cpus+" CPUs · "+info.max_memory_gib+" GiB max per job";
     }catch(e){connection.textContent=e.message;}finally{test.disabled=false;}
   }},"Test connection");
+  const serverJobs=h("div",{class:"sim-case-list"});
+  const manage=h("details",{class:"result-case-log"},h("summary",{text:"Server jobs / orphan cleanup"}),serverJobs);
+  const refreshJobs=async()=>{
+    serverJobs.replaceChildren(h("p",{class:"hint",text:"Loading server jobs…"}));
+    try{
+      save();
+      const client=new RemoteRunner(sim.remoteUrl,sim.remoteToken);
+      const data=await client.jobs();
+      serverJobs.replaceChildren();
+      if(!data.jobs.length)serverJobs.append(h("p",{class:"hint",text:"No active or queued server jobs."}));
+      for(const job of data.jobs){
+        const cancel=h("button",{type:"button",class:"small danger",disabled:job.cancel_requested,onclick:async()=>{
+          cancel.disabled=true;
+          try{await client.cancelJob(job.id);await refreshJobs();}
+          catch(e){cancel.disabled=false;ctx.notify(e.message,true);}
+        }},job.cancel_requested?"Cancelling…":"Cancel");
+        serverJobs.append(h("div",{class:"sim-case-row"},
+          h("div",{class:"sim-case-top"},h("strong",{class:"sim-case-name",text:job.name||job.id.slice(0,8)}),h("span",{text:job.state}),cancel),
+          h("div",{class:"hint",text:job.id.slice(0,8)+" · "+job.cpus+" CPUs · last poll "+job.last_contact_seconds+" s ago"})));
+      }
+    }catch(e){serverJobs.replaceChildren(h("p",{class:"note warn",text:e.message+" — update runner if job listing is unsupported."}));}
+  };
+  manage.append(h("button",{type:"button",class:"small",onclick:refreshJobs},"Refresh jobs"));
+  manage.addEventListener("toggle",()=>{if(manage.open)void refreshJobs();});
   const unavailable = remote ? null : OpenEMS.unsupportedReason();
   const isolationBlocked = remote ? null : isolationUnavailableReason();
   const runBtn = h("button", { type: "button", class: "primary", disabled: sim.running || !c.config || !!unavailable, onclick: () => start(ctx, false) }, sim.running ? "Running…" : sweep ? "Run case" : remote?"Run remotely":"Run in browser");
@@ -219,6 +243,7 @@ export function renderRunPanel(box, ctx) {
     h("div", { class: "sim-controls" }, h("div",{class:"sim-run-actions"},allBtn,runBtn,validateBtn,abortBtn),
       h("div",{class:"sim-run-options"},h("label",{},"Runner",runnerSelect),!remote?h("label", { class: "sim-engine" }, "Engine", engine):null,h("label",{class:"sim-threads"},"ncpu_pool",pool),h("label",{class:"sim-threads"},"ncpu_per_job",threads),parallel)),
     remote?h("div",{class:"sim-remote-settings"},h("label",{},"Runner URL",url),h("label",{},"Access token",token),h("div",{class:"sim-remote-actions"},test,connection),h("p",{class:"hint",text:"CPU threads per case: ncpu_per_job. RAM per case: solver.resources.memory_gib. The server enforces shared resource limits."})):null,
+    remote?manage:null,
     unavailable ? h("div", { class: "note warn" },
       h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
       !isolationBlocked ? h("button", { type: "button", onclick: async e => {

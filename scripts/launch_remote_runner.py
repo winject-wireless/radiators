@@ -32,7 +32,7 @@ def defaults():
         "max_cpus": max(1, min(cpus, 16)),
         "max_memory_gib": max(1, min(32, int(memory * .75))),
         "max_cells": 20000000, "max_timesteps": 2000000,
-        "timeout": 3600, "retain": 4, "tls_cert": "", "tls_key": "",
+        "timeout": 3600, "lease_timeout": 300, "retain": 4, "tls_cert": "", "tls_key": "",
     }
 
 
@@ -64,6 +64,7 @@ def server_command(cfg):
     cmd = [sys.executable, str(ROOT / "scripts/remote_runner.py")]
     for key in ("bind", "port", "image", "max_cpus", "max_memory_gib", "max_cells", "max_timesteps", "timeout", "retain"):
         cmd += ["--" + key.replace("_", "-"), str(cfg[key])]
+    cmd += ["--lease-timeout", str(cfg.get("lease_timeout", 300))]
     for origin in cfg["origins"]:
         cmd += ["--origin", origin]
     for key in ("tls_cert", "tls_key"):
