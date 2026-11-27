@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import {meshStatistics,probeDiagnostics,updateSolverDiagnostics,diagnosticWarnings} from "../js/sim/diagnostics.js";
+const m=meshStatistics([[0,.25,.250951,1],[0,1],[0,2]]);
+assert.ok(Math.abs(m[0].min_mm-.000951)<1e-12);
+assert.deepEqual(m[0].min_at_mm,[.25,.250951]);
+const p=probeDiagnostics({t:[0,1,2,3,4,5],v:[0,-4,2,3,0,1]},4);
+assert.equal(p.peak_abs,4);assert.ok(p.value.includes(-4)&&p.value.includes(3));assert.ok(p.time_s.every((x,i)=>!i||x>p.time_s[i-1]));
+const z=probeDiagnostics({t:[0,1],v:[0,0]});
+const s={};
+for(const line of ["FDTD timestep is: 1.97142e-13 s; Nyquist rate: 845","Excitation signal length is: 29064 timesteps","Max. number of timesteps: 50000","RunFDTD: simulation aborted after 15614 timesteps (-0.24dB)","Time for 15614 iterations"])updateSolverDiagnostics(s,line);
+assert.equal(s.termination,"aborted");assert.equal(s.executed_timesteps,15614);
+assert.ok(diagnosticWarnings(s,p,z).some(x=>x.includes("before excitation finished")));
+assert.ok(diagnosticWarnings(s,p,z).some(x=>x.includes("Current probe is identically zero")));
+updateSolverDiagnostics(s,"RunFDTD: end-criteria of -40dB reached after 9177 timesteps (-40.14dB)");
+assert.equal(s.termination,"converged");assert.equal(s.final_energy_db,-40.14);
+console.log("Diagnostics tests passed");

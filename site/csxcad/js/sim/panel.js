@@ -334,6 +334,7 @@ export function renderResults(box, ctx, run, caseId, stale) {
         xLabel: "GHz", yLabel: "Ω  (R, X)", hlines: [{ y: 0 }], xFmt: v => String(+v.toFixed(3)) })) : null,
       chartCard("VSWR", lineChart({ series: [{ x: f, y: r.s11.vswr.map(v => v === null ? null : Math.min(v, 10)) }], xLabel: "GHz", yLabel: "VSWR", yMin: 1, hlines: [{ y: 2, label: "2:1" }], xFmt: v => String(+v.toFixed(3)) })),
       chartCard("Smith chart", smithChart({s11:r.s11,z0,frequencyHz:smithFrequency}))),
+    diagnosticCards(r.diagnostics),
     r.patterns.length?h("div",{class:"result-section-head"},h("h3",{text:"Radiation patterns"})):null,
     ...r.patterns.map(p => patternCards(p)));
 }
@@ -361,4 +362,36 @@ function patternCards(p) {
       chartCard("φ = 0° cut (xz), angle = θ", polarChart({ series: [elevation(0, 180)], rMax, rMin: rMax - 30 })),
       chartCard("φ = 90° cut (yz), angle = θ", polarChart({ series: [elevation(90, 270)], rMax, rMin: rMax - 30 })),
       azimuth ? chartCard("θ = 90° cut (xy), angle = φ", polarChart({ series: [azimuth], rMax, rMin: rMax - 30 })) : null));
+}
+
+function diagnosticCards(d) {
+  const root=h("details",{class:"sim-pattern",open:true},h("summary",{text:"Diagnostics"}));
+  if(!d){root.append(h("p",{class:"hint",text:"This cached result predates diagnostics. Rerun to capture port waveforms and mesh statistics."}));return root;}
+  const s=d.solver??{}, v=d.voltage, i=d.current;
+  const sci=x=>Number.isFinite(x)?x.toExponential(3):"—";
+  const ns=x=>Number.isFinite(x)?(x*1e9).toFixed(3)+" ns":"—";
+  const duration=Number.isFinite(s.timestep_s)&&Number.isFinite(s.executed_timesteps)?s.timestep_s*s.executed_timesteps:null;
+  root.append(h("div",{class:"sim-kpis"},
+    kpi("FDTD timestep",Number.isFinite(s.timestep_s)?(s.timestep_s*1e15).toFixed(2)+" fs":"—"),
+    kpi("Excitation",String(s.excitation_timesteps??"—")+" steps",ns(s.timestep_s*s.excitation_timesteps)),
+    kpi("Executed",String(s.executed_timesteps??"—")+" steps",ns(duration)),
+    kpi("Termination",s.termination??"unknown",Number.isFinite(s.final_energy_db)?s.final_energy_db+" dB":""),
+    kpi("Peak voltage",sci(v?.peak_abs)+" V",String(v?.samples??0)+" samples"),
+    kpi("Peak current",sci(i?.peak_abs)+" A",String(i?.samples??0)+" samples"),
+    ...(d.mesh??[]).map(m=>kpi(m.axis.toUpperCase()+" min cell",sci(m.min_mm)+" mm",m.min_at_mm?.map(x=>x.toPrecision(8)).join(" → ")+" mm"))));
+  const plots=[];
+  for(const [label,p,unit] of [["Port voltage",v,"V"],["Port current",i,"A"]]){
+    if(p?.time_s?.length>1) plots.push(chartCard(label+(p.preview_decimated?" (min/max preview)":""),lineChart({series:[{x:p.time_s.map(t=>t*1e9),y:p.value}],xLabel:"ns",yLabel:unit})));
+  }
+  const p=d.power_spectrum;
+  if(p?.frequency_hz?.length){
+    const peak=p.incident.reduce((m,x)=>Number.isFinite(x)?Math.max(m,x):m,0);
+    if(peak>0)for(const [key,label] of [["incident","Incident"],["reflected","Reflected"],["accepted","Accepted (signed)"]]){
+      const x=p.frequency_hz.map(f=>f/1e9),y=p[key].map(v=>Number.isFinite(v)?v/peak:null);
+      if(y.some(Number.isFinite))plots.push(chartCard(label+" spectral power / peak incident",lineChart({series:[{x,y}],xLabel:"GHz",yLabel:"Ratio"})));
+    }
+  }
+  if(plots.length)root.append(h("div",{class:"sim-charts"},...plots));
+  root.append(h("p",{class:"hint",text:"Waveforms retain bucket extrema for plotting; peak and RMS use every finite probe sample. Spectral power is normalized to peak incident for display, not calibrated transmitter watts."}));
+  return root;
 }

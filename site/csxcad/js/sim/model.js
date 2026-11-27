@@ -4,6 +4,7 @@
 // Input: a resolved, script-expanded schema v2 config (see editor expandResolved()).
 import { transformer, helixPoints, hemisphereMesh, polyhedronData, rotationMatrix } from "../geometry.js";
 import { setupMesh, boundaryInfo } from "./mesh.js";
+import { meshStatistics } from "./diagnostics.js";
 
 const require = (cond, msg) => { if (!cond) throw Error(msg); };
 const positive = (v, label) => { const x = Number(v); if (typeof v === "boolean" || !Number.isFinite(x) || x <= 0) throw Error(label + " must be positive"); return x; };
@@ -287,6 +288,6 @@ ${props.join("\n")}
   return {
     xml, counts, cells, freq, patterns, theta, phi, ports: portInfo, driven,
     nf2ff: { e_file: "nf2ff_E", h_file: "nf2ff_H", start, stop, directions, mirror },
-    previews, deltaUnit: 1e-3,
+    previews, deltaUnit: 1e-3, meshStatistics: meshStatistics(grid.lines),
   };
 }

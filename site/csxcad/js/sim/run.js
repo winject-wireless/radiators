@@ -3,7 +3,9 @@
 // requested frequency (directivity, radiated power, efficiencies, realized gain).
 // `ems` is the async API of openems.js (OpenEMS in a Web Worker) or an adapter with the
 // same methods around OpenEMSCore (node tests): writeFile, readFile, list, run, nf2ff, readNf2ff.
-import { lumpedPort, nf2ffXml } from "../../vendor/openems/openems-post.js";
+import { lumpedPort, nf2ffXml, parseProbe } from "../../vendor/openems/openems-post.js";
+
+import { probeDiagnostics, updateSolverDiagnostics, diagnosticWarnings } from "./diagnostics.js";
 
 const finite = x => (Number.isFinite(x) ? x : null);
 const finiteArr = a => Array.from(a, finite);
@@ -11,7 +13,7 @@ const finiteArr = a => Array.from(a, finite);
 // openEMS can return success even when an excitation primitive was never used.
 export function solverWarning(line, drivenId) {
   const message = String(line).trim();
-  if (!/\bwarning\s*:/i.test(message)) return null;
+  if (!/\bwarning\s*[:,]/i.test(message)) return null;
   const unused = /Unused primitive.*property:\s*port_excite_(\d+)\b/i.exec(message);
   return { message, fatal: !!unused && Number(unused[1]) === Number(drivenId) };
 }
@@ -26,9 +28,11 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
   onStage?.("FDTD");
   const args = threads ? [`--numThreads=${threads}`] : [];
   const warnings = [];
+  const solver = {};
   let fatal = null;
   const run = await ems.run("model.xml", { args, engine, onProgress, onLog: (line, stream) => {
     onLog?.(line, stream);
+    updateSolverDiagnostics(solver,line);
     const warning = solverWarning(line, model.driven.id);
     if (!warning) return;
     if (!warnings.includes(warning.message)) warnings.push(warning.message);
@@ -40,12 +44,14 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
   } });
   if (fatal) throw Error(fatal);
   if (run.exitCode !== 0) throw Error(`openEMS exited with code ${run.exitCode}`);
-  const aborted = !!run.aborted;
+  const aborted = !!run.aborted || solver.termination === "aborted";
 
   // ---- port: S11, VSWR, Zin (ports.LumpedPort.CalcPort with Z_ref = R)
   onStage?.("port");
   const drv = model.driven;
   const ut = await ems.readFile(`port_ut_${drv.id}`, "utf8"), it = await ems.readFile(`port_it_${drv.id}`, "utf8");
+  const voltage = probeDiagnostics(parseProbe(ut)), current = probeDiagnostics(parseProbe(it));
+  for(const message of diagnosticWarnings(solver,voltage,current)) if(!warnings.includes(message)) warnings.push(message);
   const port = lumpedPort(ut, it, model.freq, drv.R);
   const n = model.freq.length;
   if (!port.pInc.some(v => Number.isFinite(v) && v > 0)) throw Error("No nonzero incident power at the driven port. Check feed excitation and mesh alignment.");
@@ -72,6 +78,10 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
     },
     impedance: { frequency_hz: [...model.freq], real_ohm: finiteArr(port.zin.re), imag_ohm: finiteArr(port.zin.im) },
     patterns: [],
+    diagnostics: {
+      solver, mesh: model.meshStatistics ?? [], voltage, current,
+      power_spectrum: {frequency_hz:[...model.freq], incident:finiteArr(port.pInc), reflected:finiteArr(port.pRef), accepted:finiteArr(port.pAcc)},
+    },
     solver_warnings: warnings,
     aborted,
   };
@@ -94,7 +104,10 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
     files = null;
   }
   const box = model.nf2ff;
-  for (const f of model.patterns) {
+  if (aborted || (solver.excitation_timesteps && solver.executed_timesteps < solver.excitation_timesteps)) {
+    result.postprocessing_incomplete = true;
+  }
+  for (const f of result.postprocessing_incomplete ? [] : model.patterns) {
     onStage?.(`far field ${(f / 1e9).toFixed(3)} GHz`);
     try {
     if (!files) throw Error("Near-field files unavailable");
