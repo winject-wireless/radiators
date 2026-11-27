@@ -179,6 +179,8 @@ try {
   assert.equal(await sectionCount("XY"),1);
   assert.ok(await page.locator("#probeReadout").isVisible());
   assert.match(await page.locator("#probeGain").textContent(), /-?\d+\.\d+ dBi/);
+  assert.match(await page.locator("#probeFrequency").textContent(), /2\.4500 GHz/);
+  assert.match(await page.locator("#probeFrequency").textContent(), /Radiated power \(global\) .+ W/);
   // Use the same picker callback as a click on the sampling sphere, and verify
   // that the attached translation gizmo exposes every axis.
   await page.evaluate(() => window.__csxcad.viewport.onHandle("result-probe"));

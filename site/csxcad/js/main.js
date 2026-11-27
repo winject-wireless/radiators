@@ -1033,7 +1033,7 @@ function updateProbe() {
   $("probeGain").textContent = `${probeFmt(s.gain)} dBi`;
   $("probeRealized").textContent = `${probeFmt(s.realizedGain)} dBi`;
   $("probeField").textContent = probeFmt(s.relativeField === null ? null : s.relativeField * 100,1) + "%";
-  $("probeFrequency").textContent = `${probeFmt(record.frequency_hz / 1e9,4)} GHz · P rad ${Number.isFinite(s.radiatedPower)?s.radiatedPower.toPrecision(3)+" W":"—"}`;
+  $("probeFrequency").textContent = `${probeFmt(record.frequency_hz / 1e9,4)} GHz · Radiated power (global) ${Number.isFinite(s.radiatedPower)?s.radiatedPower.toPrecision(3)+" W":"—"}`;
   $("probeEfficiency").textContent = `Radiation η ${probeFmt(s.radiationEfficiency === null ? null : s.radiationEfficiency * 100,1)}% · Mismatch η ${probeFmt(s.mismatchEfficiency === null ? null : s.mismatchEfficiency * 100,1)}%`;
 }
 function syncResults() {
