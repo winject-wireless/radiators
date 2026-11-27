@@ -6,6 +6,7 @@
 import { lumpedPort, nf2ffXml, parseProbe } from "../../vendor/openems/openems-post.js";
 
 import { probeDiagnostics, updateSolverDiagnostics, diagnosticWarnings } from "./diagnostics.js";
+import { collectDiagnostics } from "./probe-capture.js";
 
 const finite = x => (Number.isFinite(x) ? x : null);
 const finiteArr = a => Array.from(a, finite);
@@ -97,6 +98,14 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
   result.seconds = (Date.now() - t0) / 1000;
   onPartial?.({...result, patterns: [...result.patterns], solver_warnings: [...warnings]});
 
+  if(model.diagnostics?.length){
+    onStage?.("diagnostic capture");
+    result.diagnostic_probes=await collectDiagnostics(ems,model.diagnostics);
+    for(const p of result.diagnostic_probes)if(p.warning){
+      const message="Diagnostic "+p.name+": "+p.warning;warnings.push(message);onWarning?.({message,fatal:false});
+    }
+    onPartial?.({...result,patterns:[...result.patterns],solver_warnings:[...warnings]});
+  }
   // ---- far field per frequency (nf2ff.CalcNF2FF + simulate_v2's derived numbers)
   let files;
   try { files = new Set((await ems.list()).map(f => f.path)); }
