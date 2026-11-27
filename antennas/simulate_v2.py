@@ -357,6 +357,7 @@ def output_data(config, resultdir):
         "mesh_cells":counts,
         "mesh_total_cells":cells,
         "mesh_lines_mm":mesh_lines_mm,
+        "mesh_algorithm":"priority-refinement-v2",
         "port_name":driven.get("name",f"port-{driven_id}"),
         "port_id":driven_id,
         "s11":{
