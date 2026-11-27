@@ -101,10 +101,7 @@ textarea { font-family: var(--mono); font-size: 13px; line-height: 1.5; }
   display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px;
   text-decoration: none; color: var(--text); white-space: nowrap;
 }
-.brand::before {
-  content: ""; width: 22px; height: 22px; border-radius: 7px; flex: 0 0 22px;
-  background: #c9743c;
-}
+.brand-logo { display: block; width: 30px; height: 30px; flex: 0 0 30px; object-fit: contain; }
 .brand::after { content: "CSXCAD"; color: var(--muted); font-weight: 600; margin-left: -2px; }
 .docname { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding-left: 6px; margin-left: 4px; border-left: 1px solid var(--line-2); }
 .docname input { flex: 1; min-width: 60px; max-width: 420px; font-weight: 600; background: transparent; border-color: transparent; }
@@ -708,7 +705,7 @@ textarea,.field.expr input,.vec3 .field input { font-size:var(--ui-text); }
   .top-actions .button,.top-actions button { min-width:var(--tap); min-height:var(--tap); padding:3px 5px; }
   .docname { gap:4px; }
   .docname input { font-size:var(--ui-title); min-height:var(--field-h); }
-  .brand::before { width:18px;height:18px;flex-basis:18px;border-radius:5px; }
+  .brand-logo { width:28px;height:28px;flex-basis:28px; }
   .panel,.dock-panel,.dock .panel { border-radius:12px 12px 0 0; }
   .panel-head { min-height:40px;padding:12px calc(6px + var(--safe-r)) 3px calc(8px + var(--safe-l));gap:5px; }
   .panel-head::before { top:4px;width:30px;height:3px;margin-left:-15px; }

@@ -415,6 +415,10 @@ try {
       assert.ok(layout.workspaceBottom<=layout.top+1,"Workspace overlaps mobile nav");
     };
     await assertNavVisible();
+    const brand = mobilePage.locator(".topbar .brand");
+    assert.equal(await brand.evaluate(el=>el.tagName),"DIV","Brand must not navigate to the old viewer");
+    await mobilePage.waitForFunction(()=>{const img=document.querySelector(".brand-logo");return img?.complete&&img.naturalWidth>0;});
+    assert.ok((await mobilePage.locator(".brand-logo").boundingBox()).width>=24,"Mobile logo too small");
     // Reproduce an installed app whose visible viewport is smaller than the CSS viewport.
     await mobilePage.evaluate(()=>{
       Object.defineProperty(visualViewport,"height",{configurable:true,get:()=>innerHeight-48});
