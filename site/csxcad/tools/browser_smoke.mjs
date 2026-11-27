@@ -436,6 +436,28 @@ try {
     assert.equal(fonts.hint,12);
     assert.equal(await mobilePage.locator(".sim-run-actions").getByRole("button",{name:"Stop",exact:true}).isVisible(),false);
     assert.match(await mobilePage.locator(".editor-build").textContent(),/^Build [0-9a-f]{12}$/);
+    // JSON validation must not resize the editor or steal focus on a phone.
+    await mobilePage.locator("#menuButton").click();
+    await mobilePage.locator('[data-action="json"]').click();
+    await mobilePage.waitForFunction(()=>document.querySelector("#panelJson .CodeMirror")?.CodeMirror);
+    const jsonSnapshot=()=>mobilePage.evaluate(()=>{
+      const el=document.querySelector("#panelJson .CodeMirror"), cm=el.CodeMirror;
+      return {height:el.getBoundingClientRect().height, value:cm.getValue(), focus:cm.hasFocus(), cursor:cm.getCursor(), scroll:cm.getScrollInfo().top};
+    });
+    await mobilePage.evaluate(()=>{const cm=document.querySelector("#panelJson .CodeMirror").CodeMirror; cm.focus(); cm.setCursor({line:0,ch:0});});
+    const beforeJson=await jsonSnapshot();
+    await mobilePage.evaluate(()=>{const cm=document.querySelector("#panelJson .CodeMirror").CodeMirror;cm.replaceRange("!",{line:0,ch:0},undefined,"+input");});
+    await mobilePage.waitForFunction(()=>document.querySelector("#jsonStatus").classList.contains("error"));
+    const invalidJson=await jsonSnapshot();
+    assert.equal(invalidJson.height,beforeJson.height,"JSON validation resized the editor");
+    assert.ok(invalidJson.focus,"JSON validation stole editor focus");
+    assert.equal(invalidJson.value,"!"+beforeJson.value);
+    assert.equal(await mobilePage.locator("#jsonApply").isDisabled(),true);
+    await mobilePage.evaluate(()=>document.querySelector("#panelJson .CodeMirror").CodeMirror.undo());
+    await mobilePage.waitForFunction(()=>!document.querySelector("#jsonStatus").classList.contains("error"));
+    assert.equal((await jsonSnapshot()).value,beforeJson.value);
+    assert.equal((await jsonSnapshot()).height,beforeJson.height);
+    await mobilePage.locator("#panelJson .sheet-close").click();
     // The example picker contains long multiline names and descriptions.
     // Verify no flex shrink or text spill, even beyond the scroll viewport.
     await mobilePage.locator("#menuButton").click();

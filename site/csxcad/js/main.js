@@ -2123,6 +2123,7 @@ function renderChecks() {
 
 // ---------------------------------------------------------------- JSON panel
 let jsonEditor = null, jsonLoading = null, jsonSync = false;
+let jsonResizeObserver = null, jsonResizeFrame = 0, jsonLastSize = "", jsonComposing = false;
 let jsonDraft = null, jsonBase = null, jsonValidationTimer = 0;
 const jsonValue = () => jsonEditor?.cm ? jsonEditor.cm.getValue() : $("jsonText").value;
 function validateJson() {
@@ -2134,10 +2135,13 @@ function validateJson() {
     if (source) normalizeDoc(parsed);
   } catch (e) { error = e.message; }
   status.classList.toggle("error", !!error);
-  status.textContent = error ? error : source ? (jsonDraft !== null ? "Valid configuration · unapplied edits" : "Valid configuration") : "Resolved case · read-only";
+  const message = error ? error : source ? (jsonDraft !== null ? "Valid configuration · unapplied edits" : "Valid configuration") : "Resolved case · read-only";
+  if (status.textContent !== message) status.textContent = message;
+  status.title = message;
   $("jsonApply").disabled = !!error || jsonDraft === null;
   $("jsonFormat").disabled = !source || !!error;
-  $("jsonDiscard").hidden = jsonDraft === null || !source;
+  $("jsonDiscard").hidden = !source;
+  $("jsonDiscard").disabled = jsonDraft === null;
 }
 function jsonChanged(value) {
   if (jsonSync || state.jsonMode !== "source") return;
@@ -2152,14 +2156,36 @@ function ensureJsonEditor() {
     onChange: (value, blur) => { if (!blur) jsonChanged(value); }
   }).then(editor => {
     jsonEditor = editor;
-    editor.cm?.getInputField().setAttribute("aria-label", "Configuration JSON");
+    const cm = editor.cm;
+    if (cm) {
+      const input = cm.getInputField();
+      for (const [name, value] of Object.entries({ "aria-label": "Configuration JSON", spellcheck: "false", autocorrect: "off", autocapitalize: "off", autocomplete: "off" })) input.setAttribute(name, value);
+      input.addEventListener("compositionstart", () => { jsonComposing = true; });
+      input.addEventListener("compositionend", () => { jsonComposing = false; refreshJsonEditor(); });
+      input.addEventListener("blur", () => { jsonComposing = false; refreshJsonEditor(); });
+      if (window.ResizeObserver) {
+        jsonResizeObserver = new ResizeObserver(refreshJsonEditor);
+        jsonResizeObserver.observe(cm.getWrapperElement());
+      }
+    }
     renderJson(true);
     refreshJsonEditor();
   });
 }
 function refreshJsonEditor() {
-  requestAnimationFrame(() => jsonEditor?.refresh());
-  setTimeout(() => jsonEditor?.refresh(), 280);
+  if (jsonResizeFrame) return;
+  jsonResizeFrame = requestAnimationFrame(() => {
+    jsonResizeFrame = 0;
+    const cm = jsonEditor?.cm;
+    if (!cm || jsonComposing) return;
+    const el = cm.getWrapperElement();
+    const { width, height } = el.getBoundingClientRect();
+    if (!width || !height || getComputedStyle(el).visibility === "hidden") { jsonLastSize = ""; return; }
+    const size = width + ":" + height;
+    if (size === jsonLastSize) return;
+    jsonLastSize = size;
+    cm.refresh();
+  });
 }
 function setJsonMax(on) {
   document.body.classList.toggle("json-max", on);
@@ -2732,9 +2758,11 @@ async function boot() {
       validateJson();
     } catch (e) { validateJson(); }
   });
-  if (window.ResizeObserver) new ResizeObserver(() => jsonEditor?.refresh()).observe($("jsonText").parentElement);
   document.addEventListener("keydown", e => {
     const typing = e.target.closest("input, textarea, select, [contenteditable], .CodeMirror");
+    // JSON editing owns its keystrokes, including Android IME composition.
+    if (e.isComposing || jsonComposing) return;
+    if (typing && e.target.closest("#panelJson") && !((e.ctrlKey || e.metaKey) && e.key === "Enter")) return;
     if (e.key === "Escape" && document.body.classList.contains("json-max") && !e.defaultPrevented) { setJsonMax(false); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && e.target.closest("#panelJson") && state.jsonMode === "source") {
       e.preventDefault(); applyJson(); return;
@@ -2753,11 +2781,14 @@ async function boot() {
     else if (e.key === "f" || e.key === "F") viewport?.view("fit");
   });
   // Drag & drop a JSON file anywhere.
-  document.addEventListener("dragover", e => e.preventDefault());
+  document.addEventListener("dragover", e => {
+    if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+  });
   document.addEventListener("drop", async e => {
-    e.preventDefault();
     const f = e.dataTransfer?.files?.[0];
-    if (f) openFromText(await f.text(), f.name);
+    if (!f) return; // Leave ordinary text/selection drag and drop to CodeMirror.
+    e.preventDefault();
+    openFromText(await f.text(), f.name);
   });
 
   // Initial document: ?example=<file>, else local draft, else starter.

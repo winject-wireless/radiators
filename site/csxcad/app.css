@@ -990,7 +990,9 @@ dialog .example-list > button { padding:7px 9px; gap:3px; }
   color: var(--text); font-family: var(--mono); font-size: 13px; line-height: 1.55;
 }
 #jsonText { white-space: pre-wrap; }
-.json-status { font-size: var(--ui-small); color: var(--muted); max-height: 3.5em; overflow: auto; overflow-wrap: anywhere; }
+.json-status { font-size: var(--ui-small); color: var(--muted); line-height: 1.35; height: 2.7em; overflow: auto; overflow-wrap: anywhere; }
+.json-body .CodeMirror [contenteditable] { outline: none; }
+.json-body .CodeMirror textarea { min-height: 0; padding: 0; border: 0; box-shadow: none; outline: none; }
 .json-status.error { color: #e16c73; }
 body.json-max #panelJson {
   position: fixed; z-index: 45; top: calc(52px + var(--safe-t)); left: var(--gap); right: var(--gap); bottom: var(--gap);
