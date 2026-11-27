@@ -977,3 +977,29 @@ dialog .example-list > button { padding:7px 9px; gap:3px; }
 .refinement-disabled {border-style:dashed;}
 .refinement-disabled .refinement-name {color:var(--muted);}
 .refinement-disabled .refinement-name .swatch {opacity:.3;}
+
+/* JSON source editor: same vendored CodeMirror theme as geometry scripts. */
+.json-body { min-width: 0; overflow: hidden; }
+.json-actions, .json-tools, .json-status { flex-shrink: 0; }
+.json-tools { display: flex; flex-wrap: wrap; gap: 5px; }
+.json-tools button[aria-pressed="true"] { background: var(--panel-3); color: var(--text); }
+.json-tools [hidden], .json-actions [hidden] { display: none; }
+.json-body .CodeMirror, #jsonText {
+  flex: 1 1 0; min-height: 0; min-width: 0; width: 100%; height: auto;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--field);
+  color: var(--text); font-family: var(--mono); font-size: 13px; line-height: 1.55;
+}
+#jsonText { white-space: pre-wrap; }
+.json-status { font-size: var(--ui-small); color: var(--muted); max-height: 3.5em; overflow: auto; overflow-wrap: anywhere; }
+.json-status.error { color: #e16c73; }
+body.json-max #panelJson {
+  position: fixed; z-index: 45; top: calc(52px + var(--safe-t)); left: var(--gap); right: var(--gap); bottom: var(--gap);
+  border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: var(--shadow); background: var(--panel);
+}
+body.json-max #panelJson .panel-head.sheet-only { display: flex; }
+@media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
+  body.json-max #panelJson { position: absolute; inset: 0; height: auto; border-radius: 0; }
+  .json-tools button { min-height: 34px; }
+  .json-body .CodeMirror, #jsonText { font-size: 14px; }
+}
+@media (min-width: 761px) and (min-height: 521px) { body.json-max #panelJson .sheet-close { display: none; } }

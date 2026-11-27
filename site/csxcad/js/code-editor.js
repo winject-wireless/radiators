@@ -84,20 +84,21 @@ function scriptHint(cm) {
 }
 
 // Turn `textarea` into a code editor. Returns { refresh, focus } (no-ops for the fallback).
-export async function upgradeTextarea(textarea, { readOnly = false, onChange } = {}) {
+export async function upgradeTextarea(textarea, { readOnly = false, onChange, json = false } = {}) {
   let CM;
   try { CM = await loadCodeMirror(); } catch { return { refresh() {}, focus() { textarea.focus(); } }; }
   if (!textarea.isConnected) return { refresh() {}, focus() {} };
   const cm = CM.fromTextArea(textarea, {
-    mode: "javascript", theme: "csx", lineNumbers: true, indentUnit: 2, tabSize: 2, indentWithTabs: false,
-    matchBrackets: true, autoCloseBrackets: true, styleActiveLine: true, readOnly, lineWrapping: false,
+    mode: json ? { name: "javascript", json: true } : "javascript", theme: "csx", lineNumbers: true, indentUnit: 2, tabSize: 2, indentWithTabs: false,
+    matchBrackets: true, autoCloseBrackets: true, styleActiveLine: true, readOnly, lineWrapping: json,
     extraKeys: {
-      "Ctrl-Space": "autocomplete", "Cmd-Space": "autocomplete", "Ctrl-/": "toggleComment", "Cmd-/": "toggleComment",
+      ...(json ? {} : { "Ctrl-Space": "autocomplete", "Cmd-Space": "autocomplete", "Ctrl-/": "toggleComment", "Cmd-/": "toggleComment" }),
       Tab: c => c.somethingSelected() ? c.indentSelection("add") : c.replaceSelection("  "),
       "Shift-Tab": c => c.indentSelection("subtract"),
     },
-    hintOptions: { hint: scriptHint, completeSingle: false },
+    ...(json ? {} : { hintOptions: { hint: scriptHint, completeSingle: false } }),
   });
+  if (!json && !readOnly) {
   cm.on("inputRead", (c, change) => {
     if (!c.state.completionActive && /[\w.$"']$/.test(change.text.join(""))) c.showHint({ completeSingle: false });
   });
@@ -105,6 +106,7 @@ export async function upgradeTextarea(textarea, { readOnly = false, onChange } =
   cm.on("keyup", (c, e) => {
     if ((e.key === '"' || e.key === "'") && !c.state.completionActive) c.showHint({ completeSingle: false });
   });
+  }
   if (onChange) {
     cm.on("change", () => onChange(cm.getValue(), false));
     cm.on("blur", () => onChange(cm.getValue(), true));

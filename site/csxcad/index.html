@@ -174,7 +174,14 @@
           </div>
           <button id="jsonApply" class="primary">Apply</button>
         </div>
+        <div class="json-tools">
+          <button id="jsonFormat" type="button">Format</button>
+          <button id="jsonWrap" type="button" aria-pressed="true">Wrap</button>
+          <button id="jsonMax" type="button" aria-pressed="false">Expand</button>
+          <button id="jsonDiscard" type="button" hidden>Discard edits</button>
+        </div>
         <textarea id="jsonText" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Configuration JSON"></textarea>
+        <div id="jsonStatus" class="json-status" role="status" aria-live="polite"></div>
       </div>
     </div>
   </section>

@@ -263,6 +263,7 @@ function normalizeDoc(cfg) {
 
 function loadDoc(cfg, message) {
   state.doc = normalizeDoc(cfg);
+  jsonDraft = jsonBase = null;
   clearResults();
   for (const [k, v] of scriptRT.cache) if (!v.ok && /^timed out/.test(v.error)) scriptRT.cache.delete(k); // retry slow scripts
   state.sel = null; // open showing the whole model; selecting a part fades the rest
@@ -272,6 +273,7 @@ function loadDoc(cfg, message) {
   if (viewport) viewport._fitted = false;
   persist();
   refresh();
+  renderJson(true);
   if (message) setStatus(message);
 }
 
@@ -2119,24 +2121,94 @@ function renderChecks() {
 }
 
 // ---------------------------------------------------------------- JSON panel
+let jsonEditor = null, jsonLoading = null, jsonSync = false;
+let jsonDraft = null, jsonBase = null, jsonValidationTimer = 0;
+const jsonValue = () => jsonEditor?.cm ? jsonEditor.cm.getValue() : $("jsonText").value;
+function validateJson() {
+  clearTimeout(jsonValidationTimer);
+  const status = $("jsonStatus"), source = state.jsonMode === "source";
+  let error = "";
+  try {
+    const parsed = JSON.parse(jsonValue());
+    if (source) normalizeDoc(parsed);
+  } catch (e) { error = e.message; }
+  status.classList.toggle("error", !!error);
+  status.textContent = error ? error : source ? (jsonDraft !== null ? "Valid configuration · unapplied edits" : "Valid configuration") : "Resolved case · read-only";
+  $("jsonApply").disabled = !!error || jsonDraft === null;
+  $("jsonFormat").disabled = !source || !!error;
+  $("jsonDiscard").hidden = jsonDraft === null || !source;
+}
+function jsonChanged(value) {
+  if (jsonSync || state.jsonMode !== "source") return;
+  if (jsonDraft === null) jsonBase = JSON.stringify(state.doc);
+  jsonDraft = value === JSON.stringify(state.doc, null, 2) ? null : value;
+  clearTimeout(jsonValidationTimer);
+  jsonValidationTimer = setTimeout(validateJson, 150);
+}
+function ensureJsonEditor() {
+  if (jsonLoading) return;
+  jsonLoading = upgradeTextarea($("jsonText"), { json: true, readOnly: state.jsonMode !== "source",
+    onChange: (value, blur) => { if (!blur) jsonChanged(value); }
+  }).then(editor => {
+    jsonEditor = editor;
+    editor.cm?.getInputField().setAttribute("aria-label", "Configuration JSON");
+    renderJson(true);
+    refreshJsonEditor();
+  });
+}
+function refreshJsonEditor() {
+  requestAnimationFrame(() => jsonEditor?.refresh());
+  setTimeout(() => jsonEditor?.refresh(), 280);
+}
+function setJsonMax(on) {
+  document.body.classList.toggle("json-max", on);
+  $("jsonMax").setAttribute("aria-pressed", String(on));
+  $("jsonMax").textContent = on ? "Restore" : "Expand";
+  if (mobile()) document.body.classList.toggle("sheet-tall", on);
+  refreshJsonEditor();
+  syncViewInset();
+}
 function renderJson(force = false) {
-  const ta = $("jsonText");
-  if (!force && document.activeElement === ta) return;
-  if (!force && ta.dataset.dirty === "1") return;
+  const ta = $("jsonText"), cm = jsonEditor?.cm, source = state.jsonMode === "source";
+  if (!force && source && (jsonDraft !== null || cm?.hasFocus() || document.activeElement === ta)) return;
   const d = state.derived;
-  $("jsonSource").setAttribute("aria-pressed", String(state.jsonMode === "source"));
-  $("jsonResolved").setAttribute("aria-pressed", String(state.jsonMode === "resolved"));
-  $("jsonApply").hidden = state.jsonMode !== "source";
-  ta.readOnly = state.jsonMode !== "source";
-  if (state.jsonMode === "source") ta.value = JSON.stringify(state.doc, null, 2);
+  if (!d) return;
+  $("jsonSource").setAttribute("aria-pressed", String(source));
+  $("jsonResolved").setAttribute("aria-pressed", String(!source));
+  $("jsonApply").hidden = !source;
+  $("jsonFormat").hidden = !source;
+  ta.readOnly = !source;
+  let value;
+  if (source) value = jsonDraft ?? JSON.stringify(state.doc, null, 2);
   else {
     try {
       const ex = expandResolved(resolveCase(state.doc, d.case.parameters));
-      ta.value = ex.cfg ? JSON.stringify(ex.cfg, null, 2) : "// " + (ex.error || "Geometry scripts are still running…");
+      value = ex.cfg ? JSON.stringify(ex.cfg, null, 2) : "// " + (ex.error || "Geometry scripts are still running…");
     }
-    catch (e) { ta.value = "// " + e.message; }
+    catch (e) { value = "// " + e.message; }
   }
-  ta.dataset.dirty = "0";
+  jsonSync = true;
+  try {
+    if (cm) {
+      cm.setOption("readOnly", !source);
+      cm.setOption("lineWrapping", $("jsonWrap").getAttribute("aria-pressed") === "true");
+      if (cm.getValue() !== value) { cm.setValue(value); cm.clearHistory(); }
+    }
+    ta.value = value;
+  } finally { jsonSync = false; }
+  validateJson();
+}
+function applyJson() {
+  if (state.jsonMode !== "source") return;
+  try {
+    const next = normalizeDoc(JSON.parse(jsonValue()));
+    if (jsonDraft !== null && jsonBase !== JSON.stringify(state.doc) &&
+        !window.confirm("The model changed after you started editing JSON. Replace it with your JSON draft?")) return;
+    if (!edit(doc => { Object.keys(doc).forEach(k => delete doc[k]); Object.assign(doc, next); fixSelection(); })) return;
+    jsonDraft = jsonBase = null;
+    renderJson(true);
+    setStatus("JSON applied");
+  } catch (e) { validateJson(); setStatus("Invalid JSON: " + e.message, true); }
 }
 
 // Case names show only swept values; the full parameter set is available in
@@ -2409,7 +2481,8 @@ function openSheet(name, { peek = false } = {}) {
   document.body.classList.remove("sheet-tall");
   document.body.classList.toggle("sheet-peek", peek);
   if (name === "scripts") setTimeout(() => scriptEditor?.refresh(), 280); // after the sheet slides in
-  if (name === "json") renderJson(true);
+  if (name === "json") { renderJson(true); ensureJsonEditor(); refreshJsonEditor(); }
+  else if (document.body.classList.contains("json-max")) setJsonMax(false);
   for (const b of document.querySelectorAll(".mobile-nav button")) b.classList.toggle("active", b.dataset.sheet === name);
   for (const p of document.querySelectorAll(".dock-panel")) p.hidden = false;
   showChip();
@@ -2424,6 +2497,7 @@ function syncViewInset() {
 }
 function closeSheet(fromPop = false) {
   if (!document.body.dataset.sheet) return;
+  if (document.body.classList.contains("json-max")) setJsonMax(false);
   if (state.scriptMax) { state.scriptMax = false; document.body.classList.remove("script-max"); }
   if (state.simMax) { state.simMax = false; document.body.classList.remove("sim-max"); }
   document.body.dataset.sheet = "";
@@ -2441,7 +2515,8 @@ function setDock(name) {
   for (const t of document.querySelectorAll(".dock-tabs [role=tab]")) t.setAttribute("aria-selected", String(t.dataset.dock === name));
   for (const p of document.querySelectorAll(".dock-panel")) p.hidden = p.dataset.dockName !== name;
   if (name === "scripts") requestAnimationFrame(() => scriptEditor?.refresh()); // CodeMirror measures 0 while hidden
-  if (name === "json") renderJson(true);
+  if (name === "json") { renderJson(true); ensureJsonEditor(); refreshJsonEditor(); }
+  else if (document.body.classList.contains("json-max")) setJsonMax(false);
 }
 // Desktop-only splitter. Store requested height separately from the current
 // viewport clamp, so changing window size does not destroy the user's preference.
@@ -2635,18 +2710,34 @@ async function boot() {
   installResultSwipe();
   $("jsonSource").addEventListener("click", () => { state.jsonMode = "source"; renderJson(true); });
   $("jsonResolved").addEventListener("click", () => { state.jsonMode = "resolved"; renderJson(true); });
-  $("jsonText").addEventListener("input", () => { $("jsonText").dataset.dirty = "1"; });
-  $("jsonApply").addEventListener("click", () => {
-    try {
-      const next = normalizeDoc(JSON.parse($("jsonText").value));
-      edit(doc => { Object.keys(doc).forEach(k => delete doc[k]); Object.assign(doc, next); fixSelection(); });
-      $("jsonText").dataset.dirty = "0";
-      renderJson(true);
-      setStatus("JSON applied");
-    } catch (e) { setStatus("Invalid JSON: " + e.message, true); }
+  $("jsonText").addEventListener("input", () => jsonChanged($("jsonText").value));
+  $("jsonApply").addEventListener("click", applyJson);
+  $("jsonDiscard").addEventListener("click", () => { jsonDraft = jsonBase = null; renderJson(true); });
+  $("jsonWrap").addEventListener("click", () => {
+    const wrap = $("jsonWrap").getAttribute("aria-pressed") !== "true";
+    $("jsonWrap").setAttribute("aria-pressed", String(wrap));
+    jsonEditor?.cm?.setOption("lineWrapping", wrap);
+    $("jsonText").wrap = wrap ? "soft" : "off";
+    $("jsonText").style.whiteSpace = wrap ? "pre-wrap" : "pre";
   });
+  $("jsonMax").addEventListener("click", () => setJsonMax(!document.body.classList.contains("json-max")));
+  $("jsonFormat").addEventListener("click", () => {
+    if (state.jsonMode !== "source") return;
+    try {
+      const formatted = JSON.stringify(JSON.parse(jsonValue()), null, 2);
+      const cm = jsonEditor?.cm;
+      if (cm) cm.replaceRange(formatted, { line: 0, ch: 0 }, cm.posFromIndex(cm.getValue().length), "+format");
+      else { $("jsonText").value = formatted; jsonChanged(formatted); }
+      validateJson();
+    } catch (e) { validateJson(); }
+  });
+  if (window.ResizeObserver) new ResizeObserver(() => jsonEditor?.refresh()).observe($("jsonText").parentElement);
   document.addEventListener("keydown", e => {
     const typing = e.target.closest("input, textarea, select, [contenteditable], .CodeMirror");
+    if (e.key === "Escape" && document.body.classList.contains("json-max") && !e.defaultPrevented) { setJsonMax(false); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && e.target.closest("#panelJson") && state.jsonMode === "source") {
+      e.preventDefault(); applyJson(); return;
+    }
     // Esc leaves the maximized editor, unless the editor used it (e.g. to close the autocomplete list).
     if (e.key === "Escape" && state.scriptMax && !e.defaultPrevented) { setScriptMax(false); return; }
     if (e.key === "Escape" && state.simMax && !e.defaultPrevented) { setSimMax(false); return; }
