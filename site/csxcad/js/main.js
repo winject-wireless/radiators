@@ -680,13 +680,26 @@ function computeHandles() {
     // Point arguments of a script instance get the same 3-axis handles as primitive positions.
     const g = state.doc.geometry[s.index], rg = d.geometry[s.index];
     const sp = specFor(g.script);
-    if (!sp.spec || state.hidden.has(s.index)) return out;
+    if (!rg || state.hidden.has(s.index)) return out;
+    let xf;
+    try {
+      const fwd = transformer(rg);
+      const m = rotationMatrix(rg.transform?.rotate_deg || [0,0,0]);
+      const t = rg.transform?.translate || [0,0,0];
+      const inv = w => { const q=V.sub(w,t); return [0,1,2].map(c=>m[0][c]*q[0]+m[1][c]*q[1]+m[2][c]*q[2]); };
+      const dir = v => m.map(row=>V.dot(row,v));
+      xf = {fwd,inv,dir,rotated:(rg.transform?.rotate_deg || []).some(Boolean)};
+      const path = ["geometry",s.index,"transform","translate"];
+      point(path,t,g.transform?.translate ?? [0,0,0],identity);
+      if(!g.transform?.translate) out.get(handleKey(path)).init=[0,0,0];
+    } catch { return out; }
+    if (!sp.spec) return out;
     const val = k => rg?.args?.[k] ?? sp.spec[k]?.default;
     for (const [key, dd] of Object.entries(sp.spec)) {
       const path = ["geometry", s.index, "args", key];
       const raw = g.args?.[key];
       if (dd.type === "point") {
-        point(path, val(key), raw === undefined ? [0, 0, 0] : raw, identity);
+        point(path, val(key), raw === undefined ? [0, 0, 0] : raw, xf);
         const hd = out.get(handleKey(path));
         if (hd && raw === undefined) hd.init = dd.default;
         if (hd && dd.step) hd.snap = dd.step;
@@ -699,7 +712,7 @@ function computeHandles() {
         const dir = dd.handle.perp ? V.perp(dir0) : V.unit(dir0), k = dd.handle.scale;
         const snapV = t => dd.step ? Math.round(t * k / dd.step) * dd.step : t * k;
         const fmtV = t => dd.type === "length" ? fmtLen(snapV(t)) : String(+snapV(t).toPrecision(5));
-        scalar(key, path, raw === undefined ? 0 : raw, identity, from, dir, val(key) / k,
+        scalar(key, path, raw === undefined ? 0 : raw, xf, from, dir, val(key) / k,
           t => { const v = snapV(t); return (dd.min === undefined ? v > 0 : v >= dd.min) && (dd.max === undefined || v <= dd.max) ? v : null; },
           t => `${dd.label} ${fmtV(t)}`);
       }
@@ -1266,21 +1279,13 @@ function inspectGeometry(box, title, i) {
 
 const LEGACY_SHAPES = new Set(["helix", "hemisphere", "hemispherical_shell"]);
 function convertHemisphere(i) {
-  const rg = state.derived.geometry[i];
   edit(doc => {
     const g = doc.geometry[i];
-    const args = { radius: g.radius, material: g.material };
+    const args = { center:g.center, radius: g.radius, material: g.material };
     if (g.shape === "hemispherical_shell") args.thickness = g.thickness;
-    const t = g.transform;
-    if (t && (t.rotate_deg || t.translate)) {
-      // The script has no transform: carry orientation and position into center/axis (resolved values).
-      const fwd = transformer(rg), m = rotationMatrix(rg.transform?.rotate_deg || [0, 0, 0]);
-      args.center = fwd(rg.center).map(v => +v.toFixed(9));
-      args.axis = [m[0][2], m[1][2], m[2][2]].map(v => +v.toFixed(12));
-      setStatus("Transform folded into center and axis (resolved values)");
-    } else args.center = g.center;
     const out = { name: g.name, script: "hemisphere", args };
     if (g.priority !== undefined) out.priority = g.priority;
+    if (g.transform) out.transform = clone(g.transform);
     doc.geometry[i] = out;
   });
 }
@@ -1293,7 +1298,7 @@ function convertHelix(i) {
     if (g.segments_per_turn !== undefined) args.segments_per_turn = g.segments_per_turn;
     const out = { name: g.name, script: "helix", args };
     if (g.priority !== undefined) out.priority = g.priority;
-    if (g.transform) setStatus("Note: the helix transform was dropped; place the coil with origin and axis", true);
+    if (g.transform) out.transform = clone(g.transform);
     doc.geometry[i] = out;
   });
 }
@@ -1312,6 +1317,7 @@ function inspectScriptInstance(box, title, i) {
   title.replaceChildren(g.name || g.script);
   $("inspectActions").append(
     iconBtn("copy", "Duplicate (Ctrl+D)", () => duplicate("geometry", i)),
+    iconBtn("array", "Array…", () => arrayDialog(i)),
     iconBtn("up", "Move up", () => move("geometry", i, -1), { disabled: i === 0 }),
     iconBtn("down", "Move down", () => move("geometry", i, 1), { disabled: i === state.doc.geometry.length - 1 }),
     iconBtn("trash", "Delete", () => remove("geometry", i), { danger: true }));
@@ -1328,6 +1334,16 @@ function inspectScriptInstance(box, title, i) {
     h("div", { class: "row" }, h("span", { class: "lbl", text: "Primitive" }),
       h("div", { class: "prim-row" }, h("span", { class: "prim-chip", text: `Script · ${g.script}` }),
         h("button", { type: "button", class: "small", onclick: () => { state.scriptSel = g.script; renderScripts(); openSheet("scripts"); } }, "Edit script"))));
+  // Placement belongs to the instance, not to its script-defined arguments.
+  const transformField = (key,label,unit) => {
+    const path=[...base,"transform",key];
+    return row(label,vec3Field(path,{label,unit,defaults:[0,0,0],prepare:doc=>{
+      if(!Array.isArray(getPath(doc,path)))setPath(doc,path,[0,0,0]);
+    }}));
+  };
+  add(box,transformField("translate","Translate","mm"),transformField("rotate_deg","Rotate","°"),
+    h("p",{class:"hint",text:"Group transform: rotate X → Y → Z about the local origin, then translate."}),
+    g.transform ? h("div",{class:"actions"},h("button",{type:"button",class:"small",onclick:()=>edit(doc=>{delete doc.geometry[i].transform;})},"Clear transform")):null);
   if (sp.pending) { add(box, h("p", { class: "hint", text: "Loading script…" })); return; }
   if (sp.error) { add(box, h("div", { class: "note warn", text: `Script ${g.script}: ${sp.error}` })); return; }
   // `more: true` arguments sit under "More" unless the object sets a non-default value.
