@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluate, parameterSets, resolveCase, fieldToValue, valueToField, renameParameter, sweepValues, parseUnitField, formatUnitField, normalizeWorkspaceUnits, resolveTemplate } from "./js/params.js";
-import { tessellate, solverBounds, displayBounds, helixPoints } from "./js/geometry.js";
+import { tessellate, solverBounds, displayBounds, helixPoints, transformer } from "./js/geometry.js";
 import { checkCase } from "./js/checks.js";
 import { STARTER, SHAPES } from "./js/schema.js";
 import { expandScripts, scriptBody, SCRIPT_TEMPLATE, normalizeSpec } from "./js/scriptcore.js";
@@ -152,6 +152,23 @@ assert.deepEqual(tpl.geometry.map(g => g.name), ["arr/rod1", "arr/rod2", "arr/ro
 for (const g of tpl.geometry) assert.ok(tessellate(g).indices.length > 0);
 assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIPT_TEMPLATE } },
   geometry: [{ name: "arr", script: "t", args: { count: 0 } }] }, editorRun), /count must be ≥ 1/);
+
+// Script placement composes parent and emitted primitive transforms, including
+// gimbal lock. Both browser and native expansion use normalizeObjects.
+{
+  const source = 'const args = {}; function generate() { return [{shape:"cylinder",material:"m",start:[1,2,3],stop:[1,2,5],radius:1,transform:{rotate_deg:[12,15,60],translate:[1,2,3]}}]; }';
+  const instance = {name:"group",script:"test",transform:{rotate_deg:[17,35,-22],translate:[2,4,6]}};
+  const config = {materials:[{name:"m",type:"pec"}],scripts:{test:{source}},geometry:[instance]};
+  const expanded = expandScripts(config,editorRun).geometry[0];
+  const local = {transform:{rotate_deg:[12,15,60],translate:[1,2,3]}};
+  for (const p of [[1,2,3],[0,0,0],[-4,7,8]]) {
+    const expected = transformer(instance)(transformer(local)(p));
+    const actual = transformer(expanded)(p);
+    actual.forEach((v,i)=>assert.ok(Math.abs(v-expected[i])<1e-9));
+  }
+  const plain = expandScripts({...config,geometry:[{...instance,transform:undefined}]},editorRun).geometry[0];
+  assert.deepEqual(plain.transform,local.transform);
+}
 
 // Presentation keys are validated and kept
 {
