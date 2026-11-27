@@ -801,6 +801,9 @@ body.dock-collapsed .workspace {grid-template-rows:minmax(0,1fr) 48px;}
 .kpi-value {font-size:15px;overflow-wrap:anywhere;}
 .kpi-label,.kpi-sub {font-size:11px;line-height:1.3;}
 .sim-charts {grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr));gap:6px;margin:0;}
+@media (min-width:1101px) {
+  .sim-charts {grid-template-columns:repeat(3,minmax(0,1fr));}
+}
 .sim-polars {grid-template-columns:repeat(auto-fit,minmax(min(175px,100%),1fr));gap:6px;margin:0;}
 .chart-card {min-width:0;padding:4px 5px;}
 .chart-card figcaption {font-size:var(--ui-small);margin-bottom:1px;}
