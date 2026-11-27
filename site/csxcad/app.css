@@ -908,3 +908,35 @@ dialog .example-list > button { padding:7px 9px; gap:3px; }
 .tree-row.tree-disabled .object-enable { color: var(--faint); }
 .tree-disabled .nm { opacity: .5; text-decoration: line-through; }
 .tree-disabled .kind { opacity: .7; }
+
+/* Compact sweep dashboard: status and progress stay attached to each case. */
+.sim-remote-settings {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0;padding:9px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--panel);}
+.sim-remote-settings label {display:grid;gap:4px;font-size:var(--ui-small);color:var(--muted);min-width:0;}
+.sim-remote-settings label input {width:100%;color:var(--text);}
+.sim-remote-settings .hint,.sim-remote-actions {grid-column:1/-1;margin:0;}
+.sim-remote-actions {display:flex;align-items:center;flex-wrap:wrap;gap:8px;}
+.sim-queue {margin-top:10px;padding-top:10px;border-top:1px solid var(--line-2);}
+.sim-queue-title {font-weight:650;margin-bottom:7px;font-size:var(--ui-title);}
+.sim-counts {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;}
+.sim-count {display:grid;gap:2px;min-width:0;padding:6px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--panel);font-size:var(--ui-small);color:var(--muted);text-align:center;}
+.sim-count strong {font-size:17px;color:var(--text);font-variant-numeric:tabular-nums;line-height:1.1;}
+.sim-count[data-status="done"] strong {color:var(--ok);}
+.sim-count[data-status="running"] strong {color:var(--accent);}
+.sim-queue .sim-bar {margin-top:8px;}
+.sim-case-list {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:6px;margin-top:8px;}
+.sim-case-row {display:grid;gap:5px;min-width:0;padding:8px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--panel);--case-color:var(--faint);}
+.sim-case-row[data-status="running"] {--case-color:var(--accent);}
+.sim-case-row[data-status="done"] {--case-color:var(--ok);}
+.sim-case-row[data-status="failed"] {--case-color:var(--danger);}
+.sim-case-row:is([data-status="partial"],[data-status="stopped"]) {--case-color:var(--warn);}
+.sim-case-top {display:flex;align-items:center;gap:7px;min-width:0;font-size:var(--ui-small);}
+.sim-case-name {flex:1;min-width:0;overflow-wrap:anywhere;color:var(--text);}
+.sim-case-state {color:var(--case-color);font-weight:600;white-space:nowrap;}
+.sim-case-percent {font-variant-numeric:tabular-nums;min-width:3ch;text-align:right;color:var(--muted);}
+.sim-case-track {height:6px;border-radius:4px;overflow:hidden;background:var(--panel-3);}
+.sim-case-fill {height:100%;width:0;border-radius:4px;background:var(--case-color);transition:width .3s ease;}
+.sim-case-detail {font-size:var(--ui-small);color:var(--muted);overflow-wrap:anywhere;}
+.result-case-log {margin-top:12px;padding:8px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--panel);}
+.result-case-log summary {font-weight:600;color:var(--text);margin:0;}
+.result-case-log .sim-log {max-height:320px;min-height:48px;overflow-wrap:anywhere;font-family:var(--mono);margin-bottom:0;}
+@container (max-width:420px) {.sim-remote-settings {grid-template-columns:minmax(0,1fr);}.sim-count {padding:5px 2px;}.sim-case-list {grid-template-columns:minmax(0,1fr);}}

@@ -14,6 +14,9 @@ const sim = {
   ems: null, model: null, startedAt: 0, aborting: false, stopTimer: null,
 };
 let ui = null; // live DOM refs of the rendered panel
+let resultLogUI=null;
+const logExpanded=new Map();
+const validationLogs=new Map();
 
 const h = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -86,12 +89,12 @@ async function cachePut(key, run) {
     const tx=db.transaction(CACHE_STORE,"readwrite");
     tx.oncomplete=()=>resolve();
     tx.onerror=tx.onabort=()=>reject(tx.error||Error("Result cache write aborted"));
-    tx.objectStore(CACHE_STORE).put({result:run.result,frequency:run.frequency,savedAt:Date.now()},cacheStorageKey(key));
+    tx.objectStore(CACHE_STORE).put({result:run.result,frequency:run.frequency,log:run.log,savedAt:Date.now()},cacheStorageKey(key));
   });
 }
 export function clearResults() {
   if (sim.running) stop();
-  runs=new Map();caseStates=new Map();cacheAttempts=new Map();
+  runs=new Map();caseStates=new Map();cacheAttempts=new Map();logExpanded.clear();validationLogs.clear();
 }
 export const caseRunState = id => caseStates.get(id);
 export const resultFor = id => runs.get(id);
@@ -120,7 +123,7 @@ export async function restoreResults(ctx) {
     if(!entry?.result || current.get(id)!==key || attempts.get(id)!==key ||
       target.get(id)?.key===key || ["queued","running"].includes(states.get(id)?.status))continue;
     if(!hasValidS11(entry.result)){states.set(id,{status:"failed",key,error:"Cached simulation has no valid S11. Check feed excitation and rerun."});changed=true;continue;}
-    target.set(id,{result:entry.result,key,frequency:entry.frequency,cached:true});
+    target.set(id,{result:entry.result,key,frequency:entry.frequency,log:entry.log,cached:true});
     states.set(id,{status:entry.result.postprocessing_incomplete?"partial":"done",key});changed=true;
   }
   if(changed)ctx.refresh();
@@ -186,11 +189,27 @@ export function renderRunPanel(box, ctx) {
   const abortBtn = h("button", { type: "button", hidden: !sim.running, disabled: sim.aborting, onclick: stop, title: "Stop the current simulation and remaining sweep. Completed results are retained." }, sim.aborting ? "Stopping…" : "Stop");
   const bar = h("div", { class: "sim-bar" }, h("div", { class: "sim-bar-fill" }));
   const stats = h("div", { class: "sim-stats" });
-  const logPre = h("pre", { class: "sim-log" });
-  const logBox = h("details", { class: "sim-log-box" }, h("summary", { text: "openEMS log" }), logPre);
   const warningBox = h("div", { class: "note warn", role: "alert", hidden: true });
-  const jobStats=h("div",{class:"sim-stats"});
-  ui = { bar, stats, logPre, runBtn, abortBtn, warningBox, jobStats, caseId:c.id };
+  const caseList=h("div",{class:"sim-case-list"});
+  const counts=h("div",{class:"sim-counts"});
+  const countRefs={};
+  for(const [key,label] of [["done","Completed"],["running","Running"],["queued","Queued"],["other","Other"]]){
+    const value=h("strong",{text:"0"});
+    counts.append(h("div",{class:"sim-count","data-status":key},value,h("span",{text:label})));
+    countRefs[key]=value;
+  }
+  const caseRows=cases.map(c=>{
+    const label=c.label||c.id;
+    const state=h("span",{class:"sim-case-state"});
+    const percent=h("span",{class:"sim-case-percent"});
+    const fill=h("div",{class:"sim-case-fill"});
+    const track=h("div",{class:"sim-case-track",role:"progressbar","aria-label":label,"aria-valuemin":0,"aria-valuemax":100},fill);
+    const detail=h("div",{class:"sim-case-detail"});
+    const row=h("div",{class:"sim-case-row","data-case-id":c.id},h("div",{class:"sim-case-top"},h("strong",{class:"sim-case-name",text:label,title:c.id}),state,percent),track,detail);
+    caseList.append(row);
+    return {id:c.id,key:c.config?JSON.stringify(c.config):null,row,state,percent,fill,track,detail};
+  });
+  ui = { bar, stats, runBtn, abortBtn, warningBox, caseRows, countRefs, counts, caseList, caseId:c.id };
 
   const caseLine = c.config
     ? sweep ? `${c.label} · ${cases.length} cases` : "Single case"
@@ -199,7 +218,7 @@ export function renderRunPanel(box, ctx) {
     h("div",{class:"sim-run-head"},h("h3",{text:"Simulation runner"}),h("span",{class:"hint sim-case-hint",title:c.name||"",text:`${caseLine}${pending&&!c.pending?" · preparing cases":""}`})),
     h("div", { class: "sim-controls" }, h("div",{class:"sim-run-actions"},allBtn,runBtn,validateBtn,abortBtn),
       h("div",{class:"sim-run-options"},h("label",{},"Runner",runnerSelect),!remote?h("label", { class: "sim-engine" }, "Engine", engine):null,h("label",{class:"sim-threads"},"ncpu_pool",pool),h("label",{class:"sim-threads"},"ncpu_per_job",threads),parallel)),
-    remote?h("div",{class:"form-section"},h("label",{},"Runner URL",url),h("label",{},"Access token",token),h("div",{class:"actions"},test,connection),h("p",{class:"hint",text:"Remote uses ncpu_per_job for solver threads, solver.resources.memory_gib for RAM per case, and the server’s aggregate CPU/RAM caps. Browser mesh validation remains available in Browser mode."})):null,
+    remote?h("div",{class:"sim-remote-settings"},h("label",{},"Runner URL",url),h("label",{},"Access token",token),h("div",{class:"sim-remote-actions"},test,connection),h("p",{class:"hint",text:"CPU threads per case: ncpu_per_job. RAM per case: solver.resources.memory_gib. The server enforces shared resource limits."})):null,
     unavailable ? h("div", { class: "note warn" },
       h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
       !isolationBlocked ? h("button", { type: "button", onclick: async e => {
@@ -210,27 +229,70 @@ export function renderRunPanel(box, ctx) {
         if (error) { sim.error = error; ctx.refresh(); }
       } }, "Retry isolation") : null,
       h("a", { href: location.href, target: "_blank", rel: "noopener noreferrer" }, "Open editor directly (new tab)")) : null,
-    sim.running || sim.progress ? bar : null, stats, jobStats, warningBox,
-    sim.cacheWarning ? h("p",{class:"hint",text:sim.cacheWarning}) : null,
-    sim.running || sim.log.length ? logBox : null));
+    h("div",{class:"sim-queue"},h("div",{class:"sim-queue-title"},"Case progress"),counts,bar,stats,caseList),warningBox,
+    sim.cacheWarning ? h("p",{class:"hint",text:sim.cacheWarning}) : null));
   updateProgress();
 }
 
+function caseView(id,key) {
+  const job=sim.active.get(id);
+  const state=caseStates.get(id);
+  if(!state||state.key!==key)return {status:"idle",progress:0,detail:"Not run"};
+  const status=job?.remoteState==="queued"?"queued":state.status;
+  const done=status==="done";
+  const progress=done||status==="partial"?100:Math.round(100*Math.max(0,Math.min(.99,job?.progress?.fraction??state.progress??0)));
+  const detail=job?.progress?.timestep!=null
+    ? "Step "+job.progress.timestep+(job.progress.maxTimesteps?"/"+job.progress.maxTimesteps:"")+" · "+fmt(job.progress.speedMCellsPerSec,1)+" MC/s"
+    : job?.stage??state.error??({queued:"Waiting for resources",done:"Result available",partial:"Partial result available",failed:"Simulation failed",stopped:"Stopped",cancelled:"Cancelled",idle:"Not run"})[status]??"Preparing";
+  return {status,progress,detail,job};
+}
+function updateResultLog() {
+  const ref=resultLogUI;
+  if(!ref?.pre.isConnected)return;
+  const job=sim.active.get(ref.id), state=caseStates.get(ref.id), run=runs.get(ref.id);
+  const validation=validationLogs.get(ref.id);
+  const lines=state?.key===ref.key?(job?.log??state.log??(run?.key===ref.key?run.log:null)):run?.key===ref.key?run.log:null;
+  const log=lines??(validation?.key===ref.key?validation.log:null)??[];
+  const content=log.length?log.join("\n"):(state?.key===ref.key&&state?.error?state.error:"No log captured for this case yet.");
+  if(ref.pre.textContent!==content){
+    const follow=ref.pre.scrollHeight-ref.pre.scrollTop-ref.pre.clientHeight<24;
+    ref.pre.textContent=content;
+    if(follow)ref.pre.scrollTop=ref.pre.scrollHeight;
+  }
+}
+function resultLog(caseId,key) {
+  const pre=h("pre",{class:"sim-log","aria-label":"openEMS log for "+caseId});
+  const box=h("details",{class:"sim-log-box result-case-log",open:logExpanded.get(caseId)??false},
+    h("summary",{text:"openEMS log · "+caseId}),pre);
+  box.addEventListener("toggle",()=>logExpanded.set(caseId,box.open));
+  resultLogUI={id:caseId,key,pre};
+  return box;
+}
 function updateProgress() {
+  updateResultLog();
   if (!ui) return;
-  const selected=sim.active.get(ui.caseId)??sim.active.values().next().value;
-  const p=selected?.progress??sim.progress;
-  ui.bar.firstChild.style.width = `${Math.round(Math.min(1, sim.batch ? fraction() : p?.fraction ?? (sim.running ? 0 : 1)) * 100)}%`;
-  const el = sim.running ? Math.round((Date.now() - sim.startedAt) / 1000) : null;
-  ui.stats.textContent = sim.running
-    ? `${sim.batch ? `${sim.batch.finished}/${sim.batch.total} finished · ${sim.active.size} active · ` : ""}${selected?selected.id+" · "+selected.stage:sim.stage}${p ? ` · timestep ${p.timestep}${p.maxTimesteps ? "/" + p.maxTimesteps : ""} · ${fmt(p.speedMCellsPerSec, 1)} MC/s · energy ${fmt(p.energyDb, 1)} dB` : ""} · ${el} s` +
-      ((selected?.model??sim.model) ? ` · ${((selected?.model??sim.model).cells / 1e6).toFixed(2)} M cells` : "")
-    : sim.summary || "";
-  ui.jobStats.textContent=sim.batch?[...sim.active.values()].map(j=>`${j.id}: ${j.stage}${j.progress?` · ${Math.round(j.progress.fraction*100)}%`:""}`).join(" | "):"";
-  ui.logPre.textContent = (selected?.log??sim.log).slice(-200).join("\n");
-  const message = sim.error || selected?.warning || sim.warning || "";
-  ui.warningBox.hidden = !message;
-  ui.warningBox.textContent = message;
+  const counts={done:0,running:0,queued:0,other:0};
+  let sum=0;
+  for(const ref of ui.caseRows){
+    const v=caseView(ref.id,ref.key);
+    if(v.status==="done")counts.done++;else if(v.status==="running")counts.running++;else if(v.status==="queued")counts.queued++;else counts.other++;
+    sum+=v.progress;
+    ref.row.dataset.status=v.status;
+    ref.state.textContent=({done:"Completed",running:"Running",queued:"Queued",partial:"Partial",failed:"Failed",stopped:"Stopped",cancelled:"Cancelled",idle:"Not run"})[v.status]??v.status;
+    ref.percent.textContent=v.progress+"%";
+    ref.fill.style.width=v.progress+"%";
+    ref.track.setAttribute("aria-valuenow",String(v.progress));
+    ref.detail.textContent=v.detail;
+  }
+  for(const k of Object.keys(counts))ui.countRefs[k].textContent=counts[k];
+  const pct=sim.batch?Math.round(Math.min(1,fraction())*100):Math.round(sum/Math.max(1,ui.caseRows.length));
+  ui.bar.firstChild.style.width=pct+"%";
+  const el = sim.running ? Math.round((Date.now()-sim.startedAt)/1000):null;
+  ui.stats.textContent=sim.batch?`${sim.batch.finished}/${sim.batch.total} finished · ${counts.running} running · ${counts.queued} queued · ${el} s`:sim.running?`${sim.stage} · ${el} s`:sim.summary||"";
+  const selected=sim.active.get(ui.caseId);
+  const message=sim.error||selected?.warning||sim.warning||"";
+  ui.warningBox.hidden=!message;
+  ui.warningBox.textContent=message;
 }
 
 // This uses the pinned solver's actual PEC operator dump, not a voxelization
@@ -241,6 +303,7 @@ async function validateMesh(ctx) {
   if(!c.config||OpenEMS.unsupportedReason())return;
   Object.assign(sim,{running:true,aborting:false,error:null,warning:null,summary:"",log:[],progress:null,model:null,
     stage:"validating mesh",startedAt:Date.now(),batch:null});
+  validationLogs.set(c.id,{key:JSON.stringify(c.config),log:sim.log});
   ctx.refresh();
   const tick=setInterval(updateProgress,1000);
   try{
@@ -313,9 +376,10 @@ async function start(ctx, all = false) {
           const config=structuredClone(c.config);config.solver??={};config.solver.resources??={};config.solver.resources.cpus=cpu.perJob;
           job.stage="submitting remote job";updateProgress();
           result=await job.remote.run(config,{onStatus:status=>{
-            job.stage="remote "+status.state+" · "+status.id.slice(0,8);
+            job.remoteState=status.state;
+            job.stage=status.state==="queued"?"Waiting for server CPU / RAM":status.state==="starting"?"Starting native solver":status.state==="done"?"Retrieving result":"Native solver · "+status.state;
             job.log=(status.log||"").split("\n").slice(-2000);
-            const parser=new ProgressParser();parser.maxTimesteps=c.config.solver?.max_timesteps??20000;
+            const parser=new ProgressParser();parser.maxTimesteps=c.config.solver?.max_timesteps??20000;parser.endCriteria=c.config.solver?.end_criteria??0.0001;
             for(const line of job.log){const progress=parser.line(line);if(progress)job.progress=progress;}
             ctx.onBadge(simStatus());updateProgress();
           }});
@@ -343,7 +407,7 @@ async function start(ctx, all = false) {
         }
         result.aborted=!!(result.aborted||sim.aborting);
         const firstValid=result.patterns.findIndex(p=>p.record.radiation_valid);
-        const run={...partialRun,result,key,frequency:partialRun?.frequency>=0?partialRun.frequency:firstValid};
+        const run={...partialRun,result,key,log:job.log.slice(-2000),frequency:partialRun?.frequency>=0?partialRun.frequency:firstValid};
         runCases.set(c.id,run);
         publish();
         job.stage="saving result";updateProgress();
@@ -367,7 +431,9 @@ async function start(ctx, all = false) {
         clearTimeout(job.stopTimer);
         job.ems?.terminate();
         job.ems=null;job.remote=null;
-        sim.log=job.log;sim.active.delete(c.id);
+        const last=states.get(c.id);
+        if(last)states.set(c.id,{...last,log:job.log.slice(-2000),progress:job.progress?.fraction??0});
+        sim.active.delete(c.id);
         sim.batch.finished++;
         job.progress=null;
         // Publish each result immediately, without changing the user's selected case.
@@ -422,9 +488,13 @@ function stop() {
 
 export function renderResults(box, ctx, run, caseId, stale) {
   box.replaceChildren();
+  const current=ctx.getCase();
+  const key=current.config?JSON.stringify(current.config):null;
+  const logBox=resultLog(caseId,key);
   if (!run || stale) {
     const status=caseRunState(caseId);
     box.append(h("p", { class: status?.status==="failed" ? "note warn" : "hint", text: stale && status?.status!=="failed" ? "This case has changed. Run it again to update its results." : status?.status==="failed" ? "Failed: "+status.error : status?.status==="running" ? "Simulation running…" : status?.status==="queued" ? "Queued for simulation…" : status?.status==="cancelled" || status?.status==="stopped" ? "Simulation stopped before results were available." : "Run this case in the Simulation tab to see its results." }));
+    box.append(logBox);updateResultLog();
     return;
   }
   const r = run.result;
@@ -464,7 +534,8 @@ export function renderResults(box, ctx, run, caseId, stale) {
       chartCard("Smith chart", smithChart({s11:r.s11,z0,frequencyHz:smithFrequency}))),
     diagnosticCards(r.diagnostics),
     r.patterns.length?h("div",{class:"result-section-head"},h("h3",{text:"Radiation patterns"})):null,
-    ...r.patterns.map(p => patternCards(p)));
+    ...r.patterns.map(p => patternCards(p)),logBox);
+  updateResultLog();
 }
 
 const kpi = (label, value, sub) => h("div", { class: "kpi" }, h("div", { class: "kpi-label", text: label }), h("div", { class: "kpi-value", text: value }), sub ? h("div", { class: "kpi-sub", text: sub }) : null);

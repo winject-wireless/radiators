@@ -160,7 +160,9 @@ try {
   await page.getByRole("spinbutton", { name: "Threads" }).fill("1");
   await page.getByRole("spinbutton", { name: "Threads" }).press("Tab");
   await page.getByRole("button", { name: "Run all (2)", exact: true }).click();
-  if(hasParallelCPU)await page.getByText(/0\/2 finished · 2 active/).waitFor({timeout:10000});
+  if(hasParallelCPU)await page.getByText(/0\/2 finished · 2 running/).waitFor({timeout:10000});
+  assert.equal(await page.locator("#sim .sim-case-track").count(),2);
+  assert.equal(await page.locator("#sim .sim-log-box").count(),0);
   await page.locator('[data-dock="results"]').click();
   await page.waitForFunction(()=>document.querySelector("#resultCase")?.options[0].textContent.includes("done"),{}, {timeout:240000});
   assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
@@ -169,6 +171,10 @@ try {
   await page.waitForFunction(()=>document.querySelector("#simBadge")?.textContent==="✓");
   await page.locator("#resultCase").selectOption("1");
   assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
+  const caseLog=page.locator("#resultCharts .result-case-log");
+  assert.match(await caseLog.locator("summary").textContent(),/case-0002/);
+  await caseLog.locator("summary").click();
+  assert.match(await caseLog.locator("pre").textContent(),/openEMS|Timestep/i);
   await page.locator("#resultCase").selectOption("0");
   assert.ok(await page.locator("#resultCharts").getByText("Best S11", { exact: true }).isVisible());
   assert.ok(await page.locator("#resultCharts svg").count() >= 4);
