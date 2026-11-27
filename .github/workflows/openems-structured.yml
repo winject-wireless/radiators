@@ -132,8 +132,9 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_yagi_orientation.py' -v
           python3 -m unittest discover -s scripts -p 'test_sweep.py' -v
           python3 -m unittest discover -s scripts -p 'test_missing_simulations.py' -v
+          python3 -m unittest discover -s scripts -p 'test_solver_log.py' -v
           python3 -m unittest discover -s site -p 'test_result_quality.py' -v
-          python3 -m py_compile antennas/simulate.py antennas/simulate_v2.py site/build_site.py
+          python3 -m py_compile antennas/simulate.py antennas/simulate_v2.py antennas/solver_log.py site/build_site.py
           node site/csxcad/check.mjs
           python3 -m unittest discover -s scripts -p test_remote_runner.py
           for f in site/openems/*.js site/openems/openems.mjs; do node --check "$f"; done

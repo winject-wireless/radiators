@@ -11,6 +11,7 @@ import numpy as np
 from v2_geometry import install_geometry, positive, vec3
 from mesh_refinement import refinement_seeds
 from v2_diagnostics import prepare as prepare_probes, install as install_probes, collect as collect_probes
+from solver_log import SolverLog, tee_output
 
 
 def require(cond, message):
@@ -38,6 +39,20 @@ def json_safe(value):
     if isinstance(value, np.integer):
         return int(value)
     return value
+
+
+def mesh_statistics(lines_mm):
+    """Per-axis interval count and smallest/largest cell (diagnostics.js meshStatistics)."""
+    stats=[]
+    for axis,lines in zip("xyz",lines_mm):
+        steps=np.diff(np.asarray(lines,dtype=float))
+        if steps.size:
+            k=int(np.argmin(steps))
+            stats.append({"axis":axis,"intervals":int(steps.size),"min_mm":float(steps[k]),
+                          "max_mm":float(np.max(steps)),"min_at_mm":[float(lines[k]),float(lines[k+1])]})
+        else:
+            stats.append({"axis":axis,"intervals":0,"min_mm":None,"max_mm":0.0,"min_at_mm":None})
+    return stats
 
 
 def frequencies(sweeps, f0, fc):
@@ -339,7 +354,12 @@ def output_data(config, resultdir):
     csx.Write2XML(str(resultdir/"geometry.xml"))
     remote_threads=os.environ.get("RADIATORS_OPENEMS_THREADS")
     run_options={"numThreads": int(remote_threads)} if remote_threads else {}
-    fdtd.Run(str(fdtd_path),cleanup=True,verbose=1,**run_options)
+    solver_log=SolverLog()
+    with tee_output(solver_log.line):
+        fdtd.Run(str(fdtd_path),cleanup=True,verbose=1,**run_options)
+    solver_warnings=solver_log.all_warnings()
+    for message in solver_warnings[len(solver_log.warnings):]:  # openEMS already printed its own
+        print("WARNING: solver:",message)
 
     current=ports[driven_id]
     current.CalcPort(str(fdtd_path),freq)
@@ -373,7 +393,9 @@ def output_data(config, resultdir):
             "real_ohm":finite_values(impedance.real),
             "imag_ohm":finite_values(impedance.imag)
         },
-        "patterns":[]
+        "patterns":[],
+        "diagnostics":{"solver":solver_log.solver,"mesh":mesh_statistics(mesh_lines_mm)},
+        "solver_warnings":solver_warnings
     }
     angular=config.get("radiation_pattern_grid",outputcfg.get("radiation_grid",{}))
     tstep=positive(angular.get("theta_step_deg",10),"theta_step_deg")
