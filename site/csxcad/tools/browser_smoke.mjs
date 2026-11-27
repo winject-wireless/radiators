@@ -47,7 +47,7 @@ try {
       const req=route.request(), path=new URL(req.url()).pathname, method=req.method();
       seen.push({method,path,authorization:req.headers().authorization});
       let data;
-      if(path.endsWith("/health"))data={api_version:1,max_cpus:8,max_memory_gib:16};
+      if(path.endsWith("/health"))data={api_version:1,max_cpus:8,memory_limit:false,max_memory_gib:null};
       else if(method==="POST")data={id:req.postDataJSON().id};
       else if(path.endsWith("/result"))data={s11:{logmag_db:[-12]}};
       else data={state:"done"};
@@ -58,7 +58,7 @@ try {
     await blockedPage.getByLabel("Remote runner URL").fill(endpoint);
     await blockedPage.getByLabel("Remote runner token").fill("  test-token  ");
     await blockedPage.getByRole("button",{name:"Test connection"}).click();
-    await blockedPage.getByText("Connected · 8 CPUs · 16 GiB max per job").waitFor();
+    await blockedPage.getByText("Connected · 8 CPUs · No RAM cap").waitFor();
     const received=await blockedPage.evaluate(async endpoint=>{
       const {RemoteRunner}=await import("./js/sim/remote.js");
       return new RemoteRunner(endpoint,"test-token").run({schema_version:2});

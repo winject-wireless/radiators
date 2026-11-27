@@ -1603,7 +1603,7 @@ function inspectSim(box, title) {
       row("Max timesteps", numField(["solver", "max_timesteps"], { optional: true, def: 20000, int: true, aria: "Max timesteps" })),
       row("End criteria", numField(["solver", "end_criteria"], { optional: true, def: 0.0001, aria: "End criteria" }))),
     h("details", { class: "form-section" }, h("summary", { text: "Advanced · native CI resources" }),
-      h("p", { class: "hint", text: "Exported JSON only. Browser execution uses the thread control above." }),
+      h("p", { class: "hint", text: "Native CI / exported JSON only. Browser and remote execution use the CPU controls above; the updated remote runner has no RAM cap." }),
       row("CPUs", numField(["solver", "resources", "cpus"], { optional: true, aria: "CPUs" })),
       row("Memory", numField(["solver", "resources", "memory_gib"], { optional: true, unit: "GiB", aria: "Memory" }))));
 }

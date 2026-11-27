@@ -36,9 +36,9 @@ Optional commands:
 ```
 
 Settings are independent of the checkout so git pull does not reset the
-token. Edit the JSON to change CPU/RAM caps, job timeout, port and origins.
-The default cap is up to 16 logical CPUs and 32 GiB, scaled down for smaller
-hosts. The editor's ncpu_pool and ncpu_per_job control sweep parallelism; solver.resources.memory_gib controls memory per case. Server max_cpus and max_memory_gib are aggregate budgets across all active containers.
+token. Edit the JSON to change CPU cap, job timeout, port and origins.
+The default cap is up to 16 logical CPUs, scaled down for smaller hosts.
+The editor’s ncpu_pool and ncpu_per_job control sweep parallelism; server max_cpus is the aggregate CPU budget. Docker has no per-job RAM or swap cap. Existing max_memory_gib settings are ignored, and solver.resources.memory_gib remains native CI metadata. Host RAM exhaustion can affect other workloads.
 Do not commit or share the token. The token gives access to all jobs.
 
 ## Connect from another machine or Android
@@ -102,10 +102,10 @@ A Ctrl+C or SIGTERM requests cancellation of active containers.
 
 ## Limits and verification
 
-Jobs are automatically dispatched within aggregate CPU and RAM budgets (up to 64 outstanding jobs and 256 retained records). Results are retained in temporary storage until restart or eviction, not in a durable queue. Unretrieved results are protected from eviction for at least one hour.
+Jobs are automatically dispatched within the aggregate CPU budget (up to 64 outstanding jobs and 256 retained records). Results are retained in temporary storage until restart or eviction, not in a durable queue. Unretrieved results are protected from eviction for at least one hour.
 Status polling renews a per-job lease. Jobs with no status poll for 300 seconds are cancelled automatically (including queued jobs); set lease_timeout in config.json to change the grace period (minimum 60 seconds). Mobile backgrounding may suspend polling, so use a longer lease if needed. Existing configurations default to 300 seconds. The authenticated GET /v1/jobs endpoint lists active/queued jobs without renewing leases; DELETE /v1/jobs/{id} cancels one job. Native solver output is rendered
 in the existing viewer; remote diagnostic plots and PEC export are not yet
-implemented. Docker enforces CPU and RAM caps, but there is no separate
+implemented. Docker enforces CPU quotas, but there is no per-job RAM cap or separate
 output-disk quota. Run on a trusted machine with sufficient disk space.
 
 ```bash

@@ -57,11 +57,11 @@ def validate(payload, args):
     if not isinstance(r, dict):
         raise ValueError("Invalid resources")
     cpus = checked_number(r.get("cpus", 2), 1, args.max_cpus, "CPU count", True)
-    ram = checked_number(r.get("memory_gib", 5), .25, args.max_memory_gib, "memory")
+    # memory_gib remains native CI metadata; the remote runner schedules CPUs only.
     checked_number(s.get("max_timesteps", 20000), 1, args.max_timesteps, "max timesteps", True)
     mesh = c.setdefault("mesh", {})
     checked_number(mesh.get("max_cells", 5000000), 1, args.max_cells, "max cells", True)
-    return payload["id"], c, cpus, int(ram * 1024**3)
+    return payload["id"], c, cpus
 
 
 class Runner:
@@ -73,7 +73,7 @@ class Runner:
         self.lease_timeout = getattr(args, "lease_timeout", 300)
 
     def submit(self, payload):
-        ident, cfg, cpus, memory = validate(payload, self.args)
+        ident, cfg, cpus = validate(payload, self.args)
         with self.lock:
             if ident in self.jobs:
                 raise ValueError("Job ID already exists")
@@ -90,35 +90,33 @@ class Runner:
             path.mkdir(mode=0o700)
             (path / "config.json").write_text(json.dumps(cfg, allow_nan=False))
             j = {"id": ident, "path": path, "state": "queued", "created": time.monotonic(),
-                 "cancel": threading.Event(), "error": None, "cpus": cpus, "memory": memory,
+                 "cancel": threading.Event(), "error": None, "cpus": cpus,
                  "last_contact": time.monotonic(), "name": str(cfg.get("name", ""))[:160]}
             self.jobs[ident] = j
             self.dispatch_locked()
             return ident
 
     def dispatch_locked(self):
-        """Reserve CPU and RAM before launching, including jobs in Docker startup."""
+        """Reserve CPU before launching, including jobs in Docker startup."""
         if self.closing:
             return
         active = [j for j in self.jobs.values() if j["state"] in ("starting", "running")]
         free_cpu = self.args.max_cpus - sum(j["cpus"] for j in active)
-        free_mem = int(self.args.max_memory_gib * 1024**3) - sum(j["memory"] for j in active)
         for j in self.jobs.values():
             if j["state"] != "queued":
                 continue
             if j["cancel"].is_set() or time.monotonic()-j["last_contact"] >= self.lease_timeout:
                 j.update(state="cancelled", error=j.get("error") or ("Client lease expired" if not j["cancel"].is_set() else None), seconds=0, finished_at=time.monotonic())
                 continue
-            if j["cpus"] > free_cpu or j["memory"] > free_mem:
+            if j["cpus"] > free_cpu:
                 continue
             free_cpu -= j["cpus"]
-            free_mem -= j["memory"]
             j["state"] = "starting"
             threading.Thread(target=self.run_reserved, args=(j,), daemon=True).start()
 
     def run_reserved(self, j):
         try:
-            self.execute(j, j["cpus"], j["memory"])
+            self.execute(j, j["cpus"])
         finally:
             with self.lock:
                 if j["state"] not in TERMINAL:
@@ -151,12 +149,12 @@ class Runner:
         with self.lock:
             now = time.monotonic()
             return [{"id": j["id"], "state": j["state"], "name": j["name"],
-                     "cpus": j["cpus"], "memory_gib": j["memory"]/1024**3,
+                     "cpus": j["cpus"],
                      "last_contact_seconds": round(now-j["last_contact"]),
                      "cancel_requested": j["cancel"].is_set()}
                     for j in self.jobs.values() if j["state"] not in TERMINAL]
 
-    def execute(self, j, cpus, memory):
+    def execute(self, j, cpus):
         name = "radiators-remote-" + j["id"]
         path = j["path"]
         cmd = self.docker + ["run", "--rm", "--name", name, "--network=none",
@@ -165,7 +163,6 @@ class Runner:
               "--user", f"{os.getuid()}:{os.getgid()}", "--env", "HOME=/tmp",
               "--env", "PYTHONDONTWRITEBYTECODE=1", "--env", "PYTHONUNBUFFERED=1",
               "--env", f"RADIATORS_OPENEMS_THREADS={cpus}", f"--cpus={cpus}",
-              f"--memory={memory}", f"--memory-swap={memory}",
               "-v", f"{ROOT}:/work:ro", "-v", f"{path}:/job:rw", "--workdir", "/work",
               self.args.image, "python", "antennas/simulate_v2.py", "/job/config.json", "--output", "/job/out"]
         proc = None
@@ -311,7 +308,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if method == "GET" and path == "/v1/health":
                 return self.reply(200, {"api_version": 1, "engine": "native openEMS",
-                    "max_cpus": runner.args.max_cpus, "ncpu_pool": runner.args.max_cpus, "parallel_jobs": True, "max_memory_gib": runner.args.max_memory_gib,
+                    "max_cpus": runner.args.max_cpus, "ncpu_pool": runner.args.max_cpus, "parallel_jobs": True, "memory_limit": False, "max_memory_gib": None,
                     "max_cells": runner.args.max_cells, "max_timesteps": runner.args.max_timesteps,
                     "lease_timeout": runner.lease_timeout, "job_listing": True})
             if method == "GET" and path == "/v1/jobs":
@@ -358,7 +355,7 @@ def main():
     p.add_argument("--origin", action="append", default=[], help="Allowed editor origin; repeat as needed")
     p.add_argument("--image", default="radiators-openems:ci")
     p.add_argument("--max-cpus", type=int, default=min(os.cpu_count() or 2, 16))
-    p.add_argument("--max-memory-gib", type=float, default=16)
+    p.add_argument("--max-memory-gib", type=float, help=argparse.SUPPRESS)  # legacy CLI; ignored
     p.add_argument("--max-cells", type=int, default=20000000)
     p.add_argument("--max-timesteps", type=int, default=2000000)
     p.add_argument("--timeout", type=int, default=3600)
@@ -372,7 +369,7 @@ def main():
         p.error("TLS requires both --tls-cert and --tls-key")
     if not args.tls_cert and args.bind not in ("127.0.0.1", "localhost"):
         p.error("Plain HTTP may only bind loopback; use TLS or an HTTPS reverse proxy")
-    if not (1 <= args.port <= 65535 and args.max_cpus >= 1 and args.max_memory_gib >= .25 and args.max_cells >= 1 and args.max_timesteps >= 1):
+    if not (1 <= args.port <= 65535 and args.max_cpus >= 1 and args.max_cells >= 1 and args.max_timesteps >= 1):
         p.error("Invalid runner resource limits or port")
     tls = None
     if args.tls_cert:

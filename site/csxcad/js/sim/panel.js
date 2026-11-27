@@ -176,7 +176,7 @@ export function renderRunPanel(box, ctx) {
     save();test.disabled=true;
     try{const info=await new RemoteRunner(sim.remoteUrl,sim.remoteToken).health();
       if(info.api_version!==1)throw Error("Incompatible runner API");
-      connection.textContent="Connected · "+info.max_cpus+" CPUs · "+info.max_memory_gib+" GiB max per job";
+      connection.textContent="Connected · "+info.max_cpus+" CPUs · "+(info.memory_limit===false?"No RAM cap":"Legacy runner: "+info.max_memory_gib+" GiB RAM budget");
     }catch(e){connection.textContent=e.message;}finally{test.disabled=false;}
   }},"Test connection");
   const serverJobs=h("div",{class:"sim-case-list"});
@@ -242,7 +242,7 @@ export function renderRunPanel(box, ctx) {
     h("div",{class:"sim-run-head"},h("h3",{text:"Simulation runner"}),h("span",{class:"hint sim-case-hint",title:c.name||"",text:`${caseLine}${pending&&!c.pending?" · preparing cases":""}`})),
     h("div", { class: "sim-controls" }, h("div",{class:"sim-run-actions"},allBtn,runBtn,validateBtn,abortBtn),
       h("div",{class:"sim-run-options"},h("label",{},"Runner",runnerSelect),!remote?h("label", { class: "sim-engine" }, "Engine", engine):null,h("label",{class:"sim-threads"},"ncpu_pool",pool),h("label",{class:"sim-threads"},"ncpu_per_job",threads),parallel)),
-    remote?h("div",{class:"sim-remote-settings"},h("label",{},"Runner URL",url),h("label",{},"Access token",token),h("div",{class:"sim-remote-actions"},test,connection),h("p",{class:"hint",text:"CPU threads per case: ncpu_per_job. RAM per case: solver.resources.memory_gib. The server enforces shared resource limits."})):null,
+    remote?h("div",{class:"sim-remote-settings"},h("label",{},"Runner URL",url),h("label",{},"Access token",token),h("div",{class:"sim-remote-actions"},test,connection),h("p",{class:"hint",text:"Remote jobs use the shared CPU pool. No per-job RAM cap on updated runners."})):null,
     remote?manage:null,
     unavailable ? h("div", { class: "note warn" },
       h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
@@ -402,7 +402,7 @@ async function start(ctx, all = false) {
           job.stage="submitting remote job";updateProgress();
           result=await job.remote.run(config,{onStatus:status=>{
             job.remoteState=status.state;
-            job.stage=status.state==="queued"?"Waiting for server CPU / RAM":status.state==="starting"?"Starting native solver":status.state==="done"?"Retrieving result":"Native solver · "+status.state;
+            job.stage=status.state==="queued"?"Waiting for server resources":status.state==="starting"?"Starting native solver":status.state==="done"?"Retrieving result":"Native solver · "+status.state;
             job.log=(status.log||"").split("\n").slice(-2000);
             const parser=new ProgressParser();parser.maxTimesteps=c.config.solver?.max_timesteps??20000;parser.endCriteria=c.config.solver?.end_criteria??0.0001;
             for(const line of job.log){const progress=parser.line(line);if(progress)job.progress=progress;}

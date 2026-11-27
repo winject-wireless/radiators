@@ -28,7 +28,7 @@ class RemoteTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.args = SimpleNamespace(max_cpus=4,max_memory_gib=4,max_cells=10000,
+        self.args = SimpleNamespace(max_cpus=4,max_cells=10000,
             max_timesteps=100000,retain=2,token=TOKEN,origin=[ORIGIN])
         self.runner = Runner(self.args, [], Path(self.temp.name))
 
@@ -38,20 +38,25 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual(a,load_config(path))
         self.assertEqual(path.stat().st_mode & 0o777,0o600)
         self.assertNotIn(a["token"],server_command(a))
+        self.assertNotIn("max_memory_gib",a)
+        a["max_memory_gib"]=48  # existing settings are accepted, but ignored
+        self.assertNotIn("--max-memory-gib",server_command(a))
 
     def test_limits(self):
         cfg=copy.deepcopy(CONFIG)
-        self.assertEqual(validate({"id":ID,"config":cfg},self.args)[2:],(2,1024**3))
+        self.assertEqual(validate({"id":ID,"config":cfg},self.args)[2:],(2,))
+        cfg["solver"]["resources"]["memory_gib"]=24
+        self.assertEqual(validate({"id":ID,"config":cfg},self.args)[2:],(2,))
         cfg["solver"]["resources"]["cpus"]=5
         with self.assertRaises(ValueError): validate({"id":ID,"config":cfg},self.args)
         cfg=copy.deepcopy(CONFIG)
         cfg["scripts"]={}
         with self.assertRaises(ValueError): validate({"id":ID,"config":cfg},self.args)
 
-    def test_parallel_cpu_and_memory_budget(self):
+    def test_parallel_cpu_budget_ignores_memory_metadata(self):
         gate=threading.Event()
         entered=[]
-        def fake(j, cpus, memory):
+        def fake(j, cpus):
             with self.runner.lock:
                 entered.append(j["id"])
                 j["state"]="running"
@@ -66,17 +71,19 @@ class RemoteTests(unittest.TestCase):
         with patch.object(self.runner,"execute",side_effect=fake):
             try:
                 for ident in ("1"*32,"2"*32,"3"*32):
-                    self.runner.submit({"id":ident,"config":copy.deepcopy(CONFIG)})
+                    cfg=copy.deepcopy(CONFIG)
+                    cfg["solver"]["resources"]["memory_gib"]=24
+                    self.runner.submit({"id":ident,"config":cfg})
                 wait_for(lambda:len(entered)==2)
                 self.assertEqual(self.runner.jobs["3"*32]["state"],"queued")
                 gate.set()
                 wait_for(lambda:len(entered)==3 and all(j["state"]=="done" for j in self.runner.jobs.values()))
             finally: gate.set()
 
-    def test_memory_budget_and_cancel_queued_job(self):
+    def test_cpu_budget_and_cancel_queued_job(self):
         gate=threading.Event()
         entered=[]
-        def fake(j, cpus, memory):
+        def fake(j, cpus):
             with self.runner.lock:
                 entered.append(j["id"])
                 j["state"]="running"
@@ -84,7 +91,7 @@ class RemoteTests(unittest.TestCase):
             with self.runner.lock:
                 j.update(state="done",seconds=.01)
         cfg=copy.deepcopy(CONFIG)
-        cfg["solver"]["resources"]={"cpus":1,"memory_gib":3}
+        cfg["solver"]["resources"]={"cpus":4,"memory_gib":24}
         with patch.object(self.runner,"execute",side_effect=fake):
             try:
                 self.runner.submit({"id":"1"*32,"config":cfg})
@@ -102,7 +109,7 @@ class RemoteTests(unittest.TestCase):
 
     def test_expired_leases_cancel_running_and_queued(self):
         entered = threading.Event()
-        def fake(j, cpus, memory):
+        def fake(j, cpus):
             with self.runner.lock:
                 j["state"] = "running"
             entered.set()
@@ -132,8 +139,25 @@ class RemoteTests(unittest.TestCase):
                 time.sleep(.01)
             self.assertTrue(all(j["state"]=="cancelled" for j in self.runner.jobs.values()))
 
+    def test_docker_has_cpu_limit_but_no_memory_limit(self):
+        from unittest.mock import MagicMock
+        self.args.image="radiators-openems:ci"
+        path=Path(self.temp.name)/"job"
+        path.mkdir()
+        j={"id":ID,"path":path,"state":"starting","cancel":threading.Event(),
+           "created":time.monotonic(),"error":None}
+        process=MagicMock()
+        process.poll.return_value=0
+        process.returncode=0
+        with patch("remote_runner.subprocess.Popen",return_value=process) as launch:
+            self.runner.execute(j,2)
+        cmd=launch.call_args.args[0]
+        self.assertIn("--cpus=2",cmd)
+        self.assertIn("RADIATORS_OPENEMS_THREADS=2",cmd)
+        self.assertFalse(any(a.startswith(("--memory","--memory-swap")) for a in cmd))
+
     def test_api(self):
-        def fake(j, cpus, memory):
+        def fake(j, cpus):
             path=j["path"]/"out"
             path.mkdir()
             (path/"result.json").write_text(json.dumps({"patterns":[{"file":"pattern_2450000000Hz.json"}]}))
@@ -166,6 +190,8 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual(json.load(e.exception)["error"],"Origin not allowed by runner")
         self.assertEqual(request("/v1/health")["api_version"],1)
         self.assertEqual(request("/v1/health")["lease_timeout"],300)
+        self.assertIs(request("/v1/health")["memory_limit"],False)
+        self.assertIsNone(request("/v1/health")["max_memory_gib"])
         self.assertEqual(request("/v1/jobs"),{"jobs":[]})
         with patch.object(self.runner,"execute",side_effect=fake):
             self.assertEqual(request("/v1/jobs","POST",{"id":ID,"config":CONFIG})["id"],ID)

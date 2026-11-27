@@ -20,17 +20,12 @@ def defaults():
         cpus = len(os.sched_getaffinity(0))
     except AttributeError:
         cpus = os.cpu_count() or 2
-    try:
-        memory = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3
-    except (ValueError, OSError, AttributeError):
-        memory = 8
     return {
         "token": secrets.token_urlsafe(32),
         "bind": "127.0.0.1", "port": 8765,
         "origins": ["https://winject-wireless.github.io", "http://localhost:8080"],
         "image": "radiators-openems:ci",
         "max_cpus": max(1, min(cpus, 16)),
-        "max_memory_gib": max(1, min(32, int(memory * .75))),
         "max_cells": 20000000, "max_timesteps": 2000000,
         "timeout": 3600, "lease_timeout": 300, "retain": 4, "tls_cert": "", "tls_key": "",
     }
@@ -62,7 +57,7 @@ def load_config(path):
 
 def server_command(cfg):
     cmd = [sys.executable, str(ROOT / "scripts/remote_runner.py")]
-    for key in ("bind", "port", "image", "max_cpus", "max_memory_gib", "max_cells", "max_timesteps", "timeout", "retain"):
+    for key in ("bind", "port", "image", "max_cpus", "max_cells", "max_timesteps", "timeout", "retain"):
         cmd += ["--" + key.replace("_", "-"), str(cfg[key])]
     cmd += ["--lease-timeout", str(cfg.get("lease_timeout", 300))]
     for origin in cfg["origins"]:
