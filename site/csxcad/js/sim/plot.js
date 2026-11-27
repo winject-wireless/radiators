@@ -150,9 +150,18 @@ export function smithChart({s11, z0 = 50, frequencyHz}) {
     if(!p){pen=false;continue;}
     d+=`${pen?"L":"M"}${X(p.re)},${Y(p.im)} `;pen=true;
   }
-  svg.append(el("path",{d,class:"chart-line",stroke:SERIES_COLORS[0]}));
-  const marker=el("circle",{r:5,fill:SERIES_COLORS[0],stroke:"var(--panel)","stroke-width":2});
-  svg.append(marker);
+  // Only the trace and marker own touch gestures. The rest of the SVG must
+  // remain scrollable inside the mobile Results sheet.
+  const trace=el("path",{d,class:"chart-line",stroke:SERIES_COLORS[0],"pointer-events":"none"});
+  const marker=el("circle",{r:5,fill:SERIES_COLORS[0],stroke:"var(--panel)","stroke-width":2,"pointer-events":"none"});
+  const traceHit=el("path",{d,fill:"none",stroke:"transparent","stroke-width":12,
+    "stroke-linecap":"round","stroke-linejoin":"round","pointer-events":"stroke","vector-effect":"non-scaling-stroke","data-smith-drag":""});
+  const markerHit=el("circle",{r:10,fill:"transparent","pointer-events":"fill","data-smith-drag":""});
+  for(const hit of [traceHit,markerHit]){
+    hit.style.touchAction="none";
+    hit.style.cursor="crosshair";
+  }
+  svg.append(trace,marker,traceHit,markerHit);
   const slider=document.createElement("input");
   slider.type="range";slider.min="0";slider.max=String(valid.length-1);slider.step="1";
   slider.style.width="100%";slider.setAttribute("aria-label","Smith chart frequency marker");
@@ -163,12 +172,11 @@ export function smithChart({s11, z0 = 50, frequencyHz}) {
     slider.value=String(i);
     const frequency=`${fmt(p.hz/1e9,4)} GHz`;
     slider.setAttribute("aria-valuetext",frequency);
-    marker.setAttribute("cx",X(p.re));marker.setAttribute("cy",Y(p.im));
+    for(const dot of [marker,markerHit]){dot.setAttribute("cx",X(p.re));dot.setAttribute("cy",Y(p.im));}
     readout.textContent=`${frequency} · Z: ${fmt(p.r)} ${p.x<0?"−":"+"} j${fmt(Math.abs(p.x))} Ω · S11: ${fmt(p.db,1)} dB · VSWR: ${fmt(p.vswr)}`;
   }
   slider.addEventListener("input",()=>select(Number(slider.value)));
-  // Drag the marker or tap any point of the locus; the slider is also keyboard-accessible.
-  svg.style.touchAction="none";svg.style.cursor="crosshair";
+  // Drag only from the hit targets; the slider is also keyboard-accessible.
   function pick(e){
     const matrix=svg.getScreenCTM();if(!matrix)return;
     const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
@@ -177,8 +185,20 @@ export function smithChart({s11, z0 = 50, frequencyHz}) {
     valid.forEach((p,i)=>{const dd=(X(p.re)-local.x)**2+(Y(p.im)-local.y)**2;if(dd<dist){dist=dd;best=i;}});
     select(best);
   }
-  svg.addEventListener("pointerdown",e=>{if(e.button!==0)return;svg.setPointerCapture(e.pointerId);pick(e);});
-  svg.addEventListener("pointermove",e=>{if(svg.hasPointerCapture(e.pointerId))pick(e);});
+  let dragId=null;
+  for(const hit of [traceHit,markerHit]){
+    hit.addEventListener("pointerdown",e=>{
+      if(e.button!==0||dragId!==null)return;
+      dragId=e.pointerId;
+      hit.setPointerCapture(e.pointerId);
+      pick(e);
+    });
+    hit.addEventListener("pointermove",e=>{if(e.pointerId===dragId)pick(e);});
+    const end=e=>{if(e.pointerId===dragId)dragId=null;};
+    hit.addEventListener("pointerup",end);
+    hit.addEventListener("pointercancel",end);
+    hit.addEventListener("lostpointercapture",end);
+  }
   wrapper.append(slider,readout);
   const skipped=samples.length-valid.length;
   if(skipped){const msg=document.createElement("p");msg.className="hint";msg.textContent=`${skipped} invalid or outside-unit-circle sample(s) omitted.`;wrapper.append(msg);}
