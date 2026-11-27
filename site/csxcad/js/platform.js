@@ -120,3 +120,25 @@ export function registerServiceWorker({ manual = false } = {}) {
   })().finally(() => { isolationSetup = null; });
   return isolationSetup;
 }
+
+// Installed Android PWAs and WebViews can report a CSS viewport taller than
+// the visible app surface (system navigation bar / keyboard). Use the
+// unzoomed visual viewport as an additional upper bound on app height.
+export function installAppViewport(){
+  const vv=window.visualViewport,root=document.documentElement;
+  let frame=0;
+  const update=()=>{
+    frame=0;
+    // Pinch zoom must not relayout the entire editor.
+    if(vv&&Math.abs(vv.scale-1)>.01)return;
+    const heights=[window.innerHeight,root.clientHeight,vv?.height].filter(v=>Number.isFinite(v)&&v>0);
+    if(heights.length)root.style.setProperty("--app-height",Math.floor(Math.min(...heights))+"px");
+  };
+  const schedule=()=>{if(!frame)frame=requestAnimationFrame(update);};
+  window.addEventListener("resize",schedule);
+  window.addEventListener("orientationchange",schedule);
+  window.addEventListener("pageshow",schedule);
+  vv?.addEventListener("resize",schedule);
+  document.addEventListener("visibilitychange",()=>{if(!document.hidden)schedule();});
+  update();
+}
