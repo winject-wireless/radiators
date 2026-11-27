@@ -674,8 +674,11 @@ export class Viewport {
       const aspect = this.perspective.aspect;
       const halfHeight = 1.05 * r / Math.min(1, aspect);
       camera.zoom = 1 / halfHeight;
-      camera.updateProjectionMatrix();
+    } else {
+      camera.zoom = 1;
     }
+    camera.up.set(0, 0, 1);
+    camera.updateProjectionMatrix();
     const dirs = {
       perspective: [1, -1.25, 0.9], iso: [1, -1, 1], top: [0, -0.0001, 1], bottom: [0, 0.0001, -1], front: [0, -1, 0],
       back: [0, 1, 0], right: [1, 0, 0], left: [-1, 0, 0],

@@ -44,6 +44,28 @@ try {
 
   await page.goto(new URL("?example=examples__dipole_2450.json&debug=1", base).href);
   await page.waitForFunction(() => crossOriginIsolated && window.__csxcad?.viewport && document.querySelector("#sim .sim-controls"), { }, { timeout: 90000 });
+  // Clicking the already-active projection restores its home pose and framing.
+  const cameraPose = () => page.evaluate(() => {
+    const { camera, controls } = window.__csxcad.viewport;
+    return [...camera.position.toArray(), ...camera.quaternion.toArray(), ...controls.target.toArray(), camera.zoom];
+  });
+  for (const mode of ["perspective", "iso"]) {
+    const preset = page.locator(`[data-view="${mode}"]`);
+    await preset.click();
+    const home = await cameraPose();
+    await page.evaluate(() => {
+      const { camera, controls } = window.__csxcad.viewport;
+      controls.target.addScalar(12);
+      camera.position.set(25, 17, -13);
+      camera.zoom *= 2;
+      camera.updateProjectionMatrix();
+      controls.update();
+    });
+    await preset.click();
+    const restored = await cameraPose();
+    assert.ok(restored.every((v, i) => Math.abs(v - home[i]) < 1e-8), mode + " failed to reset the view");
+  }
+  await page.locator('[data-view="perspective"]').click();
   // Desktop splitter can resize the dock via pointer and keyboard.
   const dock=page.locator(".dock"),splitter=page.locator("#dockResize");
   const initialDock=(await dock.boundingBox()).height;
