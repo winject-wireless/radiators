@@ -326,7 +326,7 @@ function redo() {
 function fixSelection() {
   const s = state.sel;
   if (!s || s.kind === "sim") return;
-  const list = { geometry: state.doc.geometry, port: state.doc.ports, material: state.doc.materials, refinement:state.doc.mesh?.refinements }[s.kind] || [];
+  const list = { geometry: state.doc.geometry, port: state.doc.ports, material: state.doc.materials, diagnostic:state.doc.probes, refinement:state.doc.mesh?.refinements }[s.kind] || [];
   if (s.index >= list.length) state.sel = list.length ? { kind: s.kind, index: list.length - 1 } : null;
 }
 
@@ -621,7 +621,13 @@ function renderTree() {
     h("button", { type: "button", class: "tree-name", onclick: () => select({ kind: "material", index: i }) },
       h("span", { class: "nm", text: m.name }),
       h("span", { class: "kind", text: m.type === "dielectric" ? `εr ${short(d.resolved.materials?.[i]?.epsilon)}` : m.type }))));
+  const diagnostics=doc.probes??[];
+  const probeRows=diagnostics.map((p,i)=>h("li",{class:"tree-row"+(isSel("diagnostic",i)?" active":"")+(p.enabled===false?" tree-disabled":"")},
+    h("button",{type:"button",class:"vis",title:"Enable or disable",onclick:()=>edit(d=>{d.probes[i].enabled=d.probes[i].enabled===false;})},icon(p.enabled===false?"enableOff":"enableOn")),
+    h("button",{type:"button",class:"tree-name",onclick:()=>select({kind:"diagnostic",index:i})},
+      h("span",{class:"nm",text:p.name}),h("span",{class:"kind",text:p.type}))));
   tree.append(
+    section(`Diagnostics (${diagnostics.length})`,"diagnostic",probeRows,"diagnostic"),
     section(`Geometry (${doc.geometry.length})`, "geometry", geomRows, "geometry"),
     section(`Ports (${doc.ports.length})`, "port", portRows, "port"),
     section(`Materials (${doc.materials.length})`, "material", matRows, "material"));
@@ -943,6 +949,7 @@ function renderInspector() {
   if (s.kind === "geometry" && isScriptInstance(state.doc.geometry[s.index])) return inspectScriptInstance(box, title, s.index);
   if (s.kind === "geometry") return inspectGeometry(box, title, s.index);
   if (s.kind === "port") return inspectPort(box, title, s.index);
+  if (s.kind === "diagnostic") return inspectDiagnostic(box,title,s.index);
   if (s.kind === "material") return inspectMaterial(box, title, s.index);
   if (s.kind === "refinement") {
     title.textContent="Refinement "+(s.index+1);
@@ -1005,6 +1012,7 @@ const simContext = {
   onBadge(text) { for (const id of ["simBadge", "simBadgeMobile"]) { const b = $(id); if (b) b.textContent = text; } },
   notify: (msg, error = false) => setStatus(msg, error),
   refresh: () => { renderSim(); syncResults(); },
+  setDiagnosticFrame: arrows=>viewport?.setDiagnosticFrame(arrows),
 };
 let displayedRun, displayedStale, displayedCase, displayedCaseStatus, activeProbe = null;
 const sectionNames = ["XY", "YZ", "XZ"];
@@ -1048,6 +1056,7 @@ function syncResults() {
     displayedCaseStatus = caseStatus;
     displayedRun = run;
     displayedStale = stale;
+    viewport?.setDiagnosticFrame([]);
     renderResults($("resultCharts"), simContext, run, caseId, stale);
     const patterns = stale ? [] : run?.result.patterns || [];
     $("patternWrap").hidden = !patterns.some(p => p.record.radiation_valid);
@@ -1445,6 +1454,32 @@ function inspectPort(box, title, i) {
     knownKeysNote(p, ["id", "name", "type", "excite", "priority", ...(def?.fields.map(f => f.key) || [])])));
 }
 
+function inspectDiagnostic(box,title,i){
+  const p=state.doc.probes[i],base=["probes",i];
+  title.textContent=p.name;
+  $("inspectActions").append(iconBtn("copy","Duplicate",()=>duplicate("diagnostic",i)),
+    iconBtn("trash","Delete",()=>remove("diagnostic",i),{danger:true}));
+  add(box,row("Name",textField([...base,"name"],{aria:"Diagnostic name"})),
+    checkField([...base,"enabled"],"Enabled",true),
+    row("Start",vec3Field([...base,"start"],{unit:"mm"})),
+    row("Stop",vec3Field([...base,"stop"],{unit:"mm"})),
+    row("Translate",vec3Field([...base,"transform","translate"],{unit:"mm",optional:true,def:0})),
+    row("Rotate (90° steps)",vec3Field([...base,"transform","rotate_deg"],{unit:"°",optional:true,def:0})),
+    p.type==="current"||p.type==="voltage"?row("Direction (local)",selectField([...base,"direction"],["x","y","z","-x","-y","-z"],{optional:true,emptyLabel:"Automatic"})):null,
+    p.type==="field_dump"?row("Field",selectField([...base,"field"],["E","H","J","J_total","D","B"])):null,
+    p.type==="field_dump"?row("Spatial subsampling",vec3Field([...base,"sub_sampling"],{int:true})):null,
+    checkField([...base,"time_domain","enabled"],"Record time domain",true),
+    checkField([...base,"frequency_domain","enabled"],"Record frequency domain",false),
+    ...(p.frequency_domain?.frequencies_hz??[]).map((_,j)=>h("div",{class:"row"},h("label",{text:"Frequency "+(j+1)}),
+      numField([...base,"frequency_domain","frequencies_hz",j],{unit:"Hz"}),
+      h("button",{type:"button",class:"small",onclick:()=>edit(d=>d.probes[i].frequency_domain.frequencies_hz.splice(j,1))},"Remove"))),
+    h("button",{type:"button",class:"small",onclick:()=>edit(d=>{
+      const p=d.probes[i];p.frequency_domain??={enabled:true};p.frequency_domain.frequencies_hz??=[];
+      if(p.frequency_domain.frequencies_hz.length<12)p.frequency_domain.frequencies_hz.push(state.derived.resolved.excitation?.center_hz??2.45e9);
+    })},"+ Frequency"),
+    h("p",{class:"hint",text:"Passive measurement. Current requires a plane, voltage a line, point E/H a point, and dumps a plane or volume. Native runner required."}));
+}
+
 function inspectMaterial(box, title, i) {
   const m = state.doc.materials[i];
   title.replaceChildren(m.name, h("span", { class: "title-tag", text: "material" }));
@@ -1629,7 +1664,7 @@ function fitDomain() {
 }
 
 // ---------------------------------------------------------------- structure ops
-const listOf = (doc, kind) => ({ geometry: doc.geometry, port: doc.ports, material: doc.materials, refinement:doc.mesh?.refinements })[kind] || [];
+const listOf = (doc, kind) => ({ geometry: doc.geometry, port: doc.ports, material: doc.materials, diagnostic:doc.probes, refinement:doc.mesh?.refinements })[kind] || [];
 function uniqueName(names, base) {
   let n = base, k = 2;
   while (names.includes(n)) n = `${base}-${k++}`;
@@ -1685,6 +1720,14 @@ function addItem(kind, type) {
       }
       doc.ports.push(item);
       state.sel = { kind, index: doc.ports.length - 1 };
+    } else if (kind === "diagnostic") {
+      doc.probes??=[];
+      const bounds={current:[[-5,-5,5],[5,5,5]],voltage:[[0,0,-2],[0,0,2]],electric_field:[[5,0,0],[5,0,0]],magnetic_field:[[5,0,0],[5,0,0]],field_dump:[[0,-50,-50],[0,50,50]]};
+      const [start,stop]=bounds[type];
+      doc.probes.push({name:uniqueName(doc.probes.map(p=>p.name),type),type,enabled:true,start,stop,
+        ...(type==="field_dump"?{field:"E",sub_sampling:[2,2,2]}:{}),
+        time_domain:{enabled:true},frequency_domain:{enabled:false,frequencies_hz:[state.derived.resolved.excitation?.center_hz??2.45e9]}});
+      state.sel={kind,index:doc.probes.length-1};
     } else if (kind === "material") {
       const m = { name: uniqueName(doc.materials.map(x => x.name), type === "dielectric" ? "substrate" : type.replace("_", "-")), type };
       for (const f of MATERIALS[type].fields) if (!f.optional) m[f.key] = f.default;
@@ -2057,6 +2100,7 @@ function refresh(opts = {}) {
     ve.hidden = !msgs.length;
     ve.textContent = msgs.slice(0, 3).join(" · ") + (msgs.length > 3 ? ` (+${msgs.length - 3})` : "");
   }
+  viewport?.setDiagnosticObjects(d.resolved.probes??[]);
   syncResults();
   showChip();
   syncHandles();
@@ -2089,6 +2133,11 @@ function openAddMenu(anchor, only) {
   if (!only || only === "port") {
     menu.append(heading("Ports"));
     for (const [k, v] of Object.entries(PORTS)) menu.append(h("button", { role: "menuitem", onclick: () => addItem("port", k) }, v.label));
+  }
+  if (!only || only === "diagnostic") {
+    menu.append(heading("Diagnostics"));
+    for(const [k,label] of Object.entries({current:"Current probe",voltage:"Voltage probe",electric_field:"E-field point",magnetic_field:"H-field point",field_dump:"Field dump"}))
+      menu.append(h("button",{role:"menuitem",onclick:()=>addItem("diagnostic",k)},label));
   }
   if (!only || only === "material") {
     menu.append(heading("Materials"));
