@@ -157,7 +157,9 @@ export async function importResultArchive(file,{overwrite=false}={}){
     ?manifest.cases.filter(c=>c?.file).map(c=>({name:files.has(folder+c.file)?folder+c.file:c.file,label:c.label||c.id||c.file}))
     :[...files.keys()].filter(n=>n.endsWith(".result.json")).map(name=>({name,label:name.split("/").pop()}));
   if(!entries.length)throw Error("No simulation result JSON files found in ZIP");
-  if(project)importedConfig(project);
+  // A source template may contain parameter expressions in excitation and geometry.
+  if(project&&(project.schema_version!==2||!Array.isArray(project.geometry)||!Array.isArray(project.materials)))
+    throw Error("ZIP project.json is not a supported schema v2 template");
   let imported=0,kept=0,first=null;
   const errors=[];
   for(const entry of entries){
