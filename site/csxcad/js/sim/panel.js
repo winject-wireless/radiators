@@ -4,7 +4,8 @@ import { OpenEMS } from "../../vendor/openems/openems.js";
 import { buildModel } from "./model.js";
 import { runSimulation, summarize, hasValidS11 } from "./run.js";
 import { lineChart, polarChart, smithChart } from "./plot.js";
-import { makeZip } from "./zip.js";
+import { makeZip, openZip } from "./zip.js";
+import { resolveCase } from "../params.js";
 import { diagnosticFrame } from "./probe-playback.js";
 import { updateSolverDiagnostics } from "./diagnostics.js";
 import { registerServiceWorker, isolationUnavailableReason, storage } from "../platform.js";
@@ -94,24 +95,27 @@ async function cacheGet(key) {
     req.onerror=()=>reject(req.error);
   });
 }
-async function cachePut(key, run) {
+async function cachePut(key, run, { overwrite=true }={}) {
   const db=await resultDB();
   return new Promise((resolve,reject)=>{
     const tx=db.transaction(CACHE_STORE,"readwrite");
-    tx.oncomplete=()=>resolve();
+    let written=false;
+    tx.oncomplete=()=>resolve(written);
     tx.onerror=tx.onabort=()=>reject(tx.error||Error("Result cache write aborted"));
-    tx.objectStore(CACHE_STORE).put({result:run.result,frequency:run.frequency,log:run.log,savedAt:Date.now()},cacheStorageKey(key));
+    const store=tx.objectStore(CACHE_STORE), id=cacheStorageKey(key);
+    const put=()=>{store.put({result:run.result,frequency:run.frequency,log:run.log,savedAt:Date.now()},id);written=true;};
+    if(overwrite)put();else{const request=store.getKey(id);request.onsuccess=()=>{if(request.result===undefined)put();};}
   });
 }
 // Each distinct template is a locally saved revision; saving the same template
 // updates its timestamp and selected case, never deletes another revision.
-export async function saveLocalProject(doc, caseIndex=0) {
-  const key=JSON.stringify(doc), db=await resultDB();
+export async function saveLocalProject(doc, caseIndex=0, label="") {
+  const serialized=JSON.stringify(doc), key=label?JSON.stringify([label,serialized]):serialized, db=await resultDB();
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(PROJECT_STORE,"readwrite");
     tx.oncomplete=()=>resolve();
     tx.onerror=tx.onabort=()=>reject(tx.error||Error("Project save aborted"));
-    tx.objectStore(PROJECT_STORE).put({doc:JSON.parse(key),caseIndex,savedAt:Date.now()},key);
+    tx.objectStore(PROJECT_STORE).put({doc:JSON.parse(serialized),caseIndex,label,savedAt:Date.now()},key);
   });
 }
 export async function listLocalProjects() {
@@ -121,6 +125,60 @@ export async function listLocalProjects() {
     req.onsuccess=()=>resolve(req.result.sort((a,b)=>b.savedAt-a.savedAt));
     req.onerror=()=>reject(req.error);
   });
+}
+// Imported results are stored under their own exact resolved input, never
+// attached to whichever unrelated project happens to be open.
+function importedConfig(cfg){
+  if(cfg?.schema_version!==2||!Array.isArray(cfg.geometry)||!Array.isArray(cfg.materials)||!Number.isFinite(cfg.excitation?.center_hz))
+    throw Error("Result does not contain a supported schema v2 input configuration");
+  const doc=structuredClone(cfg);doc.units??="mm";doc.ports??=[];
+  return doc;
+}
+async function importOneResult(data,{overwrite=false}={}){
+  const {editor_resolved_config,...result}=data??{};
+  const doc=importedConfig(editor_resolved_config??result.input_config);
+  if(!hasValidS11(result)||!Array.isArray(result.patterns)||!Array.isArray(result.s11.frequency_hz)||
+      !["real","imag","phase_deg","vswr"].every(k=>Array.isArray(result.s11[k])&&result.s11[k].length===result.s11.frequency_hz.length))
+    throw Error("Result has incomplete or invalid frequency response");
+  importedConfig(result.input_config);
+  const key=JSON.stringify(resolveCase(doc,{}));
+  const run={result,frequency:result.patterns.findIndex(p=>p?.record?.radiation_valid),log:[]};
+  const written=await cachePut(key,run,{overwrite});
+  return {doc,written};
+}
+export async function importResultArchive(file,{overwrite=false}={}){
+  const files=await openZip(file);
+  const manifestFile=[...files.keys()].find(n=>n.split("/").pop()==="manifest.json");
+  const manifest=manifestFile?await files.get(manifestFile)():null;
+  const folder=manifestFile?.slice(0,manifestFile.lastIndexOf("/")+1)??"";
+  const templateFile=folder+"project.json";
+  const project=files.has(templateFile)?await files.get(templateFile)():null;
+  const entries=Array.isArray(manifest?.cases)
+    ?manifest.cases.filter(c=>c?.file).map(c=>({name:files.has(folder+c.file)?folder+c.file:c.file,label:c.label||c.id||c.file}))
+    :[...files.keys()].filter(n=>n.endsWith(".result.json")).map(name=>({name,label:name.split("/").pop()}));
+  if(!entries.length)throw Error("No simulation result JSON files found in ZIP");
+  if(project)importedConfig(project);
+  let imported=0,kept=0,first=null;
+  const errors=[];
+  for(const entry of entries){
+    try{
+      const read=files.get(entry.name);if(!read)throw Error("Result file missing");
+      const {doc,written}=await importOneResult(await read(),{overwrite});
+      if(written)imported++;else kept++;
+      if(!first)first=doc;
+      // Legacy exports lack a source template. Save each resolved case as
+      // its own project with an archive/case label for later review.
+      if(!project)await saveLocalProject(doc,0,(manifest?.simulation||file.name||"Sweep")+" · "+entry.label);
+    }catch(e){errors.push(entry.name+": "+e.message);}
+  }
+  if(!first)throw Error(errors[0]||"No valid results in ZIP");
+  if(project)await saveLocalProject(project);
+  return {doc:project??first,imported,kept,errors,grouped:!!project};
+}
+export async function importResultFile(data, options={}){
+  const {doc,written}=await importOneResult(data,options);
+  await saveLocalProject(doc);
+  return {doc,imported:written?1:0,kept:written?0:1,errors:[],grouped:false};
 }
 export function clearResults() {
   if (sim.running) stop();
@@ -638,7 +696,7 @@ export function syncSweepDownload(box,ctx){
     bar.append(h("span",{class:"hint"}),h("button",{type:"button",class:"small result-download"}));
     bar.lastChild.addEventListener("click",async()=>{
       if(exportingSweep)return;
-      const snapshot=sweepSnapshot(ctx),slug=ctx.slug();
+      const snapshot=sweepSnapshot(ctx),slug=ctx.slug(),project=ctx.getTemplate?.();
       const available=snapshot.filter(c=>c.run);
       if(!available.length)return;
       exportingSweep=true;syncSweepDownload(box,ctx);
@@ -650,9 +708,10 @@ export function syncSweepDownload(box,ctx){
         // Serialize lazily per entry to avoid keeping all JSON strings in memory.
         function* entries(){
           yield {name:"manifest.json",text:JSON.stringify(manifest,null,1)};
-          for(const c of available)yield {name:slug+"__"+c.id+".result.json",text:JSON.stringify(c.run.result)};
+          if(project)yield {name:"project.json",text:JSON.stringify(project)};
+          for(const c of available)yield {name:slug+"__"+c.id+".result.json",text:JSON.stringify({...c.run.result,editor_resolved_config:JSON.parse(c.run.key)})};
         }
-        const blob=await makeZip(entries(),available.length+1);
+        const blob=await makeZip(entries(),available.length+1+(project?1:0));
         const url=URL.createObjectURL(blob);
         const a=h("a",{href:url,download:slug+"__sweep.zip"});
         document.body.append(a);a.click();a.remove();
