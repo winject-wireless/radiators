@@ -3,7 +3,7 @@
 // {"$param"} / {"$expr"} placeholders that scripts/sweep.py resolves per case.
 import {
   parameterSets, resolveTemplate, resolveCase, fieldToValue, valueToField, isTemplate,
-  validParameterName, renameParameter, parameterUsage, MAX_CASES,
+  validParameterName, renameParameter, parameterUsage, sweepWarnings, MAX_CASES,
   UNIT_GROUPS, normalizeWorkspaceUnits, unitGroup, displayUnit, parseUnitField, formatUnitField, displayedNumber,
 } from "./params.js";
 import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
@@ -369,6 +369,7 @@ function runChecks(doc, d) {
     else merged.set(key, { ...item, cases: [caseId] });
   };
   if (d.caseError) add({ level: "error", where: "sweep", msg: d.caseError }, "all");
+  for(const warning of sweepWarnings(doc))add(warning,"all");
   if (doc.generator) add({ level: "warn", where: "generator", msg: `Geometry is produced at simulation time by ${doc.generator.path || "a Python generator"}; the preview shows only the base geometry.` }, "all");
   const cases = d.caseError ? [d.case] : d.cases;
   for (const c of cases) {
@@ -1997,7 +1998,20 @@ function renderSweep(d, swept) {
   mode.value = doc.sweep.mode || "product";
   mode.addEventListener("change", () => edit(dd => { dd.sweep.mode = mode.value; }));
   sec.append(row("Mode", mode));
-  for (const [name, spec] of Object.entries(doc.sweep.parameters || {})) sec.append(sweepAxis(name, spec));
+  const warnings=sweepWarnings(doc);
+  for (const [name, spec] of Object.entries(doc.sweep.parameters || {})) {
+    const axis=sweepAxis(name,spec);
+    const items=warnings.filter(w=>w.axis===name);
+    if(items.length){
+      const input=axis.querySelector('input[aria-label="Swept parameter"]');
+      const id="sweep-warning-"+name;
+      input.setAttribute("aria-describedby",id);
+      input.classList.add("sweep-axis-warning");
+      input.title=items.map(w=>w.msg).join("\n");
+      sec.append(axis,h("div",{class:"note warn sweep-axis-notice",id,role:"status"},
+        ...items.map(w=>h("div",{text:"⚠ "+w.msg}))));
+    }else sec.append(axis);
+  }
   sec.append(h("div", { class: "actions" }, h("button", { type: "button", class: "small", onclick: () => edit(dd => {
     dd.sweep.parameters ??= {};
     const cand = Object.entries(dd.parameters || {}).find(([k, v]) => typeof v === "number" && !(k in dd.sweep.parameters));
@@ -2076,7 +2090,7 @@ function renderChecks() {
       h("strong", { text: errors ? `${errors} error${errors > 1 ? "s" : ""}` : "No blocking errors" }),
       warns ? h("span", { class: "muted", text: `${warns} warning${warns > 1 ? "s" : ""}` }) : null,
       h("span", { class: "muted", text: `· ${caseCount} case${caseCount > 1 ? "s" : ""} checked` })),
-    h("p", { class: "hint", text: "Input validation and advisory feed-contact, mesh and boundary checks. Passing them does not prove electrical connectivity on the FDTD grid or mesh convergence." }));
+    h("p", { class: "hint", text: "Input validation and advisory sweep, feed-contact, mesh and boundary checks. Passing them does not prove electrical connectivity on the FDTD grid or mesh convergence." }));
   const ul = h("ul", { class: "checks-list" });
   for (const c of list) {
     const li = h("li", { "data-ref": c.ref ? "1" : undefined },

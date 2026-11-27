@@ -970,3 +970,6 @@ dialog .example-list > button { padding:7px 9px; gap:3px; }
   .panel,.dock-panel,.dock .panel { max-height:100%; }
   body.sheet-peek .panel { max-height:min(46dvh,100%); }
 }
+
+.sweep-axis input.sweep-axis-warning {border-color:var(--warn);}
+.sweep-axis-notice {margin:2px 0 6px;padding:5px 7px;font-size:var(--ui-small);overflow-wrap:anywhere;}

@@ -182,6 +182,10 @@ try {
   await page.locator("#openFile").setInputFiles({name:"sweep-smoke.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(doc))});
   await page.waitForFunction(()=>document.querySelector("#resultCase")?.options.length===2);
   await page.locator('[data-dock="sim"]').click();
+  assert.match(await page.locator("#sim .sweep-axis-notice").textContent(),/smoke_case.*not referenced by active simulation inputs/);
+  await page.locator('[data-dock="checks"]').click();
+  assert.ok(await page.locator("#checks").getByText("Parameter 'smoke_case' is not referenced by active simulation inputs.",{exact:false}).isVisible());
+  await page.locator('[data-dock="sim"]').click();
   const hasParallelCPU=await page.evaluate(()=>navigator.hardwareConcurrency>=2);
   await page.getByRole("spinbutton", { name: "CPU pool" }).fill(hasParallelCPU?"2":"1");
   await page.getByRole("spinbutton", { name: "CPU pool" }).press("Tab");

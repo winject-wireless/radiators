@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { evaluate, parameterSets, resolveCase, fieldToValue, valueToField, renameParameter, sweepValues, parseUnitField, formatUnitField, normalizeWorkspaceUnits, resolveTemplate } from "./js/params.js";
+import { sweepWarnings, evaluate, parameterSets, resolveCase, fieldToValue, valueToField, renameParameter, sweepValues, parseUnitField, formatUnitField, normalizeWorkspaceUnits, resolveTemplate } from "./js/params.js";
 import { tessellate, solverBounds, displayBounds, helixPoints, transformer } from "./js/geometry.js";
 import { checkCase } from "./js/checks.js";
 import { STARTER, SHAPES } from "./js/schema.js";
@@ -459,3 +459,27 @@ await import("./tools/check_wasm_diagnostics.mjs");
 await import("./tools/check_current_plane.mjs");
 
 await import("./tools/check_mesh_view.mjs");
+
+
+// Sweep axis warnings: undefined defaults are legal but advisory; references
+// in active expressions and script arguments count, disabled objects do not.
+{
+  const cfg={
+    parameters:{used:1,expr:2,unused:3,disabled:4,argument:5,metadata:6,scriptOnly:7},
+    sweep:{parameters:Object.fromEntries(["used","expr","unused","disabled","argument","metadata","scriptOnly","missing","introduced"].map(k=>[k,{values:[1,2]}]))},
+    geometry:[
+      {radius:{$param:"used"},stop:[0,0,{$expr:"2*expr + introduced"}]},
+      {enabled:false,radius:{$param:"disabled"}},
+      {script:"custom",args:{width:{$param:"argument"}}}
+    ],
+    description:{$param:"metadata"},
+    scripts:{custom:{$param:"scriptOnly"}}
+  };
+  const codes=c=>sweepWarnings(c).map(w=>w.axis+":"+w.code);
+  assert.deepEqual(codes(cfg),["unused:unused","disabled:unused","metadata:unused","scriptOnly:unused","missing:undefined","missing:unused","introduced:undefined"]);
+  assert.deepEqual(codes({...cfg,generator:{language:"python",path:"generator.py"}}),["missing:undefined","introduced:undefined"]);
+  assert.deepEqual(codes({...cfg,sweep:undefined}),[]);
+  assert.equal(sweepWarnings(cfg).every(w=>w.level==="warn"),true);
+  assert.equal(sweepWarnings({...cfg,probes:[{start:[0,0,{$param:"unused"}]}]}).some(w=>w.axis==="unused"),false);
+  assert.equal(sweepWarnings({...cfg,probes:[{enabled:false,start:[0,0,{$param:"unused"}]}]}).some(w=>w.axis==="unused"),true);
+}
