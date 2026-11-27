@@ -149,7 +149,7 @@ export const PATTERN_GRID = cfg => {
   return { theta, phi };
 };
 
-export function buildModel(config) {
+export function buildModel(config, {meshOnly=false}={}) {
   require(config.schema_version === 2, "simulate_v2 requires schema_version=2");
   require(config.units === "mm", "v2 supports millimetres only");
   const exc = config.excitation ?? {};
@@ -168,7 +168,7 @@ export function buildModel(config) {
   const boundary = config.domain.boundary ?? Array(6).fill("PML_8");
   require(boundary.length === 6, "Require six boundary conditions");
   const solver = config.solver ?? {};
-  const diagnosticObjects = prepareDiagnostics(config, ds, de);
+  const diagnosticObjects = meshOnly?[]:prepareDiagnostics(config, ds, de);
 
   // materials and geometry (one CSXCAD property per material, primitives in config order)
   const mats = new Map();
@@ -210,6 +210,8 @@ export function buildModel(config) {
     return [lo, hi];
   });
   const { grid, counts, cells } = setupMesh(config, geometryBounds, sourceBounds, previews, ports, ds, de);
+
+  if(meshOnly)return {meshLines:grid.lines.map(a=>[...a]),counts,cells};
 
   // properties in creation order (IDs as CSXCAD assigns them)
   let id = 0;
@@ -294,6 +296,6 @@ ${props.join("\n")}
   return {
     xml, counts, cells, freq, patterns, theta, phi, ports: portInfo, driven,
     nf2ff: { e_file: "nf2ff_E", h_file: "nf2ff_H", start, stop, directions, mirror },
-    diagnosticObjects, previews, deltaUnit: 1e-3, meshStatistics: meshStatistics(grid.lines),
+    diagnosticObjects, meshLines:grid.lines.map(a=>[...a]), previews, deltaUnit: 1e-3, meshStatistics: meshStatistics(grid.lines),
   };
 }
