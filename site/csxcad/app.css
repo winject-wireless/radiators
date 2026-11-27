@@ -959,3 +959,14 @@ dialog .example-list > button { padding:7px 9px; gap:3px; }
   .mesh-tools { grid-column:1/-1;max-width:100%; }
   .mesh-control-row input[type=range] { max-width:none; }
 }
+
+/* Keep installed PWAs and WebViews within the measured visible app surface.
+   The safe-area padding belongs to the navigation row, not the workspace. */
+@media (max-width:760px),(max-height:520px) and (max-width:1000px) {
+  html { overflow:hidden; }
+  body { position:fixed;inset:0 0 auto;height:100vh;height:min(100dvh,var(--app-height,100dvh));max-height:100%;grid-template-rows:auto minmax(0,1fr) auto; }
+  .workspace { min-height:0;overflow:hidden; }
+  .mobile-nav { min-height:0;align-self:end; }
+  .panel,.dock-panel,.dock .panel { max-height:100%; }
+  body.sheet-peek .panel { max-height:min(46dvh,100%); }
+}
