@@ -392,6 +392,25 @@ try {
     const mobilePage=await phone.newPage();
     await mobilePage.goto(new URL("?debug=1",base).href);
     await mobilePage.waitForFunction(()=>crossOriginIsolated&&window.__csxcad?.viewport&&document.querySelector("#sim .sim-controls"),{},{timeout:90000});
+    const assertNavVisible=async()=>{
+      const layout=await mobilePage.evaluate(()=>{
+        const nav=document.querySelector(".mobile-nav"),r=nav.getBoundingClientRect(),w=document.querySelector(".workspace").getBoundingClientRect();
+        return {top:r.top,bottom:r.bottom,workspaceBottom:w.bottom,visible:Math.min(innerHeight,visualViewport?.height??innerHeight),buttons:[...nav.querySelectorAll("button")].map(b=>b.getBoundingClientRect().bottom)};
+      });
+      assert.ok(layout.bottom<=layout.visible+1,"Mobile nav clipped: "+JSON.stringify(layout));
+      assert.ok(layout.buttons.every(y=>y<=layout.visible+1),"Mobile nav buttons clipped");
+      assert.ok(layout.workspaceBottom<=layout.top+1,"Workspace overlaps mobile nav");
+    };
+    await assertNavVisible();
+    // Reproduce an installed app whose visible viewport is smaller than the CSS viewport.
+    await mobilePage.evaluate(()=>{
+      Object.defineProperty(visualViewport,"height",{configurable:true,get:()=>innerHeight-48});
+      visualViewport.dispatchEvent(new Event("resize"));
+    });
+    await mobilePage.waitForFunction(()=>document.body.getBoundingClientRect().height<=innerHeight-47);
+    await assertNavVisible();
+    await mobilePage.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event("resize"));});
+    await mobilePage.waitForFunction(()=>Math.abs(document.body.getBoundingClientRect().height-innerHeight)<=1);
     await mobilePage.locator('.mobile-nav [data-sheet="sim"]').click();
     await mobilePage.waitForFunction(()=>document.body.dataset.sheet==="sim");
     assert.equal(await mobilePage.getByLabel("openEMS engine").inputValue(),"cpu");
