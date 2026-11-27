@@ -354,6 +354,44 @@ export function checkCase(cfg) {
     } else err(label, "Unsupported port type " + JSON.stringify(p.type), ref);
   });
 
+  const probes=cfg.probes??[];
+  if(!Array.isArray(probes)||probes.length>32)err("diagnostics","Expected an array of at most 32 diagnostic objects");
+  else {
+    const names=new Set();
+    for(const [i,p] of probes.entries()){
+      if(p?.enabled===false)continue;
+      const ref={kind:"diagnostic",index:i},label="diagnostic "+(p?.name??(i+1));
+      if(!p||typeof p.name!=="string"||!p.name.trim()||p.name.length>120||names.has(p.name)){err(label,"Use unique nonempty names (max 120 characters)",ref);continue;}
+      names.add(p.name);
+      const a=tryv(()=>vec3(p.start,"start"),label,ref),b=tryv(()=>vec3(p.stop,"stop"),label,ref);
+      const expected={voltage:1,current:2,electric_field:0,magnetic_field:0};
+      if(a&&b){
+        if(a.some((v,k)=>v>b[k]))err(label,"start must be <= stop",ref);
+        const axes=a.map((v,k)=>b[k]>v+1e-9?k:-1).filter(k=>k>=0),dim=axes.length;
+        if(p.type==="field_dump"?dim<2:expected[p.type]!==dim)err(label,"Invalid measurement geometry: voltage=line, current=plane, E/H=point, dump=plane or volume",ref);
+        if(p.type==="voltage"||p.type==="current"){
+          const k=p.type==="voltage"?axes[0]:[0,1,2].find(x=>!axes.includes(x)),axis="xyz"[k];
+          if(p.direction!==undefined&&![axis,"-"+axis].includes(p.direction))err(label,"Direction must follow the local measurement axis",ref);
+        }
+        const rot=tryv(()=>vec3(p.transform?.rotate_deg??[0,0,0],"rotation"),label,ref);
+        if(rot&&rot.some(x=>Math.abs(x/90-Math.round(x/90))>1e-9))err(label,"Diagnostic boxes support rotations in 90° steps only",ref);
+        const points=tryv(()=>{const tf=transformer(p);return Array.from({length:8},(_,j)=>tf([j&1?b[0]:a[0],j&2?b[1]:a[1],j&4?b[2]:a[2]]));},label,ref);
+        if(points&&ds&&de&&points.some(q=>q.some((x,k)=>x<ds[k]-1e-9||x>de[k]+1e-9)))err(label,"Measurement outside simulation domain",ref);
+      }
+      const td=p.time_domain?.enabled??true,fd=p.frequency_domain?.enabled??!!p.frequencies_hz?.length;
+      const fs=fd?(p.frequency_domain?.frequencies_hz??p.frequencies_hz??[]):[];
+      if(!Array.isArray(fs)||fs.length>12||fs.some(f=>!fin(f)||f<=0||(fin(f0)&&fin(fc)&&(f<f0-fc||f>f0+fc))))err(label,"Invalid diagnostic frequencies (max 12, within excitation band)",ref);
+      else if(!td&&!fs.length)err(label,"Enable time capture or specify diagnostic frequencies",ref);
+      const os=p.time_domain?.oversampling;
+      if(os!==undefined&&(!Number.isInteger(os)||os<1||os>100))err(label,"Time oversampling must be 1–100",ref);
+      if(p.type==="field_dump"){
+        const sub=p.sub_sampling??[2,2,2];
+        if(!["E","H","J","J_total","D","B"].includes(p.field??"E"))err(label,"Unknown field quantity",ref);
+        if(!Array.isArray(sub)||sub.length!==3||sub.some(x=>!Number.isInteger(x)||x<1||x>100))err(label,"Subsampling must be three integers from 1 to 100",ref);
+        if(td)warn(label,"Recorded field dumps may use significant disk space; increase subsampling for large regions",ref);
+      }
+    }
+  }
   const res = cfg.solver?.resources;
   if (res && (!(res.cpus > 0) || !(res.memory_gib > 0))) warn("solver", "solver.resources needs positive cpus and memory_gib");
   return out;
