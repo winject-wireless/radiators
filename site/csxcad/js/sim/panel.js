@@ -2,7 +2,7 @@
 // case, runs it in the openEMS wasm build (Web Worker), shows progress and the results.
 import { OpenEMS } from "../../vendor/openems/openems.js";
 import { buildModel } from "./model.js";
-import { runSimulation, summarize } from "./run.js";
+import { runSimulation, summarize, hasValidS11 } from "./run.js";
 import { lineChart, polarChart, smithChart } from "./plot.js";
 import { registerServiceWorker, isolationUnavailableReason } from "../platform.js";
 
@@ -116,6 +116,7 @@ export async function restoreResults(ctx) {
   for(const {id,key,entry} of cached){
     if(!entry?.result || current.get(id)!==key || attempts.get(id)!==key ||
       target.get(id)?.key===key || ["queued","running"].includes(states.get(id)?.status))continue;
+    if(!hasValidS11(entry.result)){states.set(id,{status:"failed",key,error:"Cached simulation has no valid S11. Check feed excitation and rerun."});changed=true;continue;}
     target.set(id,{result:entry.result,key,frequency:entry.frequency,cached:true});
     states.set(id,{status:"done",key});changed=true;
   }
@@ -150,7 +151,8 @@ export function renderRunPanel(box, ctx) {
   const stats = h("div", { class: "sim-stats" });
   const logPre = h("pre", { class: "sim-log" });
   const logBox = h("details", { class: "sim-log-box" }, h("summary", { text: "openEMS log" }), logPre);
-  ui = { bar, stats, logPre, runBtn, abortBtn };
+  const warningBox = h("div", { class: "note warn", role: "alert", hidden: true });
+  ui = { bar, stats, logPre, runBtn, abortBtn, warningBox };
 
   const caseLine = c.config
     ? sweep ? `${c.label} · ${cases.length} cases` : "Single case"
@@ -169,7 +171,7 @@ export function renderRunPanel(box, ctx) {
         if (error) { sim.error = error; ctx.refresh(); }
       } }, "Retry isolation") : null,
       h("a", { href: location.href, target: "_blank", rel: "noopener noreferrer" }, "Open editor directly (new tab)")) : null,
-    sim.running || sim.progress ? bar : null, stats, sim.error ? h("div", { class: "note warn", text: sim.error }) : null,
+    sim.running || sim.progress ? bar : null, stats, warningBox,
     sim.cacheWarning ? h("p",{class:"hint",text:sim.cacheWarning}) : null,
     sim.running || sim.log.length ? logBox : null));
   updateProgress();
@@ -185,6 +187,9 @@ function updateProgress() {
       (sim.model ? ` · ${(sim.model.cells / 1e6).toFixed(2)} M cells` : "")
     : sim.summary || "";
   ui.logPre.textContent = sim.log.slice(-200).join("\n");
+  const message = sim.error || sim.warning || "";
+  ui.warningBox.hidden = !message;
+  ui.warningBox.textContent = message;
 }
 
 async function start(ctx, all = false) {
@@ -198,7 +203,7 @@ async function start(ctx, all = false) {
   const queue = cases.map(c=>({...c, config:c.config ? structuredClone(c.config) : null}));
   const runCases = runs, states = caseStates;
   for (const c of queue) { states.set(c.id,{status:"queued",key: c.config ? JSON.stringify(c.config) : null}); }
-  Object.assign(sim,{running:true,aborting:false,error:null,cacheWarning:null,summary:"",log:[],progress:null,model:null,
+  Object.assign(sim,{running:true,aborting:false,error:null,warning:null,cacheWarning:null,summary:"",log:[],progress:null,model:null,
     batch:{total:queue.length,finished:0,id:queue[0].id},stage:"preparing",startedAt:Date.now()});
   let completed=0, failed=0, stopped=0;
   const publish=()=>{ctx.onBadge(simStatus());ctx.refresh();};
@@ -209,7 +214,7 @@ async function start(ctx, all = false) {
       if (sim.aborting || runs!==runCases) break;
       const key=c.config ? JSON.stringify(c.config) : null;
       sim.batch.id=c.id;
-      Object.assign(sim,{progress:null,model:null,stage:"preparing",startedAt:Date.now(),log:[]});
+      Object.assign(sim,{progress:null,model:null,stage:"preparing",startedAt:Date.now(),log:[],warning:null});
       states.set(c.id,{status:"running",key});
       publish();
       try {
@@ -223,6 +228,7 @@ async function start(ctx, all = false) {
         const result=await runSimulation(sim.ems,model,{
           config:c.config,engine:sim.engine,threads:sim.threads,
           onLog:line=>{sim.log.push(line);if(sim.log.length>2000)sim.log.splice(0,500);},
+          onWarning:w=>{sim.warning=w.fatal?"Invalid feed — "+w.message:w.message;updateProgress();},
           onProgress:p=>{sim.progress=p;ctx.onBadge(simStatus());updateProgress();},
           onStage:s=>{sim.stage=s;updateProgress();}
         });
@@ -239,7 +245,7 @@ async function start(ctx, all = false) {
         ctx.notify(`${c.id}: ${result.aborted?"Stopped":"Done"} · S11 ${fmt(s.bestDb,1)} dB at ${ghz(s.bestHz)}`);
       } catch(e) {
         if(sim.aborting){states.set(c.id,{status:"stopped",key});stopped++;}
-        else {states.set(c.id,{status:"failed",key,error:e.message});failed++;ctx.notify(c.id+": "+e.message,true);}
+        else {runCases.delete(c.id);states.set(c.id,{status:"failed",key,error:e.message});sim.error=c.id+": "+e.message;failed++;ctx.notify(sim.error,true);}
       } finally {
         clearTimeout(sim.stopTimer);
         sim.ems?.terminate();
@@ -275,7 +281,7 @@ export function renderResults(box, ctx, run, caseId, stale) {
   box.replaceChildren();
   if (!run || stale) {
     const status=caseRunState(caseId);
-    box.append(h("p", { class: "hint", text: stale ? "This case has changed. Run it again to update its results." : status?.status==="failed" ? "Failed: "+status.error : status?.status==="running" ? "Simulation running…" : status?.status==="queued" ? "Queued for simulation…" : status?.status==="cancelled" || status?.status==="stopped" ? "Simulation stopped before results were available." : "Run this case in the Simulation tab to see its results." }));
+    box.append(h("p", { class: status?.status==="failed" ? "note warn" : "hint", text: stale && status?.status!=="failed" ? "This case has changed. Run it again to update its results." : status?.status==="failed" ? "Failed: "+status.error : status?.status==="running" ? "Simulation running…" : status?.status==="queued" ? "Queued for simulation…" : status?.status==="cancelled" || status?.status==="stopped" ? "Simulation stopped before results were available." : "Run this case in the Simulation tab to see its results." }));
     return;
   }
   const r = run.result;
@@ -296,6 +302,7 @@ export function renderResults(box, ctx, run, caseId, stale) {
       h("h3",{text:run.cached?"Results · cached on this device":"Overview"}),
       h("button",{type:"button",class:"small result-download",onclick:download},"Download result.json")),
     r.aborted ? h("div", { class: "note warn", text: "Stopped early: the results use the time steps computed so far." }) : null,
+    ...(r.solver_warnings ?? []).map(message=>h("div",{class:"note warn",text:message})),
     h("div", { class: "sim-kpis" },
       kpi("Best S11", `${fmt(s.bestDb, 1)} dB`, ghz(s.bestHz)),
       kpi("−10 dB band", s.band ? `${fmt((s.band[1] - s.band[0]) / 1e6, 0)} MHz` : "none", s.band ? `${ghz(s.band[0])} – ${ghz(s.band[1])}` : ""),
