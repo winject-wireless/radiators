@@ -246,11 +246,11 @@ In the Model tree, use the checkbox icon next to an object (or the Simulation co
 Choose **Remote** in the Simulation runner selector. The editor sends the resolved
 schema v2 case to the native Python openEMS solver on your machine, polls logs,
 and loads the completed S11, impedance and radiation results into the existing viewer.
-CPU and RAM come from solver.resources; sweeps submit cases sequentially.
+Set ncpu_pool and ncpu_per_job in the Simulation tab. Sweeps automatically run up to floor(ncpu_pool / ncpu_per_job) concurrent cases in Browser or Remote mode. Remote memory per job comes from solver.resources.memory_gib; the server enforces aggregate CPU and RAM caps.
 No geometry scripts or generators are executed by the remote API. The URL is
 saved locally; the access token stays in memory until reload.
 
-On the runner machine (Linux or WSL2 with Docker and Python 3), clone the repository and run `./run-remote.sh`. First launch creates private settings and builds the native solver image if necessary. Use `./run-remote.sh --print-token` to retrieve the editor access token. See [the deployment guide](../../docs/remote-runner.md) for configuration, HTTPS and optional startup at boot. The runner accepts one active job; native PEC exports and diagnostic waveforms are not yet implemented remotely.
+On the runner machine (Linux or WSL2 with Docker and Python 3), clone the repository and run `./run-remote.sh`. First launch creates private settings and builds the native solver image if necessary. Use `./run-remote.sh --print-token` to retrieve the editor access token. See [the deployment guide](../../docs/remote-runner.md) for configuration, HTTPS and optional startup at boot. The runner queues jobs within shared CPU and RAM limits; native PEC exports and diagnostic waveforms are not yet implemented remotely.
 
 API: GET /v1/health, POST /v1/jobs with id and config, GET /v1/jobs/{id},
 GET /v1/jobs/{id}/result, DELETE /v1/jobs/{id}. All except OPTIONS require

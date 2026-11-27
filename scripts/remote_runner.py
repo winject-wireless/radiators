@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Authenticated, single-active-job native openEMS runner for a trusted host.
+"""Authenticated, resource-budgeted native openEMS runner for a trusted host.
 
 Run on loopback behind HTTPS (see README). Docker is required; the server never
 executes submitted scripts, mounts the repository read-only, and isolates jobs.
@@ -69,25 +69,68 @@ class Runner:
         self.args, self.docker, self.work = args, docker, work
         self.lock = threading.Lock()
         self.jobs = {}
+        self.closing = False
 
     def submit(self, payload):
         ident, cfg, cpus, memory = validate(payload, self.args)
         with self.lock:
             if ident in self.jobs:
                 raise ValueError("Job ID already exists")
-            if any(j["state"] not in TERMINAL for j in self.jobs.values()):
-                raise RuntimeError("Runner busy; one active job is supported")
-            while len(self.jobs) >= self.args.retain:
-                old = next(iter(self.jobs))
+            if self.closing:
+                raise RuntimeError("Runner is shutting down")
+            # Do not evict an active job or a completed result not yet downloaded.
+            eligible = [key for key, j in self.jobs.items()
+                        if j["state"] in TERMINAL and (j.get("delivered") or time.monotonic()-j.get("finished_at", time.monotonic()) > 3600)]
+            for old in eligible[:-self.args.retain]:
                 shutil.rmtree(self.jobs.pop(old)["path"], ignore_errors=True)
+            if len(self.jobs) >= 256 or sum(j["state"] not in TERMINAL for j in self.jobs.values()) >= 64:
+                raise RuntimeError("Runner job queue full")
             path = self.work / ident
             path.mkdir(mode=0o700)
             (path / "config.json").write_text(json.dumps(cfg, allow_nan=False))
             j = {"id": ident, "path": path, "state": "queued", "created": time.monotonic(),
-                 "cancel": threading.Event(), "error": None}
+                 "cancel": threading.Event(), "error": None, "cpus": cpus, "memory": memory}
             self.jobs[ident] = j
-            threading.Thread(target=self.execute, args=(j, cpus, memory), daemon=True).start()
+            self.dispatch_locked()
             return ident
+
+    def dispatch_locked(self):
+        """Reserve CPU and RAM before launching, including jobs in Docker startup."""
+        if self.closing:
+            return
+        active = [j for j in self.jobs.values() if j["state"] in ("starting", "running")]
+        free_cpu = self.args.max_cpus - sum(j["cpus"] for j in active)
+        free_mem = int(self.args.max_memory_gib * 1024**3) - sum(j["memory"] for j in active)
+        for j in self.jobs.values():
+            if j["state"] != "queued":
+                continue
+            if j["cancel"].is_set():
+                j.update(state="cancelled", error=None, seconds=0, finished_at=time.monotonic())
+                continue
+            if j["cpus"] > free_cpu or j["memory"] > free_mem:
+                continue
+            free_cpu -= j["cpus"]
+            free_mem -= j["memory"]
+            j["state"] = "starting"
+            threading.Thread(target=self.run_reserved, args=(j,), daemon=True).start()
+
+    def run_reserved(self, j):
+        try:
+            self.execute(j, j["cpus"], j["memory"])
+        finally:
+            with self.lock:
+                if j["state"] not in TERMINAL:
+                    j.update(state="failed", error="Job executor exited without result", seconds=0)
+                j["finished_at"] = time.monotonic()
+                self.dispatch_locked()
+
+    def cancel(self, j):
+        with self.lock:
+            if j["state"] not in TERMINAL:
+                j["cancel"].set()
+                if j["state"] == "queued":
+                    j.update(state="cancelled", error=None, seconds=0, finished_at=time.monotonic())
+                    self.dispatch_locked()
 
     def execute(self, j, cpus, memory):
         name = "radiators-remote-" + j["id"]
@@ -152,12 +195,14 @@ class Runner:
         with self.lock:
             out = {k: j[k] for k in ("id", "state", "error")}
             out["seconds"] = j.get("seconds", time.monotonic()-j["created"])
+            if j["state"] in ("failed", "cancelled"):
+                j["delivered"] = True
         log = j["path"] / "runner.log"
-        if log.exists():
+        try:
             with log.open("rb") as f:
-                f.seek(max(0, log.stat().st_size-65536))
+                f.seek(max(0, os.fstat(f.fileno()).st_size-65536))
                 out["log"] = f.read(65536).decode("utf-8", errors="replace")
-        else:
+        except FileNotFoundError:
             out["log"] = ""
         return out
 
@@ -174,6 +219,7 @@ class Runner:
                 p["record"] = json.loads((path / filename).read_text())
             result.update(generator="remote native openEMS", seconds=j["seconds"])
             result["postprocessing_incomplete"] = any(not p["record"].get("radiation_valid") for p in result.get("patterns", []))
+            j["delivered"] = True
             return result
 
 
@@ -184,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
         super().setup()
         self.connection.settimeout(30)
 
-    def headers(self, code, size):
+    def response_headers(self, code, size):
         self.send_response(code)
         origin = self.headers.get("Origin")
         if origin and origin in self.server.runner.args.origin:
@@ -201,7 +247,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def reply(self, code, payload):
         data = json.dumps(payload, allow_nan=False, separators=(",", ":")).encode()
-        self.headers(code, len(data))
+        self.response_headers(code, len(data))
         self.wfile.write(data)
 
     def origin_ok(self):
@@ -211,8 +257,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if not self.origin_ok():
             self.log_error("CORS denied: origin %r not in configured origins", self.headers.get("Origin"))
-            return self.headers(403, 0)
-        self.headers(204, 0)
+            return self.response_headers(403, 0)
+        self.response_headers(204, 0)
 
     def auth_error(self):
         # Never log credentials, only why authentication failed.
@@ -239,7 +285,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if method == "GET" and path == "/v1/health":
                 return self.reply(200, {"api_version": 1, "engine": "native openEMS",
-                    "max_cpus": runner.args.max_cpus, "max_memory_gib": runner.args.max_memory_gib,
+                    "max_cpus": runner.args.max_cpus, "ncpu_pool": runner.args.max_cpus, "parallel_jobs": True, "max_memory_gib": runner.args.max_memory_gib,
                     "max_cells": runner.args.max_cells, "max_timesteps": runner.args.max_timesteps})
             if method == "POST" and path == "/v1/jobs":
                 length = int(self.headers.get("Content-Length", "0"))
@@ -259,9 +305,7 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET":
                 return self.reply(200, runner.snapshot(j))
             if method == "DELETE" and not m[2]:
-                with runner.lock:
-                    if j["state"] not in TERMINAL:
-                        j["cancel"].set()
+                runner.cancel(j)
                 return self.reply(202, {"id": j["id"], "cancel_requested": True})
             return self.reply(405, {"error": "Method not supported"})
         except (ValueError, TypeError, KeyError, OverflowError) as exc:
@@ -324,8 +368,10 @@ def main():
                 pass
             finally:
                 with runner.lock:
+                    runner.closing = True
                     for j in runner.jobs.values():
                         j["cancel"].set()
+                        if j["state"] == "queued":j.update(state="cancelled",error=None,seconds=0,finished_at=time.monotonic())
                 deadline = time.monotonic()+45
                 while time.monotonic()<deadline:
                     with runner.lock:
