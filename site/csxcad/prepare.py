@@ -44,7 +44,7 @@ CDNS = (
     "https://cdn.jsdelivr.net/npm/three@{v}/{path}",
     "https://unpkg.com/three@{v}/{path}",
 )
-APP_FILES = ("index.html", "app.css", "manifest.webmanifest", "icon.svg", "icon-maskable.svg", "sw.js")
+APP_FILES = ("index.html", "help.html", "app.css", "manifest.webmanifest", "icon.svg", "icon-maskable.svg", "sw.js")
 
 here = Path(__file__).resolve().parent
 repo = here.parent.parent

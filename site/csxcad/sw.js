@@ -3,7 +3,7 @@
 // CACHE_VERSION is replaced by prepare.py with a content hash.
 const CACHE = "csxcad-CACHE_VERSION";
 const SHELL = [
-  "./", "./index.html", "./app.css", "./manifest.webmanifest", "./icon.svg",
+  "./", "./index.html", "./help.html", "./app.css", "./manifest.webmanifest", "./icon.svg",
   "./js/main.js", "./js/current-plane.js", "./js/params.js", "./js/schema.js", "./js/geometry.js",
   "./js/checks.js", "./js/viewport.js", "./js/platform.js", "./js/scriptcore.js", "./js/script-worker.js", "./js/code-editor.js",
   "./vendor/codemirror/lib/codemirror.js", "./vendor/codemirror/lib/codemirror.css", "./vendor/codemirror/mode/javascript/javascript.js",
