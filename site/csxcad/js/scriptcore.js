@@ -3,6 +3,7 @@
 // editor (runs scripts in a Web Worker) and the simulator (scripts/geometry_scripts.mjs
 // runs them in a Node vm), so both expand a config identically.
 import { SHAPES } from "./schema.js";
+import { rotationMatrix, transformer, vec3 as transformVec3 } from "./geometry.js";
 
 export const SCRIPT_LIMITS = { sourceChars: 50000, objects: 2000, timeoutMs: 2000 };
 export const SCRIPT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -365,6 +366,33 @@ export function prepareArgs(spec, given, materials, where = "args") {
   return out;
 }
 
+// A script instance is a rigid group: child-local transform first, then
+// instance rotation about its local origin and instance translation.
+export function composeTransforms(parent, child) {
+  if (!parent) return child;
+  const pr = transformVec3(parent.rotate_deg ?? [0,0,0], "instance rotation");
+  const pt = transformVec3(parent.translate ?? [0,0,0], "instance translation");
+  if (![...pr,...pt].some(v=>v!==0)) return child;
+  if (!child) return {...parent};
+  const cr = transformVec3(child.rotate_deg ?? [0,0,0], "primitive rotation");
+  const ct = transformVec3(child.translate ?? [0,0,0], "primitive translation");
+  const translate = transformer({transform:parent})(ct);
+  let rotate_deg;
+  if (!pr.some(Boolean)) rotate_deg = [...cr];
+  else if (!cr.some(Boolean)) rotate_deg = [...pr];
+  else {
+    const p = rotationMatrix(pr), c = rotationMatrix(cr);
+    const m = p.map(row=>[0,1,2].map(j=>row.reduce((s,v,k)=>s+v*c[k][j],0)));
+    // Rz Ry Rx decomposition; at gimbal lock choose X=0.
+    const cy = Math.hypot(m[0][0],m[1][0]);
+    const y = Math.atan2(-m[2][0],cy);
+    const x = cy>1e-12 ? Math.atan2(m[2][1],m[2][2]) : 0;
+    const z = cy>1e-12 ? Math.atan2(m[1][0],m[0][0]) : Math.atan2(-m[0][1],m[1][1]);
+    rotate_deg = [x,y,z].map(v=>v*180/Math.PI);
+  }
+  return {...child,rotate_deg,translate};
+}
+
 // Check generate()'s output and turn it into geometry entries for the instance.
 export function normalizeObjects(objects, instance, spec, values) {
   if (!Array.isArray(objects)) throw Error("generate() must return a list of primitives");
@@ -383,6 +411,8 @@ export function normalizeObjects(objects, instance, spec, values) {
     if (out.material === undefined && firstMaterial) out.material = values[firstMaterial];
     if (typeof out.material !== "string") throw Error(`object ${local}: material is required`);
     if (out.priority === undefined && instance.priority !== undefined) out.priority = instance.priority;
+    const transform = composeTransforms(instance.transform, out.transform);
+    if (transform) out.transform = transform;
     return out;
   });
 }
