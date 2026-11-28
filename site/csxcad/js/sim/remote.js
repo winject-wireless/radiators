@@ -26,13 +26,22 @@ export class RemoteRunner {
     if(!response.ok){
       let detail="";
       try{detail=json?String((await response.json())?.error??""):(await response.text()).replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim().slice(0,160);}catch{/* body unreadable */}
-      throw Error("Runner HTTP "+response.status+(detail?": "+detail:""));
+      const error=Error("Runner HTTP "+response.status+(detail?": "+detail:""));error.status=response.status;throw error;
     }
     if(!json)throw Error("Runner returned "+(type||"no content type")+" instead of JSON (HTTP "+response.status+")");
     return response.json();
   }
   health(){return this.request("/v1/health");}
   jobs(){return this.request("/v1/jobs");}
+  async submitBatch(id,pool,jobs){
+    // Repeating the same IDs is safe if the HTTP response was lost.
+    for(let attempt=0;;attempt++){
+      try{return await this.request("/v1/batches","POST",{id,pool,jobs},{timeout:120000});}
+      catch(e){if((e.status&&e.status<500)||attempt>=2)throw e;
+        await new Promise(r=>setTimeout(r,1000*2**attempt));}
+    }
+  }
+  purgeJob(id){if(!/^[a-f0-9]{32}$/.test(id))throw Error("Invalid job ID");return this.request("/v1/jobs/"+id+"/result","DELETE");}
   cancelJob(id){if(!/^[a-f0-9]{32}$/.test(id))throw Error("Invalid job ID");return this.request("/v1/jobs/"+id,"DELETE");}
   abort(){
     this.cancelled=true;
@@ -47,14 +56,15 @@ export class RemoteRunner {
       await this.request("/v1/jobs","POST",{id:this.id,config,...(requireCapacity?{require_capacity:true}:{})});
       this.submitted=true;
     }catch(e){
-      // The POST may have reached the server before its response was lost.
-      try{await this.cancelJob(this.id);}catch{}
-      throw Error("Remote submission failed ("+this.id+"): "+e.message);
+      // The POST may have reached the server. Never cancel an ambiguous submission.
+      throw Error("Remote submission unconfirmed ("+this.id+"): "+e.message);
     }
-    // A native run can take hours. A phone changing network, or a sleeping tab,
-    // must never cancel it: poll with backoff and keep the job on the host.
-    // Only abort() (the Stop button) cancels, and the job ID stays available so
-    // the client can reattach after the connection comes back.
+    return this.attach(this.id,{onStatus});
+  }
+  async attach(id,{onStatus}={}){
+    if(!/^[a-f0-9]{32}$/.test(id))throw Error("Invalid job ID");
+    this.id=id;this.submitted=true;
+    const path="/v1/jobs/"+id;
     let failures=0,downloads=0;
     for(;;){
       if(this.cancelled)await this.abort();
@@ -62,6 +72,7 @@ export class RemoteRunner {
       try{state=await this.request(path);failures=0;}
       catch(e){
         if(this.cancelled){await this.abort();throw Error("Remote job cancelled");}
+        if(e.status===404||e.status===403||e.status===401)throw e;
         const wait=Math.min(30000,1500*2**Math.min(failures++,4));
         onStatus?.({state:"unreachable",attempts:failures,retry_ms:wait,error:e.message,
           message:`Connection lost (${e.message}); retrying in ${Math.round(wait/1000)} s. The remote job keeps running — press Stop to cancel it.`});

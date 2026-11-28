@@ -97,9 +97,11 @@ class Runner:
                 raise ValueError("Invalid stored job " + ident)
             j = dict(data, path=path, cancel=threading.Event(), created=time.monotonic(),
                      last_contact=time.monotonic(), cpus=cpus)
+            if j.get("seconds") is None:
+                j.pop("seconds", None)
             if j["state"] in ("starting", "running"):
                 self.remove_container("radiators-remote-" + ident)
-                j.update(state="failed", error="Runner restarted during simulation; rerun this case")
+                j.update(state="failed", seconds=0, error="Runner restarted during simulation; rerun this case")
                 self.persist(j)
             if j["state"] in TERMINAL:
                 j["finished_at"] = time.monotonic()

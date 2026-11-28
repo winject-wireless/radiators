@@ -185,7 +185,7 @@ async function cacheGet(key) {
 }
 async function cachePut(key, run, { overwrite=true }={}) {
   const db=await resultDB(),id=await cacheStorageKey(key);
-  const value={result:run.result,frequency:run.frequency,log:run.log,config:JSON.parse(key),savedAt:Date.now()};
+  const value={result:run.result,frequency:run.frequency,log:run.log,remoteJobId:run.remoteJobId,config:JSON.parse(key),savedAt:Date.now()};
   const bytes=JSON.stringify(value).length;
   const written=await new Promise((resolve,reject)=>{
     const tx=db.transaction(CACHE_STORE,"readwrite");
@@ -326,7 +326,7 @@ export async function restoreResults(ctx) {
     if(!entry?.result || current.get(id)!==key || attempts.get(id)!==key ||
       target.get(id)?.key===key || ["queued","running"].includes(states.get(id)?.status))continue;
     if(!hasValidS11(entry.result)){states.set(id,{status:"failed",key,error:"Cached simulation has no valid S11. Check feed excitation and rerun."});changed=true;continue;}
-    target.set(id,{result:entry.result,key,frequency:entry.frequency,log:entry.log,cached:true});
+    target.set(id,{result:entry.result,key,frequency:entry.frequency,log:entry.log,remoteJobId:entry.remoteJobId,cached:true});
     states.set(id,{status:entry.result.postprocessing_incomplete?"partial":"done",key});changed=true;
   }
   if(changed)ctx.refresh();
@@ -379,13 +379,14 @@ export function renderRunPanel(box, ctx) {
   url.addEventListener("input",save);token.addEventListener("input",save);
   const test=h("button",{type:"button",disabled:sim.running,onclick:async()=>{
     save();test.disabled=true;
-    try{const info=await new RemoteRunner(sim.remoteUrl,sim.remoteToken).health();
+    try{const client=new RemoteRunner(sim.remoteUrl,sim.remoteToken),info=await client.health();
       if(info.api_version!==1)throw Error("Incompatible runner API");
-      connection.textContent="Connected · "+info.max_cpus+" CPUs · "+(info.memory_limit===false?"No RAM cap":"Legacy runner: "+info.max_memory_gib+" GiB RAM budget");
+      connection.textContent="Connected · "+info.max_cpus+" CPUs · "+(info.detached_jobs?"Detached jobs":"Legacy runner — update required");
+      if(info.detached_jobs)await recoverRemote(ctx,client);
     }catch(e){connection.textContent=e.message;}finally{test.disabled=false;}
   }},"Test connection");
   const serverJobs=h("div",{class:"sim-case-list"});
-  const manage=h("details",{class:"result-case-log"},h("summary",{text:"Server jobs / orphan cleanup"}),serverJobs);
+  const manage=h("details",{class:"result-case-log"},h("summary",{text:"Server jobs / recovery"}),serverJobs);
   const refreshJobs=async()=>{
     serverJobs.replaceChildren(h("p",{class:"hint",text:"Loading server jobs…"}));
     try{
@@ -393,20 +394,30 @@ export function renderRunPanel(box, ctx) {
       const client=new RemoteRunner(sim.remoteUrl,sim.remoteToken);
       const data=await client.jobs();
       serverJobs.replaceChildren();
-      if(!data.jobs.length)serverJobs.append(h("p",{class:"hint",text:"No active or queued server jobs."}));
+      if(!data.jobs.length)serverJobs.append(h("p",{class:"hint",text:"No retained server jobs."}));
       for(const job of data.jobs){
-        const cancel=h("button",{type:"button",class:"small danger",disabled:job.cancel_requested,onclick:async()=>{
+        const terminal=["done","failed","cancelled"].includes(job.state);
+        const cancel=h("button",{type:"button",class:"small danger",disabled:!terminal&&job.cancel_requested,onclick:async()=>{
+          if(terminal&&!confirm("Delete this server job and its stored results?"))return;
           cancel.disabled=true;
-          try{await client.cancelJob(job.id);await refreshJobs();}
+          try{if(terminal)await client.purgeJob(job.id);else await client.cancelJob(job.id);await refreshJobs();}
           catch(e){cancel.disabled=false;ctx.notify(e.message,true);}
-        }},job.cancel_requested?"Cancelling…":"Cancel");
+        }},terminal?"Delete":job.cancel_requested?"Cancelling…":"Cancel");
+        const download=job.state==="done"?h("button",{type:"button",class:"small",onclick:async()=>{
+          try{
+            const result=await client.request("/v1/jobs/"+job.id+"/result","GET",undefined,{timeout:600000});
+            const url=URL.createObjectURL(new Blob([JSON.stringify(result)],{type:"application/json"}));
+            const a=h("a",{href:url,download:job.id+".result.json"});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);
+          }catch(e){ctx.notify(e.message,true);}
+        }},"Download raw result"):null;
         serverJobs.append(h("div",{class:"sim-case-row"},
-          h("div",{class:"sim-case-top"},h("strong",{class:"sim-case-name",text:job.name||job.id.slice(0,8)}),h("span",{text:job.state}),cancel),
+          h("div",{class:"sim-case-top"},h("strong",{class:"sim-case-name",text:job.name||job.id.slice(0,8)}),h("span",{text:job.state}),download,cancel),
           h("div",{class:"hint",text:job.id.slice(0,8)+" · "+job.cpus+" CPUs · last poll "+job.last_contact_seconds+" s ago"})));
       }
     }catch(e){serverJobs.replaceChildren(h("p",{class:"note warn",text:e.message+" — update runner if job listing is unsupported."}));}
   };
-  manage.append(h("button",{type:"button",class:"small",onclick:refreshJobs},"Refresh jobs"));
+  manage.append(h("button",{type:"button",class:"small",onclick:refreshJobs},"Refresh jobs"),
+    h("button",{type:"button",class:"small",onclick:async()=>{try{save();await recoverRemote(ctx,new RemoteRunner(sim.remoteUrl,sim.remoteToken));}catch(e){ctx.notify(e.message,true);}}},"Recover matching jobs"));
   manage.addEventListener("toggle",()=>{if(manage.open)void refreshJobs();});
   const unavailable = remote ? null : OpenEMS.unsupportedReason();
   const isolationBlocked = remote ? null : isolationUnavailableReason();
@@ -448,7 +459,7 @@ export function renderRunPanel(box, ctx) {
     h("div",{class:"sim-run-head"},h("h3",{text:"Simulation runner"}),h("span",{class:"hint sim-case-hint",title:c.name||"",text:`${caseLine}${pending&&!c.pending?" · preparing cases":""}`})),
     h("div", { class: "sim-controls" }, h("div",{class:"sim-run-actions"},allBtn,runBtn,validateBtn,abortBtn),
       h("div",{class:"sim-run-options"},h("label",{},"Runner",runnerSelect),!remote?h("label", { class: "sim-engine" }, "Engine", engine):null,h("label",{class:"sim-threads"},"ncpu_pool",pool),h("label",{class:"sim-threads"},"ncpu_per_job",threads),parallel)),
-    remote?h("div",{class:"sim-remote-settings"},h("label",{},"Runner URL",url),h("label",{},"Access token",token),h("div",{class:"sim-remote-actions"},test,connection),h("p",{class:"hint",text:"Remote jobs use the shared CPU pool. No per-job RAM cap on updated runners."})):null,
+    remote?h("div",{class:"sim-remote-settings"},h("label",{},"Runner URL",url),h("label",{},"Access token",token),h("div",{class:"sim-remote-actions"},test,connection),h("p",{class:"hint",text:"Remote jobs continue when this page closes. Re-enter the token and test the connection to recover matching jobs. No per-job RAM cap."})):null,
     remote?manage:null,
     unavailable ? h("div", { class: "note warn" },
       h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
@@ -598,13 +609,42 @@ async function validateMesh(ctx) {
     ctx.onBadge(simStatus());ctx.refresh();
   }
 }
-async function start(ctx, all = false, id = ctx.getCase().id) {
+// The server is the authoritative job registry. A digest of the unmodified
+// resolved input plus the case ID permits reattachment after reload without
+// storing access tokens or depending on browser storage surviving.
+let recovering=false;
+async function recoverRemote(ctx,client){
+  if(sim.running||recovering||sim.runner!=="remote")return;
+  recovering=true;
+  try{
+    const {jobs}=await client.jobs();
+    const matches=[];
+    for(const c of ctx.getCases()){
+      if(!c.config||c.pending)continue;
+      const key=JSON.stringify(c.config),hash=await digest(key);
+      const job=jobs.filter(j=>j.case_id===c.id&&j.case_key===hash)
+        .sort((a,b)=>b.created_at-a.created_at)[0];
+      if(!job)continue;
+      if(job.state==="done"){
+        const cached=await cacheGet(key).catch(()=>null);
+        if(cached?.remoteJobId===job.id)continue;
+      }
+      matches.push({...c,remoteId:job.id});
+    }
+    if(matches.length&&!sim.running&&sim.runner==="remote"&&remoteEndpoint(sim.remoteUrl)===client.url&&sim.remoteToken.trim()===client.token){
+      const current=new Map(ctx.getCases().filter(c=>c.config).map(c=>[c.id,JSON.stringify(c.config)]));
+      const valid=matches.filter(c=>current.get(c.id)===JSON.stringify(c.config));
+      if(valid.length)void start(ctx,false,valid[0].id,valid);
+    }
+  }finally{recovering=false;}
+}
+async function start(ctx, all = false, id = ctx.getCase().id, recovery=null) {
   const chosen=ctx.getCases().find(c=>c.id===id);
   if(sim.running){
     if(!all&&chosen?.config&&!chosen.pending&&sim.batch?.canAdd?.(id))sim.batch.add(chosen);
     return;
   }
-  const cases = all ? ctx.getCases() : chosen?[chosen]:[];
+  const cases = recovery??(all ? ctx.getCases() : chosen?[chosen]:[]);
   if (!cases.some(c=>c.config) || cases.some(c=>c.pending)) return;
   const remote=sim.runner==="remote";
   const why = remote ? null : OpenEMS.unsupportedReason();
@@ -614,7 +654,7 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
   // during the sweep cannot change the queued simulation inputs.
   ctx.archiveProject?.();
   const snapshot=(c,immediate)=>({...c,immediate,config:c.config?structuredClone(c.config):null});
-  const queue = cases.map(c=>snapshot(c,!all));
+  const queue = cases.map(c=>snapshot(c,!all&&!recovery));
   const runCases = runs, states = caseStates;
   const previous=new Map();
   const markQueued=c=>{previous.set(c.id,states.get(c.id));states.set(c.id,{status:"queued",key:c.config?JSON.stringify(c.config):null});};
@@ -622,7 +662,7 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
   const cpu=cpuSettings(),engine=sim.engine;
   const endpoint=sim.remoteUrl,token=sim.remoteToken;
   Object.assign(sim,{running:true,aborting:false,error:null,warning:null,cacheWarning:null,summary:"",log:[],progress:null,model:null,active:new Map(),
-    batch:{total:queue.length,finished:0},stage:"preparing",startedAt:Date.now()});
+    batch:{total:queue.length,finished:0,remoteIds:new Set()},stage:"preparing",startedAt:Date.now()});
   let completed=0, failed=0, stopped=0, partial=0, notStarted=0;
   const publish=()=>{ctx.onBadge(simStatus());ctx.refresh();};
   publish();
@@ -646,9 +686,8 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
         let result;
         if(remote){
           job.remote=new RemoteRunner(endpoint,token);
-          const config=structuredClone(c.config);config.solver??={};config.solver.resources??={};config.solver.resources.cpus=cpu.perJob;
-          job.stage="submitting remote job";updateProgress();
-          result=await job.remote.run(config,{requireCapacity:c.immediate,onStatus:status=>{
+          job.stage="connecting to remote job";updateProgress();
+          result=await job.remote.attach(c.remoteId,{onStatus:status=>{
             // "unreachable" is a client-side network report, not a job state:
             // keep the last solver log and progress, and say what is happening.
             if(status.state==="unreachable"){
@@ -688,7 +727,7 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
         if(remote&&c.config.probes?.some(p=>p.enabled!==false)&&!Array.isArray(result.diagnostic_probes))throw Error("Runner did not return diagnostic data; update the native runner checkout");
         result.aborted=!!(result.aborted||sim.aborting);
         const firstValid=result.patterns.findIndex(p=>p.record.radiation_valid);
-        const run={...partialRun,result,key,log:job.log.slice(-2000),frequency:partialRun?.frequency>=0?partialRun.frequency:firstValid};
+        const run={...partialRun,result,key,remoteJobId:c.remoteId,log:job.log.slice(-2000),frequency:partialRun?.frequency>=0?partialRun.frequency:firstValid};
         const keepPrevious=!!retained&&(result.aborted||result.postprocessing_incomplete);
         if(!keepPrevious){runCases.set(c.id,run);publish();}
         job.stage="saving result";updateProgress();
@@ -731,39 +770,70 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
   try {
     let limit=cpu.pool;
     if(remote){
-      const info=await new RemoteRunner(endpoint,token).health();
-      if(info.api_version!==1)throw Error("Incompatible runner API");
-      if(cpu.perJob>Math.min(info.max_cpus,info.ncpu_pool??info.max_cpus))throw Error("ncpu_per_job exceeds remote CPU limit");
+      const client=new RemoteRunner(endpoint,token);
+      const info=await client.health();
+      if(info.api_version!==1||!info.detached_jobs||!info.batch_submission)throw Error("Update remote runner for detached jobs");
       limit=Math.min(limit,info.ncpu_pool??info.max_cpus);
-      if(!info.parallel_jobs)limit=cpu.perJob; // older single-job server
-      if(!info.immediate_start&&queue.some(c=>c.immediate))throw Error("Update remote runner for immediate case start");
-      if(!info.immediate_start)sim.batch.legacyRemote=true;
+      if(!recovery&&cpu.perJob>limit)throw Error("ncpu_per_job exceeds remote CPU limit");
+      const batchId=crypto.randomUUID().replaceAll("-","");
+      const submit=async cases=>{
+        const payloads=await Promise.all(cases.map(async c=>{
+          c.remoteId=crypto.randomUUID().replaceAll("-","");
+          const config=structuredClone(c.config);config.solver??={};config.solver.resources??={};config.solver.resources.cpus=cpu.perJob;
+          return {id:c.remoteId,config,case_id:c.id,case_key:await digest(JSON.stringify(c.config)),require_capacity:c.immediate};
+        }));
+        if(sim.aborting)throw Error("Stopped");
+        for(const c of cases)sim.batch.remoteIds.add(c.remoteId);
+        await client.submitBatch(batchId,limit,payloads);
+        if(sim.aborting){await Promise.allSettled(cases.map(c=>client.cancelJob(c.remoteId)));throw Error("Stopped");}
+      };
+      const tasks=new Set();
+      const track=task=>{tasks.add(task);task.then(()=>tasks.delete(task),()=>tasks.delete(task));};
+      if(recovery){for(const c of queue)sim.batch.remoteIds.add(c.remoteId);}
+      else await submit(queue);
+      if(sim.aborting){await Promise.allSettled(queue.map(c=>client.cancelJob(c.remoteId)));throw Error("Stopped");}
+      for(const c of queue)track(runCase(c));
+      const slots=Math.max(1,Math.floor(limit/cpu.perJob));
+      sim.batch.canAdd=id=>!recovery&&!sim.aborting&&runs===runCases&&tasks.size<slots&&!sim.active.has(id);
+      sim.batch.add=c=>{
+        if(!sim.batch.canAdd(c.id))return;
+        ctx.archiveProject?.();
+        const copy=snapshot(c,true);queue.push(copy);markQueued(copy);sim.batch.total++;
+        track((async()=>{
+          try{await submit([copy]);await runCase(copy);}
+          catch(e){
+            const old=previous.get(copy.id);if(old)states.set(copy.id,old);else states.delete(copy.id);
+            notStarted++;sim.error=e.message;ctx.notify(e.message,true);publish();
+          }
+        })());publish();
+      };
+      publish();
+      while(tasks.size){await Promise.race(tasks);updateProgress();}
+    }else{
+      const slots=Math.max(1,Math.floor(limit/cpu.perJob));
+      let next=0;
+      const tasks=new Set();
+      const pump=()=>{
+        while(!sim.aborting&&runs===runCases&&tasks.size<slots&&next<queue.length){
+          const c=queue[next++],task=runCase(c);
+          tasks.add(task);task.then(()=>tasks.delete(task),()=>tasks.delete(task));
+        }
+      };
+      sim.batch.canAdd=id=>!sim.aborting&&runs===runCases&&next===queue.length&&tasks.size<slots&&!sim.active.has(id);
+      sim.batch.add=c=>{
+        if(!sim.batch.canAdd(c.id))return;
+        ctx.archiveProject?.();
+        const copy=snapshot(c,true);queue.push(copy);markQueued(copy);
+        sim.batch.total++;pump();publish();
+      };
+      pump();publish();
+      while(tasks.size){await Promise.race(tasks);pump();updateProgress();}
     }
-    const slots=Math.max(1,Math.floor(limit/cpu.perJob));
-    let next=0;
-    const tasks=new Set();
-    const pump=()=>{
-      while(!sim.aborting&&runs===runCases&&tasks.size<slots&&next<queue.length){
-        const c=queue[next++];
-        const task=runCase(c);
-        tasks.add(task);
-        task.then(()=>tasks.delete(task),()=>tasks.delete(task));
-      }
-    };
-    sim.batch.canAdd=id=>!sim.batch.legacyRemote&&!sim.aborting&&runs===runCases&&next===queue.length&&tasks.size<slots&&!sim.active.has(id);
-    sim.batch.add=c=>{
-      if(!sim.batch.canAdd(c.id))return;
-      ctx.archiveProject?.();
-      const copy=snapshot(c,true);queue.push(copy);markQueued(copy);
-      sim.batch.total++;pump();publish();
-    };
-    pump();publish();
-    while(tasks.size){await Promise.race(tasks);pump();updateProgress();}
     sim.batch.canAdd=()=>false;
   } catch(e){
     sim.error=e.message;
     for(const c of queue)if(states.get(c.id)?.status==="queued"){
-      if(c.immediate&&/Update remote runner for immediate case start/.test(e.message)){
+      if(c.immediate&&/Update remote runner|CPU capacity unavailable/.test(e.message)){
         const old=previous.get(c.id);if(old)states.set(c.id,old);else states.delete(c.id);notStarted++;
       }else{
         states.set(c.id,{...states.get(c.id),status:sim.aborting?"cancelled":"failed",error:e.message});
@@ -786,6 +856,10 @@ function stop() {
   if (!sim.running || sim.aborting) return;
   sim.aborting=true;
   if(ui?.abortBtn){ui.abortBtn.disabled=true;ui.abortBtn.textContent="Stopping…";}
+  if(sim.runner==="remote"&&sim.batch?.remoteIds?.size){
+    const client=new RemoteRunner(sim.remoteUrl,sim.remoteToken);
+    for(const id of sim.batch.remoteIds)client.cancelJob(id).catch(()=>{});
+  }
   for(const job of sim.active.values()){
     if(job.remote){job.remote.abort().catch(e=>{job.warning="Remote cancellation not confirmed: "+e.message;updateProgress();});continue;}
     if(job.ems){const ems=job.ems;if(job.stage==="FDTD"){ems.abort();job.stopTimer=setTimeout(()=>ems.terminate(),1000);}else ems.terminate();}
