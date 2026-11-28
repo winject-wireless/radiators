@@ -90,6 +90,7 @@ try {
       else data={state:"done"};
       await route.fulfill({status:200,json:data});
     });
+    assert.equal(await blockedPage.evaluate(async () => (await import("./js/sim/remote.js")).remoteEndpoint("http://192.168.253.106:8765/")), "http://192.168.253.106:8765");
     const endpoint=new URL("remote-test",base).href;
     await blockedPage.getByLabel("Simulation runner").selectOption("remote");
     await blockedPage.getByLabel("Remote runner URL").fill(endpoint);
