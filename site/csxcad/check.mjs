@@ -394,6 +394,7 @@ assert.equal(starterCases.length, 1);
 const starter = resolveCase(STARTER, starterCases[0].parameters);
 assert.deepEqual(checkCase(starter).filter(x => x.level === "error"), []);
 assert.deepEqual(STARTER, JSON.parse(fs.readFileSync(path.join(repo, "examples/parametric_yagi.json"), "utf8")));
+assert.deepEqual(STARTER.parameters, {gap:2,len:50,dist_ref:0.95,dist_dir:0.36,el_rad:2,len_ref:1.06,len_dir:0.84});
 assert.equal(starter.solver.end_criteria, 1e-4);
 assert.equal(starter.solver.max_timesteps, 50000);
 assert.equal(starter.probes.length, 3);

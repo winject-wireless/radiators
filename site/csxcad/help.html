@@ -469,7 +469,7 @@ docker run --rm -v "$PWD:/work" radiators-openems:ci \
   <div class="section-head"><span class="section-no" aria-hidden="true">13</span><h2 id="schema-title">Schema-v2 reference and example</h2></div>
   <p>JSON is strict: double-quoted keys and strings, no comments or trailing commas. The source is the editable antenna definition; the resolved config is numerical input for one case. Use <code>schema_version: 2</code>.</p>
 <div class="table-wrap"><table><thead><tr><th>Top-level key</th><th>Role</th></tr></thead><tbody><tr><td><code>schema_version / name / description / units</code></td><td>Version 2, project identity, notes and mm coordinate units.</td></tr><tr><td><code>parameters / sweep</code></td><td>Named scalars and case expansion.</td></tr><tr><td><code>domain / mesh</code></td><td>Start/stop, six boundaries, grid and refinements.</td></tr><tr><td><code>materials / geometry</code></td><td>Electrical property definitions, named primitives or script instances.</td></tr><tr><td><code>ports / probes</code></td><td>Active excitation, passive ports and optional diagnostics.</td></tr><tr><td><code>excitation / solver</code></td><td>Gaussian frequency band, stopping criteria and native resources.</td></tr><tr><td><code>outputs</code></td><td>S11 sampling, far-field frequencies, angular grid and optional quantities.</td></tr><tr><td><code>scripts / generator</code></td><td>JavaScript geometry definitions; native-only trusted Python generator.</td></tr><tr><td><code>workspace_units</code></td><td>Display preferences, not physical solver inputs.</td></tr></tbody></table></div>
-<p>The following is the complete bundled Parametric Yagi. It uses a 50 Ω reference and three current probes. The parameters are editable, but no sweep is enabled by default.</p>
+<p>The following is the complete bundled Parametric Yagi. It uses a 50 Ω reference and three current probes. The parameters are editable, but no sweep is enabled by default. The geometry uses case 5 of the 16-case tuning sweep: simulated VSWR 1.167:1 and realized gain 6.26 dBi at 2.45 GHz; worst VSWR 1.306:1 from 2.4 to 2.5 GHz.</p>
 <div class="code-block">
 <div class="code-bar"><span>JSON · Complete Parametric Yagi configuration</span><button class="copy-code" type="button" aria-label="Copy JSON · Complete Parametric Yagi configuration">Copy</button></div>
 <pre><code id="yagi-example">{
@@ -479,12 +479,12 @@ docker run --rm -v "$PWD:/work" radiators-openems:ci \
   "units": "mm",
   "parameters": {
     "gap": 2,
-    "len": 58,
-    "dist_ref": 0.75,
+    "len": 50,
+    "dist_ref": 0.95,
     "dist_dir": 0.36,
     "el_rad": 2,
     "len_ref": 1.06,
-    "len_dir": 0.94
+    "len_dir": 0.84
   },
   "domain": {
     "start": [

@@ -5,12 +5,12 @@
   "units": "mm",
   "parameters": {
     "gap": 2,
-    "len": 58,
-    "dist_ref": 0.75,
+    "len": 50,
+    "dist_ref": 0.95,
     "dist_dir": 0.36,
     "el_rad": 2,
     "len_ref": 1.06,
-    "len_dir": 0.94
+    "len_dir": 0.84
   },
   "domain": {
     "start": [
