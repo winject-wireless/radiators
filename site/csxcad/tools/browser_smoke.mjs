@@ -110,7 +110,7 @@ try {
       return new RemoteRunner(endpoint,"test-token").run({schema_version:2});
     },endpoint);
     assert.deepEqual(received,{s11:{logmag_db:[-12]}});
-    assert.deepEqual(seen.filter(x=>!x.path.endsWith("/health")&&!x.path.endsWith("/jobs")).map(x=>x.method),["POST","GET","GET"]);
+    assert.deepEqual(seen.filter(x=>!(x.method==="GET"&&(x.path.endsWith("/health")||x.path.endsWith("/jobs")))).map(x=>x.method),["POST","GET","GET"]);
     assert.ok(seen.every(x=>x.authorization==="Bearer test-token"));
     console.log("Remote runner native fetch / health / submission / polling / result: PASS");
     const batchIds=await blockedPage.evaluate(async endpoint=>{
