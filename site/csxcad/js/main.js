@@ -1058,7 +1058,19 @@ const simContext = {
   slug: () => slug(),
   getTemplate: () => structuredClone(state.doc),
   archiveProject: () => { void archiveProject(); },
-  onBadge(text) { for (const id of ["simBadge", "simBadgeMobile"]) { const b = $(id); if (b) b.textContent = text; } },
+  onBadge(text) {
+    const description = text === "✓" ? "Results available" : text === "!" ? "Failed or partial result" : text ? `Progress ${text}` : "Not running";
+    for (const id of ["simBadge", "simBadgeMobile"]) {
+      const b = $(id);
+      if (!b) continue;
+      b.textContent = text;
+      b.dataset.status = text === "✓" ? "ok" : text === "!" ? "warn" : text ? "running" : "idle";
+      if (id === "simBadgeMobile") {
+        b.closest("button").setAttribute("aria-label", text ? `Simulation: ${description}` : "Simulation");
+        b.closest("button").title = `Simulation: ${description}`;
+      }
+    }
+  },
   notify: (msg, error = false) => setStatus(msg, error),
   refresh: () => { renderSim(); syncResults(); },
   setDiagnosticFrame: arrows=>viewport?.setDiagnosticFrame(arrows),
@@ -2099,10 +2111,14 @@ function sweepAxis(name, spec) {
 function renderChecks() {
   const { list, caseCount } = state.derived.checks;
   const errors = list.filter(c => c.level === "error").length, warns = list.length - errors;
+  const status = errors ? "error" : warns ? "warn" : "ok";
+  const description = errors || warns ? `${errors} error${errors === 1 ? "" : "s"}, ${warns} warning${warns === 1 ? "" : "s"}` : "No errors or warnings";
   for (const id of ["checkBadge", "checkBadgeMobile"]) {
-    const b = $(id);
-    b.textContent = errors ? errors : warns ? warns : "✓";
-    b.className = "badge " + (errors ? "error" : warns ? "warn" : "ok");
+    const shield = $(id);
+    shield.dataset.status = status;
+    const button = shield.closest("button");
+    button.title = `Checks: ${description}`;
+    button.setAttribute("aria-label", `Checks: ${description}`);
   }
   const box = $("checks");
   box.replaceChildren(

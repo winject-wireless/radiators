@@ -442,6 +442,39 @@ try {
       assert.ok(layout.workspaceBottom<=layout.top+1,"Workspace overlaps mobile nav");
     };
     await assertNavVisible();
+    // Compact chrome must clip its own text, never wrap or paint into neighbors.
+    for (const width of [320,390]) {
+      await mobilePage.setViewportSize({width,height:844});
+      const layout=await mobilePage.evaluate(()=>{
+        const buttons=[...document.querySelectorAll(".view-presets > button,.toggles > button,.mobile-nav > button")];
+        return buttons.map(b=>{
+          const label=b.querySelector(".control-label"),br=b.getBoundingClientRect(),lr=label.getBoundingClientRect(),s=getComputedStyle(label);
+          return {text:label.textContent,contained:lr.left>=br.left-1&&lr.right<=br.right+1&&lr.top>=br.top-1&&lr.bottom<=br.bottom+1,nowrap:s.whiteSpace==="nowrap",clipped:s.overflowX==="hidden",oneLine:lr.height<=parseFloat(s.lineHeight)+1};
+        });
+      });
+      assert.ok(layout.every(v=>v.contained&&v.nowrap&&v.clipped&&v.oneLine),JSON.stringify(layout));
+    }
+    const statusLayout=await mobilePage.evaluate(()=>{
+      const shield=document.querySelector("#checkBadgeMobile"),badge=document.querySelector("#simBadgeMobile"),slot=badge.parentElement,svg=slot.querySelector("svg"),label=slot.parentElement.querySelector(".control-label");
+      const originalStatus=shield.dataset.status,originalText=badge.textContent;
+      const shields=["ok","warn","error"].map(status=>{
+        shield.dataset.status=status;
+        const marks=[...shield.querySelectorAll("[data-mark]")].filter(m=>getComputedStyle(m).display!=="none");
+        return {status,mark:marks.map(m=>m.dataset.mark),color:getComputedStyle(shield).color};
+      });
+      shield.dataset.status=originalStatus;
+      const progress=["","0%","99%","✓","!"].map(text=>{
+        badge.textContent=text;
+        const r=badge.getBoundingClientRect(),sr=slot.getBoundingClientRect(),lr=label.getBoundingClientRect();
+        return {text,icon:getComputedStyle(svg).display!=="none",badge:getComputedStyle(badge).display!=="none",contained:!text||(r.left>=sr.left-1&&r.right<=sr.right+1&&r.top>=sr.top-1&&r.bottom<=sr.bottom+1&&r.bottom<=lr.top+1)};
+      });
+      badge.textContent=originalText;
+      return {shields,progress};
+    });
+    assert.ok(statusLayout.shields.every(s=>s.mark.length===1&&s.mark[0]===s.status));
+    assert.equal(new Set(statusLayout.shields.map(s=>s.color)).size,3);
+    assert.ok(statusLayout.progress.every(p=>p.icon===!p.text&&p.badge===!!p.text&&p.contained),JSON.stringify(statusLayout));
+    console.log("Mobile chrome clipping, colored check shield and exclusive progress/icon slot: PASS");
     const brand = mobilePage.locator(".topbar .brand");
     assert.equal(await brand.evaluate(el=>el.tagName),"DIV","Brand must not navigate to the old viewer");
     await mobilePage.waitForFunction(()=>{const img=document.querySelector(".brand-logo");return img?.complete&&img.naturalWidth>0;});
