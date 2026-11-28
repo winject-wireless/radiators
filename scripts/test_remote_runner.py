@@ -100,6 +100,7 @@ class RemoteTests(unittest.TestCase):
                 for _ in range(200):
                     if all(j["state"]=="done" for j in self.runner.jobs.values()):break
                     time.sleep(.01)
+                self.assertEqual(self.runner.cpu_capacity(), {"ncpu":4,"free_cpu":4})
 
     def test_cpu_budget_and_cancel_queued_job(self):
         gate=threading.Event()

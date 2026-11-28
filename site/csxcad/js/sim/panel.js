@@ -22,7 +22,7 @@ function writeToken(url,token){
     else sessionStorage.removeItem(TOKEN_KEY);
   }catch{/* storage unavailable or URL incomplete */}
 }
-let healthTimer;
+let healthTimer,nextHealthPoll=0;
 const sim = {
   engine: "cpu", threads: 0, active:new Map(), runner:storage.get("radiators.runner")==="remote"?"remote":"browser", remoteUrl:storage.get("radiators.runner.url")||"", remoteToken:readToken(storage.get("radiators.runner.url")||""), remoteHealth:null, remote:null, running: false, stage: "", progress: null, log: [], error: null,
   ems: null, model: null, startedAt: 0, aborting: false, stopTimer: null,
@@ -399,20 +399,23 @@ export function renderRunPanel(box, ctx) {
   const save=()=>{
     const next=url.value.trim();
     if(next!==sim.remoteUrl){
-      sim.remoteUrl=next;sim.remoteHealth=null;
+      sim.remoteUrl=next;sim.remoteHealth=null;nextHealthPoll=0;
+      connection.textContent="Enter runner token";
       token.value=readToken(next);sim.remoteToken=token.value;
       storage.set("radiators.runner.url",next);
       writeToken(next,sim.remoteToken);
     }else if(token.value!==sim.remoteToken){
-      sim.remoteToken=token.value;sim.remoteHealth=null;
+      sim.remoteToken=token.value;sim.remoteHealth=null;nextHealthPoll=0;
+      connection.textContent="Checking runner capacity…";
       writeToken(next,sim.remoteToken);
     }
     showCapacity();updateProgress();
   };
-  url.addEventListener("input",save);token.addEventListener("input",save);
+  url.addEventListener("input",()=>{save();clearTimeout(healthTimer);healthTimer=setTimeout(poll,500);});
+  token.addEventListener("input",()=>{save();clearTimeout(healthTimer);healthTimer=setTimeout(poll,500);});
   const refreshHealth=async(recover=false)=>{
     const endpoint=sim.remoteUrl,credential=sim.remoteToken;
-    if(!endpoint||!credential.trim()){if(recover)connection.textContent="Enter runner URL and token";return;}
+    if(!endpoint||!credential.trim()){connection.textContent="Enter runner URL and token";return;}
     try{
       const client=new RemoteRunner(endpoint,credential),info=await client.health();
       if(info.api_version!==1||!info.detached_jobs||!info.batch_submission||
@@ -428,8 +431,9 @@ export function renderRunPanel(box, ctx) {
   };
   const poll=async()=>{
     if(!connection.isConnected||sim.runner!=="remote")return;
+    nextHealthPoll=Date.now()+3000;
     await refreshHealth();
-    if(connection.isConnected)healthTimer=setTimeout(poll,3000);
+    if(connection.isConnected)healthTimer=setTimeout(poll,Math.max(0,nextHealthPoll-Date.now()));
   };
   const test=h("button",{type:"button",disabled:sim.running,onclick:async()=>{
     save();test.disabled=true;
@@ -524,7 +528,7 @@ export function renderRunPanel(box, ctx) {
     h("div",{class:"sim-queue"},h("div",{class:"sim-queue-title"},"Case progress"),counts,bar,stats,caseList),warningBox,
     sim.cacheWarning ? h("p",{class:"hint",text:sim.cacheWarning}) : null));
   updateProgress();
-  if(remote)healthTimer=setTimeout(poll,sim.remoteHealth?3000:0);
+  if(remote)healthTimer=setTimeout(poll,Math.max(0,nextHealthPoll-Date.now()));
 }
 
 function caseView(id,key) {

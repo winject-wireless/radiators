@@ -78,11 +78,12 @@ try {
     // Exercise the real Window.fetch receiver with intercepted HTTP responses.
     // A JS stub alone does not detect WebIDL "Illegal invocation" errors.
     const seen=[];
+    let freeCPU=6;
     await blockedPage.route("**/remote-test/v1/**",async route=>{
       const req=route.request(), path=new URL(req.url()).pathname, method=req.method();
       seen.push({method,path,authorization:req.headers().authorization});
       let data;
-      if(path.endsWith("/health"))data={api_version:1,ncpu:8,free_cpu:6,max_cpus:8,memory_limit:false,max_memory_gib:null,detached_jobs:true,batch_submission:true};
+      if(path.endsWith("/health"))data={api_version:1,ncpu:8,free_cpu:freeCPU,max_cpus:8,memory_limit:false,max_memory_gib:null,detached_jobs:true,batch_submission:true};
       else if(method==="GET"&&path.endsWith("/jobs"))data={jobs:[]};
       else if(method==="POST"&&path.endsWith("/batches"))data={ids:req.postDataJSON().jobs.map(j=>j.id)};
       else if(method==="POST")data={id:req.postDataJSON().id};
@@ -99,6 +100,10 @@ try {
     await blockedPage.getByText("Connected · Detached jobs").waitFor();
     await blockedPage.getByText("ncpu: 8 · free CPU: 6", {exact:false}).waitFor();
     assert.equal(await blockedPage.getByLabel("CPU pool").count(),0);
+    freeCPU=0;
+    await blockedPage.getByText("ncpu: 8 · free CPU: 0",{exact:false}).waitFor();
+    freeCPU=6;
+    await blockedPage.getByText("ncpu: 8 · free CPU: 6",{exact:false}).waitFor();
     await blockedPage.waitForFunction(()=>!document.querySelector("button[disabled]") || [...document.querySelectorAll("button")].some(b=>b.textContent==="Test connection"&&!b.disabled));
     const received=await blockedPage.evaluate(async endpoint=>{
       const {RemoteRunner}=await import("./js/sim/remote.js");
