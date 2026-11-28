@@ -500,7 +500,7 @@ function numField(path, { optional = false, def, int = false, unit, placeholder,
 }
 const fmt = v => typeof v === "number" ? String(+v.toPrecision(8)) : JSON.stringify(v);
 
- // The solver stores a dimensionless energy ratio; dB is a second view of it.
+// The solver stores a dimensionless energy ratio; dB is a second view of it.
 function endCriteriaDbField() {
   const path = ["solver", "end_criteria"], fallback = 0.0001;
   const input = h("input", { type: "number", step: "any", max: "0", inputmode: "decimal", "aria-label": "End criteria (dB)" });
@@ -529,6 +529,8 @@ function endCriteriaDbField() {
   show();
   return wrap;
 }
+
+
 
 
 function vec3Field(path, opts = {}) {
@@ -1089,7 +1091,19 @@ const simContext = {
   slug: () => slug(),
   getTemplate: () => structuredClone(state.doc),
   archiveProject: () => { void archiveProject(); },
-  onBadge(text) { for (const id of ["simBadge", "simBadgeMobile"]) { const b = $(id); if (b) b.textContent = text; } },
+  onBadge(text) {
+    const description = text === "✓" ? "Results available" : text === "!" ? "Failed or partial result" : text ? `Progress ${text}` : "Not running";
+    for (const id of ["simBadge", "simBadgeMobile"]) {
+      const b = $(id);
+      if (!b) continue;
+      b.textContent = text;
+      b.dataset.status = text === "✓" ? "ok" : text === "!" ? "warn" : text ? "running" : "idle";
+      if (id === "simBadgeMobile") {
+        b.closest("button").setAttribute("aria-label", text ? `Simulation: ${description}` : "Simulation");
+        b.closest("button").title = `Simulation: ${description}`;
+      }
+    }
+  },
   notify: (msg, error = false) => setStatus(msg, error),
   refresh: () => { renderSim(); syncResults(); },
   setDiagnosticFrame: arrows=>viewport?.setDiagnosticFrame(arrows),
@@ -2132,10 +2146,14 @@ function sweepAxis(name, spec) {
 function renderChecks() {
   const { list, caseCount } = state.derived.checks;
   const errors = list.filter(c => c.level === "error").length, warns = list.length - errors;
+  const status = errors ? "error" : warns ? "warn" : "ok";
+  const description = errors || warns ? `${errors} error${errors === 1 ? "" : "s"}, ${warns} warning${warns === 1 ? "" : "s"}` : "No errors or warnings";
   for (const id of ["checkBadge", "checkBadgeMobile"]) {
-    const b = $(id);
-    b.textContent = errors ? errors : warns ? warns : "✓";
-    b.className = "badge " + (errors ? "error" : warns ? "warn" : "ok");
+    const shield = $(id);
+    shield.dataset.status = status;
+    const button = shield.closest("button");
+    button.title = `Checks: ${description}`;
+    button.setAttribute("aria-label", `Checks: ${description}`);
   }
   const box = $("checks");
   box.replaceChildren(
@@ -2457,11 +2475,11 @@ async function showExamples() {
     if (!r.ok) throw Error(r.status);
     index = await r.json();
   } catch {
-    return openDialog("Examples", h("p", { class: "hint", text: "No bundled examples found. Run python3 site/csxcad/prepare.py (the Pages build does this) or open a file from antennas/." }));
+    return openDialog("Open example", h("div", { class: "example-list" },
+      h("button", { type: "button", onclick: () => { $("dialog").close(); loadDoc(STARTER, "Loaded example"); } },
+        h("strong", { text: STARTER.name }), h("small", { text: "Built-in offline fallback" }))));
   }
   openDialog("Open example", h("div", { class: "example-list" },
-    h("button", { type: "button", onclick: () => { $("dialog").close(); loadDoc(STARTER, "Loaded parametric starter"); } },
-      h("strong", { text: "Parametric monopole (starter)" }), h("small", { text: "Built-in · parameters + expressions" })),
     index.map(e => h("button", { type: "button", onclick: async () => {
       $("dialog").close();
       try {
@@ -2894,7 +2912,7 @@ async function boot() {
   // Initial document: ?example=<file>, else local draft, else starter.
   const draft = storage.get(DRAFT_KEY);
   const params = new URLSearchParams(location.search);
-  let initial = STARTER, message = "Parametric starter loaded";
+  let initial = STARTER, message = "Parametric Yagi starter loaded";
   if (params.get("example")) {
     try {
       const r = await fetch("./examples/" + encodeURIComponent(params.get("example")));

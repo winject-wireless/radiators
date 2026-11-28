@@ -5,12 +5,47 @@ import assert from "node:assert/strict";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { chromium } from "playwright";
 
+const dipoleFixture = JSON.parse(await readFile(new URL("../../../tests/fixtures/dipole_2450.json", import.meta.url), "utf8"));
 const base = process.argv[2] || "http://localhost:8080/";
 const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
 const errors = [];
 page.on("pageerror", e => { errors.push(e.message); console.error(e); });
 try {
+  // Help contents must stay reachable from any scroll position without
+  // occupying reading space or shifting the article when opened.
+  const help=await browser.newPage({viewport:{width:360,height:740},isMobile:true,hasTouch:true});
+  try {
+    await help.goto(new URL("help.html",base).href);
+    const toc=help.locator("#contents"),button=help.locator("#tocToggle");
+    assert.ok(await button.isVisible(),"Mobile contents button missing");
+    assert.equal(await button.getAttribute("aria-expanded"),"false");
+    assert.equal(await toc.isVisible(),false,"Mobile contents should start closed");
+    await help.locator("#troubleshooting").evaluate(el=>el.scrollIntoView({behavior:"instant"}));
+    const before=await help.evaluate(()=>scrollY);
+    assert.ok(before>1000,"Test did not scroll into help");
+    const buttonRect=await button.boundingBox();
+    assert.ok(buttonRect.y>=0&&buttonRect.y+buttonRect.height<100,"Contents button must stay in header");
+    await button.click();
+    assert.equal(await button.getAttribute("aria-expanded"),"true");
+    assert.ok(await toc.isVisible());
+    assert.ok(await toc.evaluate(el=>el.scrollHeight>el.clientHeight),"Long contents must scroll independently");
+    assert.equal(await help.evaluate(()=>scrollY),before,"Opening contents moved the article");
+    await help.keyboard.press("Escape");
+    assert.equal(await button.getAttribute("aria-expanded"),"false");
+    await button.click();
+    await toc.getByRole("link",{name:/Simulation domain and mesh/}).click();
+    await help.waitForURL(/#mesh$/);
+    assert.equal(await button.getAttribute("aria-expanded"),"false");
+    assert.equal(await toc.isVisible(),false);
+    await help.waitForFunction(()=>{const r=document.querySelector("#mesh").getBoundingClientRect();return r.top>=0&&r.top<150;});
+    assert.ok(await help.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),"Mobile help overflows horizontally");
+    await help.setViewportSize({width:1280,height:900});
+    await help.waitForFunction(()=>document.querySelector("#contents").open);
+    assert.ok(await toc.isVisible(),"Desktop sidebar must remain visible");
+    assert.equal(await button.isVisible(),false);
+    console.log("Help sticky mobile contents and desktop sidebar: PASS");
+  } finally {await help.close();}
   // Simulate upgrading an already-installed non-isolating editor worker.
   // The previous worker can be active when navigator.serviceWorker.ready resolves.
   const legacyHtml = new URL("../www/legacy-test.html", import.meta.url);
@@ -26,7 +61,7 @@ try {
       sessionStorage.setItem("csxcad-coi-reload", "1");
     });
     await upgrade.waitForFunction(() => navigator.serviceWorker.controller?.scriptURL.endsWith("/sw-legacy.js"));
-    await upgrade.goto(new URL("?example=examples__dipole_2450.json", base).href);
+    await upgrade.goto(new URL("?example=examples__parametric_yagi.json", base).href);
     await upgrade.waitForFunction(() => crossOriginIsolated && navigator.serviceWorker.controller?.scriptURL.endsWith("/sw.js"), {}, { timeout: 90000 });
     console.log("Legacy service worker upgrade: PASS");
   } finally {
@@ -69,25 +104,11 @@ try {
     console.log("Remote runner native fetch / health / submission / polling / result: PASS");
   } finally { await blocked.close(); }
 
-  await page.goto(new URL("?example=examples__dipole_2450.json&debug=1", base).href);
+  await page.goto(new URL("?example=examples__parametric_yagi.json&debug=1", base).href);
   await page.waitForFunction(() => crossOriginIsolated && window.__csxcad?.viewport && document.querySelector("#sim .sim-controls"), { }, { timeout: 90000 });
   // Repair a thick imported current probe, then change its shared normal position.
-  const original=await page.evaluate(()=>structuredClone(window.__csxcad.state.doc));
-  // The linear and dB inputs must edit the same canonical solver value.
-  await page.locator('[data-dock="sim"]').click();
-  const solverSettings=page.locator('#sim details[data-sim-section="Solver settings"]');
-  if(!await solverSettings.evaluate(el=>el.open)) await solverSettings.locator("summary").click();
-  const ratioField=solverSettings.getByLabel("End criteria",{exact:true});
-  const dbField=solverSettings.getByLabel("End criteria (dB)",{exact:true});
-  await dbField.fill("-60"); await dbField.press("Tab");
-  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.solver.end_criteria),1e-6);
-  assert.equal(Number(await ratioField.inputValue()),1e-6);
-  await ratioField.fill("0.00001"); await ratioField.press("Tab");
-  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.solver.end_criteria),1e-5);
-  assert.equal(Number(await dbField.inputValue()),-50);
-  await page.locator("#openFile").setInputFiles({name:"restore.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(original))});
-  await page.waitForFunction(value=>JSON.stringify(window.__csxcad.state.doc.solver)===JSON.stringify(value),original.solver);
-  console.log("Solver convergence units: PASS");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.name),"Parametric Yagi");
+  const original=structuredClone(dipoleFixture);
   const probeDoc={...original,probes:[{name:"current_driven",type:"current",start:[-5,-5,0],stop:[5,5,10]}]};
   const openConfig=doc=>page.locator("#openFile").setInputFiles({name:"probe-edit.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(doc))});
   await openConfig(probeDoc);
@@ -102,6 +123,21 @@ try {
   await openConfig(original);
   await page.waitForFunction(()=>!(window.__csxcad.state.doc.probes??[]).length);
   console.log("Current probe plane editor: PASS");
+  // The linear and dB inputs must edit the same canonical solver value.
+  await page.locator('[data-dock="sim"]').click();
+  const solverSettings=page.locator('#sim details[data-sim-section="Solver settings"]');
+  if(!await solverSettings.evaluate(el=>el.open)) await solverSettings.locator("summary").click();
+  const ratioField=solverSettings.getByLabel("End criteria",{exact:true});
+  const dbField=solverSettings.getByLabel("End criteria (dB)",{exact:true});
+  await dbField.fill("-60"); await dbField.press("Tab");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.solver.end_criteria),1e-6);
+  assert.equal(Number(await ratioField.inputValue()),1e-6);
+  await ratioField.fill("0.00001"); await ratioField.press("Tab");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.solver.end_criteria),1e-5);
+  assert.equal(Number(await dbField.inputValue()),-50);
+  await openConfig(original);
+  await page.waitForFunction(value=>JSON.stringify(window.__csxcad.state.doc.solver)===JSON.stringify(value),original.solver);
+  console.log("Solver convergence units: PASS");
   await page.locator("#meshToggle").click();
   assert.match(await page.locator("#meshReadout").textContent(),/Generated mesh preview.*Min/);
   assert.ok(await page.evaluate(()=>window.__csxcad.viewport.meshView.children.length>0));
@@ -457,6 +493,39 @@ try {
       assert.ok(layout.workspaceBottom<=layout.top+1,"Workspace overlaps mobile nav");
     };
     await assertNavVisible();
+    // Compact chrome must clip its own text, never wrap or paint into neighbors.
+    for (const width of [320,390]) {
+      await mobilePage.setViewportSize({width,height:844});
+      const layout=await mobilePage.evaluate(()=>{
+        const buttons=[...document.querySelectorAll(".view-presets > button,.toggles > button,.mobile-nav > button")];
+        return buttons.map(b=>{
+          const label=b.querySelector(".control-label"),br=b.getBoundingClientRect(),lr=label.getBoundingClientRect(),s=getComputedStyle(label);
+          return {text:label.textContent,contained:lr.left>=br.left-1&&lr.right<=br.right+1&&lr.top>=br.top-1&&lr.bottom<=br.bottom+1,nowrap:s.whiteSpace==="nowrap",clipped:s.overflowX==="hidden",oneLine:lr.height<=parseFloat(s.lineHeight)+1};
+        });
+      });
+      assert.ok(layout.every(v=>v.contained&&v.nowrap&&v.clipped&&v.oneLine),JSON.stringify(layout));
+    }
+    const statusLayout=await mobilePage.evaluate(()=>{
+      const shield=document.querySelector("#checkBadgeMobile"),badge=document.querySelector("#simBadgeMobile"),slot=badge.parentElement,svg=slot.querySelector("svg"),label=slot.parentElement.querySelector(".control-label");
+      const originalStatus=shield.dataset.status,originalText=badge.textContent;
+      const shields=["ok","warn","error"].map(status=>{
+        shield.dataset.status=status;
+        const marks=[...shield.querySelectorAll("[data-mark]")].filter(m=>getComputedStyle(m).display!=="none");
+        return {status,mark:marks.map(m=>m.dataset.mark),color:getComputedStyle(shield).color};
+      });
+      shield.dataset.status=originalStatus;
+      const progress=["","0%","99%","✓","!"].map(text=>{
+        badge.textContent=text;
+        const r=badge.getBoundingClientRect(),sr=slot.getBoundingClientRect(),lr=label.getBoundingClientRect();
+        return {text,icon:getComputedStyle(svg).display!=="none",badge:getComputedStyle(badge).display!=="none",contained:!text||(r.left>=sr.left-1&&r.right<=sr.right+1&&r.top>=sr.top-1&&r.bottom<=sr.bottom+1&&r.bottom<=lr.top+1)};
+      });
+      badge.textContent=originalText;
+      return {shields,progress};
+    });
+    assert.ok(statusLayout.shields.every(s=>s.mark.length===1&&s.mark[0]===s.status));
+    assert.equal(new Set(statusLayout.shields.map(s=>s.color)).size,3);
+    assert.ok(statusLayout.progress.every(p=>p.icon===!p.text&&p.badge===!!p.text&&p.contained),JSON.stringify(statusLayout));
+    console.log("Mobile chrome clipping, colored check shield and exclusive progress/icon slot: PASS");
     const brand = mobilePage.locator(".topbar .brand");
     assert.equal(await brand.evaluate(el=>el.tagName),"DIV","Brand must not navigate to the old viewer");
     await mobilePage.waitForFunction(()=>{const img=document.querySelector(".brand-logo");return img?.complete&&img.naturalWidth>0;});
@@ -519,8 +588,8 @@ try {
     await mobilePage.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event("resize"));});
     await mobilePage.waitForFunction(()=>Math.abs(document.body.getBoundingClientRect().height-innerHeight)<=1);
     await mobilePage.locator("#panelJson .sheet-close").click();
-    // The example picker contains long multiline names and descriptions.
-    // Verify no flex shrink or text spill, even beyond the scroll viewport.
+    // The only bundled example is the Yagi. Check its layout, then use
+    // temporary test-only rows to keep regression coverage of long lists.
     await mobilePage.locator("#menuButton").click();
     await mobilePage.locator('[data-action="examples"]').click();
     await mobilePage.locator("#dialog .example-list > button").first().waitFor({state:"visible"});
@@ -536,15 +605,34 @@ try {
         contained:rects.every(r=>r.contained),
         separated:rects.every((r,i)=>i===0||r.top>=rects[i-1].bottom+2)};
     });
-    assert.ok(layout.count>=5);
-    assert.ok(layout.scrollable,"Expected example list to scroll");
+    assert.equal(layout.count,1,"Only the Yagi should be bundled");
+    assert.match(await picker.innerText(),/Parametric Yagi/);
     assert.ok(layout.contained,"Example text escapes its row");
-    assert.ok(layout.separated,"Example rows overlap");
-    await picker.evaluate(el=>{el.scrollTop=el.scrollHeight;});
-    assert.ok(await picker.evaluate(el=>el.scrollTop>0));
+    const overflow=await picker.evaluate(el=>{
+      const row=el.querySelector(":scope > button");
+      const clones=Array.from({length:12},()=>row.cloneNode(true));
+      el.append(...clones);
+      const rows=[...el.querySelectorAll(":scope > button")];
+      const rects=rows.map(row=>{
+        const r=row.getBoundingClientRect();
+        return {top:r.top,bottom:r.bottom,contained:[...row.children].every(c=>{
+          const b=c.getBoundingClientRect();
+          return b.top>=r.top-1&&b.bottom<=r.bottom+1&&b.left>=r.left-1&&b.right<=r.right+1;
+        })};
+      });
+      el.scrollTop=el.scrollHeight;
+      const result={scrollable:el.scrollHeight>el.clientHeight&&el.scrollTop>0,
+        contained:rects.every(r=>r.contained),
+        separated:rects.every((r,i)=>i===0||r.top>=rects[i-1].bottom+2)};
+      clones.forEach(c=>c.remove());
+      return result;
+    });
+    assert.ok(overflow.scrollable,"Long example list must scroll");
+    assert.ok(overflow.contained,"Example text escapes its row");
+    assert.ok(overflow.separated,"Example rows overlap");
     await mobilePage.locator("#dialogActions").getByRole("button",{name:"Close",exact:true}).click();
     // Reproduce the opposing shell/cap assembly on a mobile WebGL viewport.
-    const assembly=await mobilePage.evaluate(()=>structuredClone(window.__csxcad.state.doc));
+    const assembly=structuredClone(dipoleFixture);
     assembly.materials=[{name:"pec-metal",type:"pec"}];
     assembly.parameters={L:30,d_diameter:4,g_r:1};
     assembly.sweep={mode:"product",parameters:{g_r:{values:[124,62,31]}}};
