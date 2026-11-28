@@ -38,7 +38,7 @@ Optional commands:
 Settings are independent of the checkout so git pull does not reset the
 token. Edit the JSON to change CPU cap, job timeout, port and origins.
 The default cap is up to 16 logical CPUs, scaled down for smaller hosts.
-The editor’s ncpu_pool and ncpu_per_job control sweep parallelism; server max_cpus is the aggregate CPU budget. Docker has no per-job RAM or swap cap. Existing max_memory_gib settings are ignored, and solver.resources.memory_gib remains native CI metadata. Host RAM exhaustion can affect other workloads.
+The remote editor exposes only ncpu_per_job. Authenticated health reports ncpu (server max_cpus) and free_cpu (unallocated CPU slots, including startup reservations); the editor polls these values. The browser runner retains its local pool control. The access token survives refresh in tab-scoped session storage, scoped to the runner URL, and is not exported in projects. Docker has no per-job RAM or swap cap. Existing max_memory_gib settings are ignored, and solver.resources.memory_gib remains native CI metadata. Host RAM exhaustion can affect other workloads.
 Do not commit or share the token. The token gives access to all jobs.
 
 ## Connect from another machine or Android
@@ -102,7 +102,7 @@ A Ctrl+C or SIGTERM requests cancellation of active containers; queued jobs rema
 
 ## Limits and verification
 
-Remote jobs are detached from browser connections. The runner dispatches the entire accepted sweep within the aggregate CPU budget and its per-batch CPU pool. The authenticated GET /v1/jobs endpoint lists all retained jobs. POST /v1/batches accepts an ID, pool, and array of job submissions. Repeating the same job IDs and inputs is idempotent. DELETE /v1/jobs/{id} cancels a job; DELETE /v1/jobs/{id}/result deletes a finished job and its stored data. Browser polling is observational only; legacy lease_timeout settings are ignored. Results, queued inputs and job metadata remain in ~/.local/state/radiators-runner/jobs (configurable via work_dir). Completed and queued jobs survive service restart; interrupted running jobs must be rerun. The runner accepts up to 64 outstanding jobs and 256 total retained records; explicitly delete unwanted finished jobs to reclaim space. The solver wall-clock timeout remains separate. Native solver output is rendered
+Remote jobs are detached from browser connections. The runner dispatches the entire accepted sweep within the aggregate CPU budget (legacy clients may supply a per-batch CPU pool). The authenticated GET /v1/jobs endpoint lists all retained jobs. POST /v1/batches accepts an ID and array of job submissions; legacy pool is optional. Repeating the same job IDs and inputs is idempotent. DELETE /v1/jobs/{id} cancels a job; DELETE /v1/jobs/{id}/result deletes a finished job and its stored data. Browser polling is observational only; legacy lease_timeout settings are ignored. Results, queued inputs and job metadata remain in ~/.local/state/radiators-runner/jobs (configurable via work_dir). Completed and queued jobs survive service restart; interrupted running jobs must be rerun. The runner accepts up to 64 outstanding jobs and 256 total retained records; explicitly delete unwanted finished jobs to reclaim space. The solver wall-clock timeout remains separate. Native solver output is rendered
 in the existing viewer; remote diagnostic plots and PEC export are not yet
 implemented. Docker enforces CPU quotas, but there is no per-job RAM cap or separate
 output-disk quota. Run on a trusted machine with sufficient disk space.

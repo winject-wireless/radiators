@@ -82,7 +82,7 @@ try {
       const req=route.request(), path=new URL(req.url()).pathname, method=req.method();
       seen.push({method,path,authorization:req.headers().authorization});
       let data;
-      if(path.endsWith("/health"))data={api_version:1,max_cpus:8,memory_limit:false,max_memory_gib:null,detached_jobs:true,batch_submission:true};
+      if(path.endsWith("/health"))data={api_version:1,ncpu:8,free_cpu:6,max_cpus:8,memory_limit:false,max_memory_gib:null,detached_jobs:true,batch_submission:true};
       else if(method==="GET"&&path.endsWith("/jobs"))data={jobs:[]};
       else if(method==="POST"&&path.endsWith("/batches"))data={ids:req.postDataJSON().jobs.map(j=>j.id)};
       else if(method==="POST")data={id:req.postDataJSON().id};
@@ -96,24 +96,27 @@ try {
     await blockedPage.getByLabel("Remote runner URL").fill(endpoint);
     await blockedPage.getByLabel("Remote runner token").fill("  test-token  ");
     await blockedPage.getByRole("button",{name:"Test connection"}).click();
-    await blockedPage.getByText("Connected · 8 CPUs · Detached jobs").waitFor();
+    await blockedPage.getByText("Connected · Detached jobs").waitFor();
+    await blockedPage.getByText("ncpu: 8 · free CPU: 6", {exact:false}).waitFor();
+    assert.equal(await blockedPage.getByLabel("CPU pool").count(),0);
     await blockedPage.waitForFunction(()=>!document.querySelector("button[disabled]") || [...document.querySelectorAll("button")].some(b=>b.textContent==="Test connection"&&!b.disabled));
     const received=await blockedPage.evaluate(async endpoint=>{
       const {RemoteRunner}=await import("./js/sim/remote.js");
       return new RemoteRunner(endpoint,"test-token").run({schema_version:2});
     },endpoint);
     assert.deepEqual(received,{s11:{logmag_db:[-12]}});
-    assert.deepEqual(seen.map(x=>x.method),["GET","GET","POST","GET","GET"]);
+    assert.deepEqual(seen.filter(x=>!x.path.endsWith("/health")&&!x.path.endsWith("/jobs")).map(x=>x.method),["POST","GET","GET"]);
     assert.ok(seen.every(x=>x.authorization==="Bearer test-token"));
     console.log("Remote runner native fetch / health / submission / polling / result: PASS");
     const batchIds=await blockedPage.evaluate(async endpoint=>{
       const {RemoteRunner}=await import("./js/sim/remote.js");
       const ids=["1".repeat(32),"2".repeat(32)];
       const c=new RemoteRunner(endpoint,"test-token");
-      return (await c.submitBatch("a".repeat(32),4,ids.map(id=>({id,config:{schema_version:2}})))).ids;
+      return (await c.submitBatch("a".repeat(32),null,ids.map(id=>({id,config:{schema_version:2}})))).ids;
     },endpoint);
     assert.deepEqual(batchIds,["1".repeat(32),"2".repeat(32)]);
     await blockedPage.reload();
+    await blockedPage.evaluate(()=>{if(JSON.parse(sessionStorage.getItem("radiators.runner.session-token")).token!=="test-token")throw Error("Runner token not retained");});
     const afterReload=await blockedPage.evaluate(async ({endpoint,id})=>{
       const {RemoteRunner}=await import("./js/sim/remote.js");
       return new RemoteRunner(endpoint,"test-token").attach(id);

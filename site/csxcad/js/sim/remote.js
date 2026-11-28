@@ -1,4 +1,4 @@
-// Remote runner API. Tokens are session-memory only; never stored in configs.
+// Remote runner API. Tokens are tab-session scoped by the UI; never stored in configs.
 export function remoteEndpoint(value) {
   const u=new URL(value);
   if(!["http:","https:"].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error("Enter a runner HTTP(S) base URL without credentials, query or fragment.");
@@ -35,7 +35,7 @@ export class RemoteRunner {
   async submitBatch(id,pool,jobs){
     // Repeating the same IDs is safe if the HTTP response was lost.
     for(let attempt=0;;attempt++){
-      try{return await this.request("/v1/batches","POST",{id,pool,jobs},{timeout:120000});}
+      try{return await this.request("/v1/batches","POST",{id,...(pool==null?{}:{pool}),jobs},{timeout:120000});}
       catch(e){if(e.status&&e.status<500)throw e;
         if(attempt>=2)throw Error("Submission unconfirmed; reconnect to recover any accepted jobs: "+e.message);
         await new Promise(r=>setTimeout(r,1000*2**attempt));}

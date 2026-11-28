@@ -12,8 +12,19 @@ import { registerServiceWorker, isolationUnavailableReason, storage } from "../p
 import { RemoteRunner, remoteEndpoint } from "./remote.js";
 import { ProgressParser } from "../../vendor/openems/openems-core.js";
 
+const TOKEN_KEY="radiators.runner.session-token";
+function readToken(url){
+  try{const stored=JSON.parse(sessionStorage.getItem(TOKEN_KEY));return stored?.url===remoteEndpoint(url)?stored.token||"":"";}catch{return "";}
+}
+function writeToken(url,token){
+  try{
+    if(token.trim())sessionStorage.setItem(TOKEN_KEY,JSON.stringify({url:remoteEndpoint(url),token:token.trim()}));
+    else sessionStorage.removeItem(TOKEN_KEY);
+  }catch{/* storage unavailable or URL incomplete */}
+}
+let healthTimer;
 const sim = {
-  engine: "cpu", threads: 0, active:new Map(), runner:storage.get("radiators.runner")==="remote"?"remote":"browser", remoteUrl:storage.get("radiators.runner.url")||"", remoteToken:"", remote:null, running: false, stage: "", progress: null, log: [], error: null,
+  engine: "cpu", threads: 0, active:new Map(), runner:storage.get("radiators.runner")==="remote"?"remote":"browser", remoteUrl:storage.get("radiators.runner.url")||"", remoteToken:readToken(storage.get("radiators.runner.url")||""), remoteHealth:null, remote:null, running: false, stage: "", progress: null, log: [], error: null,
   ems: null, model: null, startedAt: 0, aborting: false, stopTimer: null,
 };
 let ui = null; // live DOM refs of the rendered panel
@@ -332,12 +343,12 @@ export async function restoreResults(ctx) {
   if(changed)ctx.refresh();
 }
 
-const canStartCase = id => !sim.running || (!sim.aborting && !!sim.batch?.canAdd?.(id));
+const canStartCase = id => (sim.runner!=="remote" || (sim.remoteHealth?.free_cpu??0)>=cpuSettings().perJob) && (!sim.running || (!sim.aborting && !!sim.batch?.canAdd?.(id)));
 const fraction = () => sim.batch ? (sim.batch.finished + [...sim.active.values()].reduce((n,j)=>n+(j.progress?.fraction??0),0)) / sim.batch.total : sim.progress?.fraction ?? 0;
 const cpuSettings=()=>{
-  const remote=sim.runner==="remote",cap=remote?128:Math.min(navigator.hardwareConcurrency||4,64);
+  const remote=sim.runner==="remote",cap=remote?(sim.remoteHealth?.ncpu??Number.MAX_SAFE_INTEGER):Math.min(navigator.hardwareConcurrency||4,64);
   const saved=storage.get("radiators.cpu."+sim.runner)||{};
-  const pool=Math.max(1,Math.min(cap,Math.trunc(saved.pool)|| (remote?16:hc())));
+  const pool=remote?cap:Math.max(1,Math.min(cap,Math.trunc(saved.pool)||hc()));
   const perJob=Math.max(1,Math.min(pool,Math.trunc(saved.perJob)||2));
   return {pool,perJob,cap};
 };
@@ -350,7 +361,8 @@ export function renderRunPanel(box, ctx) {
   const sweep = cases.length > 1;
   const pending = cases.some(x=>x.pending);
   ctx.onBadge(simStatus());
-  const cpu=cpuSettings();
+  clearTimeout(healthTimer);
+  const remote=sim.runner==="remote",cpu=cpuSettings();
   sim.threads=cpu.perJob;
   const engine = h("select", { "aria-label": "openEMS engine", disabled: sim.running },
     h("option", { value: "cpu", text: "CPU (experimental)" }), h("option", { value: "basic", text: "Basic" }));
@@ -359,31 +371,69 @@ export function renderRunPanel(box, ctx) {
   const pool=h("input",{type:"number",min:1,max:cpu.cap,value:cpu.pool,"aria-label":"CPU pool",disabled:sim.running});
   const threads=h("input",{type:"number",min:1,max:cpu.pool,value:cpu.perJob,"aria-label":"Threads",disabled:sim.running});
   const saveCPU=()=>{
-    const n=Math.max(1,Math.min(cpu.cap,Math.trunc(Number(pool.value))||1));
+    const current=cpuSettings();
+    const n=remote?current.pool:Math.max(1,Math.min(cpu.cap,Math.trunc(Number(pool.value))||1));
     const t=Math.max(1,Math.min(n,Math.trunc(Number(threads.value))||1));
-    storage.set("radiators.cpu."+sim.runner,{pool:n,perJob:t});
+    storage.set("radiators.cpu."+sim.runner,remote?{perJob:t}:{pool:n,perJob:t});
     sim.threads=t;pool.value=n;threads.value=t;threads.max=n;
-    parallel.textContent=Math.min(cases.length,Math.floor(n/t))+" concurrent case(s) maximum";
+    showCapacity();
     updateProgress();
   };
-  const parallel=h("span",{class:"hint",text:Math.min(cases.length,Math.floor(cpu.pool/cpu.perJob))+" concurrent case(s) maximum"});
+  const parallel=h("span",{class:"hint"});
+  function showCapacity(){
+    const current=cpuSettings(),info=sim.remoteHealth;
+    if(remote){
+      threads.max=info?info.ncpu:Number.MAX_SAFE_INTEGER;
+      if(document.activeElement!==threads)threads.value=current.perJob;
+      parallel.textContent=info?"ncpu: "+info.ncpu+" · free CPU: "+info.free_cpu+" · "+Math.floor(info.free_cpu/current.perJob)+" job(s) available":"CPU capacity unavailable";
+    }else parallel.textContent=Math.min(cases.length,Math.floor(current.pool/current.perJob))+" concurrent case(s) maximum";
+  }
+  showCapacity();
   pool.addEventListener("change",saveCPU);threads.addEventListener("change",saveCPU);
-  const remote=sim.runner==="remote";
   const runnerSelect=h("select",{"aria-label":"Simulation runner",disabled:sim.running},h("option",{value:"browser",text:"Browser"}),h("option",{value:"remote",text:"Remote"}));
   runnerSelect.value=sim.runner;
   runnerSelect.addEventListener("change",()=>{sim.runner=runnerSelect.value;storage.set("radiators.runner",sim.runner);sim.error=null;ctx.refresh();});
   const url=h("input",{type:"url",value:sim.remoteUrl,placeholder:"https://runner.example.com","aria-label":"Remote runner URL",disabled:sim.running});
   const token=h("input",{type:"password",value:sim.remoteToken,placeholder:"Runner token",autocomplete:"off","aria-label":"Remote runner token",disabled:sim.running});
-  const connection=h("span",{class:"hint",text:"Token stays in this session."});
-  const save=()=>{sim.remoteUrl=url.value.trim();sim.remoteToken=token.value;storage.set("radiators.runner.url",sim.remoteUrl);};
+  const connection=h("span",{class:"hint",text:sim.remoteHealth?"Connected · Detached jobs":"Token retained across refreshes in this tab."});
+  const save=()=>{
+    const next=url.value.trim();
+    if(next!==sim.remoteUrl){
+      sim.remoteUrl=next;sim.remoteHealth=null;
+      token.value=readToken(next);sim.remoteToken=token.value;
+      storage.set("radiators.runner.url",next);
+      writeToken(next,sim.remoteToken);
+    }else if(token.value!==sim.remoteToken){
+      sim.remoteToken=token.value;sim.remoteHealth=null;
+      writeToken(next,sim.remoteToken);
+    }
+    showCapacity();updateProgress();
+  };
   url.addEventListener("input",save);token.addEventListener("input",save);
+  const refreshHealth=async(recover=false)=>{
+    const endpoint=sim.remoteUrl,credential=sim.remoteToken;
+    if(!endpoint||!credential.trim()){if(recover)connection.textContent="Enter runner URL and token";return;}
+    try{
+      const client=new RemoteRunner(endpoint,credential),info=await client.health();
+      if(info.api_version!==1||!info.detached_jobs||!info.batch_submission||
+        !Number.isInteger(info.ncpu)||info.ncpu<1||!Number.isInteger(info.free_cpu)||info.free_cpu<0||info.free_cpu>info.ncpu)
+        throw Error("Update remote runner for CPU capacity reporting");
+      if(endpoint!==sim.remoteUrl||credential!==sim.remoteToken||!connection.isConnected)return;
+      sim.remoteHealth=info;connection.textContent="Connected · Detached jobs";
+      if(recover)await recoverRemote(ctx,client);
+    }catch(e){
+      if(endpoint!==sim.remoteUrl||credential!==sim.remoteToken||!connection.isConnected)return;
+      sim.remoteHealth=null;connection.textContent=e.message;
+    }finally{if(connection.isConnected){showCapacity();updateProgress();}}
+  };
+  const poll=async()=>{
+    if(!connection.isConnected||sim.runner!=="remote")return;
+    await refreshHealth();
+    if(connection.isConnected)healthTimer=setTimeout(poll,3000);
+  };
   const test=h("button",{type:"button",disabled:sim.running,onclick:async()=>{
     save();test.disabled=true;
-    try{const client=new RemoteRunner(sim.remoteUrl,sim.remoteToken),info=await client.health();
-      if(info.api_version!==1)throw Error("Incompatible runner API");
-      connection.textContent="Connected · "+info.max_cpus+" CPUs · "+(info.detached_jobs?"Detached jobs":"Legacy runner — update required");
-      if(info.detached_jobs)await recoverRemote(ctx,client);
-    }catch(e){connection.textContent=e.message;}finally{test.disabled=false;}
+    try{await refreshHealth(true);}finally{test.disabled=false;}
   }},"Test connection");
   const serverJobs=h("div",{class:"sim-case-list"});
   const manage=h("details",{class:"result-case-log"},h("summary",{text:"Server jobs / recovery"}),serverJobs);
@@ -450,7 +500,7 @@ export function renderRunPanel(box, ctx) {
     caseList.append(row);
     return {id:c.id,key:c.config?JSON.stringify(c.config):null,row,state,percent,fill,track,detail,startBtn,available:!!c.config&&!unavailable};
   });
-  ui = { bar, stats, runBtn, abortBtn, warningBox, caseRows, countRefs, counts, caseList, caseId:c.id };
+  ui = { bar, stats, runBtn, abortBtn, warningBox, caseRows, countRefs, counts, caseList, allBtn, allAvailable:!pending&&!unavailable&&cases.some(x=>x.config), caseId:c.id };
 
   const caseLine = c.config
     ? sweep ? `${c.label} · ${cases.length} cases` : "Single case"
@@ -458,8 +508,8 @@ export function renderRunPanel(box, ctx) {
   box.append(h("div", { class: "form-section sim-run" },
     h("div",{class:"sim-run-head"},h("h3",{text:"Simulation runner"}),h("span",{class:"hint sim-case-hint",title:c.name||"",text:`${caseLine}${pending&&!c.pending?" · preparing cases":""}`})),
     h("div", { class: "sim-controls" }, h("div",{class:"sim-run-actions"},allBtn,runBtn,validateBtn,abortBtn),
-      h("div",{class:"sim-run-options"},h("label",{},"Runner",runnerSelect),!remote?h("label", { class: "sim-engine" }, "Engine", engine):null,h("label",{class:"sim-threads"},"ncpu_pool",pool),h("label",{class:"sim-threads"},"ncpu_per_job",threads),parallel)),
-    remote?h("div",{class:"sim-remote-settings"},h("label",{},"Runner URL",url),h("label",{},"Access token",token),h("div",{class:"sim-remote-actions"},test,connection),h("p",{class:"hint",text:"Remote jobs continue when this page closes. Re-enter the token and test the connection to recover matching jobs. No per-job RAM cap."})):null,
+      h("div",{class:"sim-run-options"},h("label",{},"Runner",runnerSelect),!remote?h("label", { class: "sim-engine" }, "Engine", engine):null,!remote?h("label",{class:"sim-threads"},"ncpu_pool",pool):null,h("label",{class:"sim-threads"},"ncpu_per_job",threads),parallel)),
+    remote?h("div",{class:"sim-remote-settings"},h("label",{},"Runner URL",url),h("label",{},"Access token",token),h("div",{class:"sim-remote-actions"},test,connection),h("p",{class:"hint",text:"Remote jobs continue when this page closes. Token survives refresh in this tab; test the connection to recover matching jobs. No per-job RAM cap."})):null,
     remote?manage:null,
     unavailable ? h("div", { class: "note warn" },
       h("p", { text: isolationBlocked || "Browser simulation needs cross-origin isolation. The editor is preparing the service worker; it will reload once when ready." }),
@@ -474,6 +524,7 @@ export function renderRunPanel(box, ctx) {
     h("div",{class:"sim-queue"},h("div",{class:"sim-queue-title"},"Case progress"),counts,bar,stats,caseList),warningBox,
     sim.cacheWarning ? h("p",{class:"hint",text:sim.cacheWarning}) : null));
   updateProgress();
+  if(remote)healthTimer=setTimeout(poll,sim.remoteHealth?3000:0);
 }
 
 function caseView(id,key) {
@@ -554,6 +605,7 @@ function updateProgress() {
   for(const k of Object.keys(counts))ui.countRefs[k].textContent=counts[k];
   const selectedRow=ui.caseRows.find(r=>r.id===ui.caseId);
   ui.runBtn.disabled=!selectedRow?.available||!canStartCase(ui.caseId);
+  if(ui.allBtn)ui.allBtn.disabled=sim.running||!ui.allAvailable||(sim.runner==="remote"&&!sim.remoteHealth);
   const pct=sim.batch?Math.round(Math.min(1,fraction())*100):Math.round(sum/Math.max(1,ui.caseRows.length));
   ui.bar.firstChild.style.width=pct+"%";
   const el = sim.running ? Math.round((Date.now()-sim.startedAt)/1000):null;
@@ -611,7 +663,7 @@ async function validateMesh(ctx) {
 }
 // The server is the authoritative job registry. A digest of the unmodified
 // resolved input plus the case ID permits reattachment after reload without
-// storing access tokens or depending on browser storage surviving.
+// relying on browser storage for job IDs.
 let recovering=false;
 async function recoverRemote(ctx,client){
   if(sim.running||recovering||sim.runner!=="remote")return;
@@ -776,8 +828,9 @@ async function start(ctx, all = false, id = ctx.getCase().id, recovery=null) {
     if(remote){
       const client=new RemoteRunner(endpoint,token);
       const info=await client.health();
-      if(info.api_version!==1||!info.detached_jobs||!info.batch_submission)throw Error("Update remote runner for detached jobs");
-      limit=Math.min(limit,info.ncpu_pool??info.max_cpus);
+      if(info.api_version!==1||!info.detached_jobs||!info.batch_submission||!Number.isInteger(info.ncpu)||!Number.isInteger(info.free_cpu))throw Error("Update remote runner for CPU capacity reporting");
+      limit=info.ncpu;
+      sim.remoteHealth=info;
       if(!recovery&&cpu.perJob>limit)throw Error("ncpu_per_job exceeds remote CPU limit");
       const batchId=crypto.randomUUID().replaceAll("-","");
       const submit=async cases=>{
@@ -788,7 +841,7 @@ async function start(ctx, all = false, id = ctx.getCase().id, recovery=null) {
         }));
         if(sim.aborting)throw Error("Stopped");
         for(const c of cases)sim.batch.remoteIds.add(c.remoteId);
-        await client.submitBatch(batchId,limit,payloads);
+        await client.submitBatch(batchId,null,payloads);
         if(sim.aborting){await Promise.allSettled(cases.map(c=>client.cancelJob(c.remoteId)));throw Error("Stopped");}
       };
       const tasks=new Set();
@@ -797,9 +850,8 @@ async function start(ctx, all = false, id = ctx.getCase().id, recovery=null) {
       else await submit(queue);
       if(sim.aborting){await Promise.allSettled(queue.map(c=>client.cancelJob(c.remoteId)));throw Error("Stopped");}
       for(const c of queue)track(runCase(c));
-      const slots=Math.max(1,Math.floor(limit/cpu.perJob));
       const submitting=new Set();
-      sim.batch.canAdd=id=>!recovery&&!sim.aborting&&runs===runCases&&tasks.size<slots&&!sim.active.has(id)&&!submitting.has(id);
+      sim.batch.canAdd=id=>!recovery&&!sim.aborting&&runs===runCases&&(sim.remoteHealth?.free_cpu??0)>=cpu.perJob&&!sim.active.has(id)&&!submitting.has(id);
       sim.batch.add=c=>{
         if(!sim.batch.canAdd(c.id))return;
         ctx.archiveProject?.();

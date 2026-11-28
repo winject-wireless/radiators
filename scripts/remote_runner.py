@@ -114,6 +114,11 @@ class Runner:
             self.jobs[ident] = j
         self.jobs = dict(sorted(self.jobs.items(), key=lambda item: item[1]["created_at"]))
 
+    def cpu_capacity(self):
+        with self.lock:
+            used = sum(j["cpus"] for j in self.jobs.values() if j["state"] in ("starting", "running"))
+            return {"ncpu": self.args.max_cpus, "free_cpu": max(0, self.args.max_cpus - used)}
+
     def submit(self, payload):
         return self.submit_many([payload])[0]
 
@@ -396,7 +401,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if method == "GET" and path == "/v1/health":
                 return self.reply(200, {"api_version": 1, "engine": "native openEMS",
-                    "max_cpus": runner.args.max_cpus, "ncpu_pool": runner.args.max_cpus, "parallel_jobs": True, "memory_limit": False, "max_memory_gib": None,
+                    **runner.cpu_capacity(), "max_cpus": runner.args.max_cpus, "ncpu_pool": runner.args.max_cpus, "parallel_jobs": True, "memory_limit": False, "max_memory_gib": None,
                     "max_cells": runner.args.max_cells, "max_timesteps": runner.args.max_timesteps,
                     "lease_timeout": None, "job_listing": True, "immediate_start": True,
                     "detached_jobs": True, "batch_submission": True, "persistent_jobs": True})
@@ -407,9 +412,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not 0 < length <= MAX_BATCH_BODY:
                     return self.reply(413, {"error": "Invalid batch size"})
                 payload = json.loads(self.rfile.read(length))
-                if not isinstance(payload, dict) or payload.get("id") is None or payload.get("pool") is None:
-                    raise ValueError("Batch ID and CPU pool required")
-                ids = runner.submit_many(payload.get("jobs"), payload["id"], payload["pool"])
+                if not isinstance(payload, dict) or payload.get("id") is None:
+                    raise ValueError("Batch ID required")
+                ids = runner.submit_many(payload.get("jobs"), payload["id"], payload.get("pool"))
                 return self.reply(202, {"ids": ids})
             if method == "POST" and path == "/v1/jobs":
                 length = int(self.headers.get("Content-Length", "0"))
