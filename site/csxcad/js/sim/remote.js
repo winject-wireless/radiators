@@ -4,6 +4,21 @@ export function remoteEndpoint(value) {
   if(!["http:","https:"].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error("Enter a runner HTTP(S) base URL without credentials, query or fragment.");
   return u.href.replace(/\/+$/,"");
 }
+// Older runners return an exit code even when their log contains the cause.
+export function remoteFailureReason(state) {
+  const fallback=state.error||"Remote solver failed";
+  if(state.error&&!/^Native openEMS exited with code \d+; inspect log$/.test(state.error))return fallback;
+  const lines=String(state.log||"").split(/\r?\n/).reverse();
+  for(const line of lines){
+    const match=line.match(/^(?:[\w.]*\.)?(?:[A-Za-z_]\w*(?:Error|Exception)|Error|Exception|SystemExit|KeyboardInterrupt):\s*(.+)$/);
+    if(match)return match[1].trim().slice(0,1000);
+  }
+  for(const line of lines){
+    const match=line.match(/^\s*(?:fatal(?: error)?|error|docker: Error response from daemon)\s*:\s*(.+)$/i);
+    if(match)return match[1].trim().slice(0,1000);
+  }
+  return fallback;
+}
 const RESULT_TIMEOUT=600000, RESULT_ATTEMPTS=5;
 export class RemoteRunner {
   // Window.fetch must keep its global receiver, not the RemoteRunner instance.
@@ -87,7 +102,7 @@ export class RemoteRunner {
       }
       onStatus?.(state);
       if(state.state==="cancelled"){const e=Error(state.error||"Remote job cancelled");e.jobState="cancelled";throw e;}
-      if(state.state==="failed")throw Error(state.error||"Remote solver failed");
+      if(state.state==="failed")throw Error(remoteFailureReason(state));
       if(state.state==="done"){
         // A failed download is retried a bounded number of times with its own
         // backoff: a pruned or malformed result must end the run rather than
