@@ -23,7 +23,12 @@ const SHELL_PATHS = new Set(SHELL.map(p => p.replace(/^\.\//, "")));
 // (site/csxcad/check.mjs verifies every SHELL path exists in the build.)
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(async c => {
-    const results = await Promise.allSettled(SHELL.map(p => c.add(new Request(p, { cache: "reload" }))));
+    // Revalidate the app shell (a deploy changes it), but let the HTTP cache
+    // serve the large versioned vendor assets the page has usually just
+    // fetched: forcing a reload of all of it costs ~6 MB and can make install
+    // slow enough to delay taking control.
+    const revalidated = p => !p.startsWith("./vendor/") || p.endsWith("BUILD-INFO.txt");
+    const results = await Promise.allSettled(SHELL.map(p => c.add(revalidated(p) ? new Request(p, { cache: "reload" }) : p)));
     const missing = SHELL.filter((_, i) => results[i].status === "rejected");
     if (missing.length) console.warn("sw: not cached for offline use:", missing.join(" "));
     // Without skipWaiting a superseded worker never activates, so its ~10 MB
@@ -66,18 +71,22 @@ async function store(request, response, cached) {
 async function cached(request) {
   return (await caches.open(CACHE)).match(request, { ignoreSearch: true });
 }
-// The versioned shell is served cache-first (consistent build, no repeated
-// writes); everything else is network-first with a cache fallback offline.
+// The module graph and vendor assets of this build are served cache-first: that
+// is what must not mix across versions, and it keeps the 4 MB wasm from being
+// rewritten on every load. Navigations stay network-first, so a new deploy is
+// picked up (and its worker update check triggered) on the next page load
+// rather than only after the reload prompt.
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   if (e.request.cache === "only-if-cached" && e.request.mode !== "same-origin") return;
   const scope = new URL(self.registration.scope);
   const relative = url.pathname.slice(scope.pathname.length);
-  const shell = e.request.mode === "navigate" || SHELL_PATHS.has(relative) || relative === "";
+  const navigation = e.request.mode === "navigate" || relative === "";
+  const shell = !navigation && SHELL_PATHS.has(relative);
   // Bundled examples are not part of the versioned shell, but still must be
   // revalidated rather than trusted to the browser's HTTP freshness lifetime.
-  const revalidate = shell || relative.startsWith("examples/");
+  const revalidate = navigation || shell || relative.startsWith("examples/");
   e.respondWith((async () => {
     const hit = await cached(e.request);
     if (shell && hit) return isolate(hit);

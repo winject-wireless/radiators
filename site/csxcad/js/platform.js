@@ -97,13 +97,19 @@ function claimWhenReady(registration) {
   return () => stop.abort();
 }
 
+// Wait until this worker is the registration's activated worker. It does not
+// have to control *this* page yet: when an older worker (e.g. a previous
+// non-isolating one) still holds control, the reload that follows hands the
+// page to the activated worker. Requiring control first deadlocked that
+// upgrade — the page never reloaded, so control never changed.
 async function waitForController(registration) {
   const sw = navigator.serviceWorker;
-  const deadline = Date.now() + 30000;
+  const self = new URL("./sw.js", location.href).href;
+  const deadline = Date.now() + 90000; // a cold install precaches the whole shell
   while (Date.now() < deadline) {
     const active = registration.active;
     if (!registration.installing && !registration.waiting && active?.state === "activated" &&
-        sw.controller === active && active.scriptURL === new URL("./sw.js", location.href).href) return;
+        active.scriptURL === self && (sw.controller === active || sw.controller?.scriptURL !== self)) return;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw Error("The isolation service worker did not take control. Check browser site permissions and reload.");
@@ -141,7 +147,12 @@ export function registerServiceWorker({ manual = false } = {}) {
     } catch (error) {
       return "Cannot enable the simulation service worker: " + error.message;
     }
-  })().finally(() => { isolationSetup = null; stopClaiming?.(); });
+  // stopClaiming is released only once this page is isolated: on the timeout
+  // path the worker may still be installing, and tearing the listener down
+  // then would leave the page uncontrolled for good.
+  })().then(result => { if (globalThis.crossOriginIsolated) stopClaiming?.(); return result; },
+            error => { stopClaiming?.(); throw error; })
+      .finally(() => { isolationSetup = null; });
   return isolationSetup;
 }
 

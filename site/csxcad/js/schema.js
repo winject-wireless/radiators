@@ -198,7 +198,7 @@ export const STARTER = {
     ]
   },
   "mesh": {
-    "max_cell_mm": 8,
+    "max_cell_mm": 16,
     "growth_ratio": 1.4,
     "max_cells": 5000000,
     "refinements": [
@@ -213,7 +213,7 @@ export const STARTER = {
           35,
           32.5
         ],
-        "resolution_mm": 1
+        "resolution_mm": 8
       },
       {
         "start": [
@@ -226,7 +226,7 @@ export const STARTER = {
           3,
           3
         ],
-        "resolution_mm": 0.5,
+        "resolution_mm": 4,
         "enabled": true
       }
     ]
