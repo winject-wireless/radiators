@@ -1,0 +1,229 @@
+{
+  "schema_version": 2,
+  "name": "2.45 GHz Helical",
+  "description": "Eight-turn axial-mode helical antenna with a cylindrical capacitive matching post, using the optimized Case 4 geometry for a 50-ohm feed. Single simulation; edit parameters or add a sweep as needed.",
+  "units": "mm",
+  "parameters": {
+    "gap": 5.5,
+    "D": 39,
+    "H": 226,
+    "r": 1,
+    "r_matching": 5.5
+  },
+  "domain": {
+    "start": [
+      -250,
+      -250,
+      -200
+    ],
+    "stop": [
+      250,
+      250,
+      {
+        "$expr": "H+160"
+      }
+    ],
+    "boundary": [
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8"
+    ]
+  },
+  "mesh": {
+    "max_cell_mm": 6,
+    "growth_ratio": 1.4,
+    "max_cells": 20000000,
+    "refinements": [
+      {
+        "start": [
+          {
+            "$expr": "-D*0.6"
+          },
+          {
+            "$expr": "-D*0.6"
+          },
+          0
+        ],
+        "stop": [
+          {
+            "$expr": "D*0.6"
+          },
+          {
+            "$expr": "D*0.6"
+          },
+          {
+            "$expr": "H+gap+3"
+          }
+        ],
+        "resolution_mm": 1,
+        "enabled": true
+      },
+      {
+        "start": [
+          11,
+          -8,
+          -5.1
+        ],
+        "stop": [
+          28,
+          8,
+          11.6
+        ],
+        "resolution_mm": 0.25,
+        "enabled": true
+      }
+    ]
+  },
+  "solver": {
+    "max_timesteps": 50000,
+    "end_criteria": 0.000001,
+    "resources": {
+      "cpus": 12,
+      "memory_gib": 24
+    }
+  },
+  "excitation": {
+    "center_hz": 2500000000,
+    "bandwidth_hz": 2000000000
+  },
+  "materials": [
+    {
+      "name": "copper",
+      "type": "pec"
+    }
+  ],
+  "geometry": [
+    {
+      "name": "helix",
+      "script": "helix",
+      "args": {
+        "origin": [
+          0,
+          0,
+          0
+        ],
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "diameter": {
+          "$param": "D"
+        },
+        "height": {
+          "$param": "H"
+        },
+        "turns": 8,
+        "wire_diameter": {
+          "$expr": "r*2"
+        },
+        "phase": 0,
+        "segments_per_turn": 24,
+        "material": "copper"
+      },
+      "transform": {
+        "translate": [
+          0,
+          0,
+          {
+            "$expr": "gap+1"
+          }
+        ],
+        "rotate_deg": [
+          0,
+          0,
+          -2
+        ]
+      }
+    },
+    {
+      "name": "gnd",
+      "shape": "cylinder",
+      "material": "copper",
+      "start": [
+        0,
+        0,
+        -2
+      ],
+      "stop": [
+        0,
+        0,
+        0
+      ],
+      "radius": 60
+    },
+    {
+      "name": "matching_post",
+      "shape": "cylinder",
+      "material": "copper",
+      "start": [
+        0,
+        0,
+        0
+      ],
+      "stop": [
+        0,
+        0,
+        2
+      ],
+      "radius": {
+        "$param": "r_matching"
+      },
+      "transform": {
+        "translate": [
+          {
+            "$expr": "D/2"
+          },
+          0,
+          {
+            "$param": "gap"
+          }
+        ]
+      }
+    }
+  ],
+  "ports": [
+    {
+      "id": 1,
+      "name": "feed",
+      "type": "lumped",
+      "start": [
+        19.5,
+        0,
+        -0.1
+      ],
+      "stop": [
+        19.5,
+        0,
+        {
+          "$expr": "gap+0.1"
+        }
+      ],
+      "direction": "z",
+      "impedance_ohm": 50,
+      "excite": true
+    }
+  ],
+  "outputs": {
+    "s11": [
+      {
+        "start": 500000000,
+        "step": 10000000,
+        "end": 4500000000
+      }
+    ],
+    "radiation_frequencies_hz": [
+      2450000000
+    ],
+    "radiation_grid": {
+      "theta_step_deg": 5,
+      "phi_step_deg": 5
+    },
+    "include_realized_gain": true,
+    "include_polarization": true
+  },
+  "probes": []
+}
