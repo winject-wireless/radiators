@@ -5,7 +5,7 @@ import { buildModel } from "./model.js";
 import { runSimulation, summarize, hasValidS11 } from "./run.js";
 import { lineChart, polarChart, smithChart } from "./plot.js";
 import { makeZip, openZip } from "./zip.js";
-import { resolveCase } from "../params.js";
+import { resolveCase, sameResolvedInput } from "../params.js";
 import { diagnosticFrame } from "./probe-playback.js";
 import { updateSolverDiagnostics } from "./diagnostics.js";
 import { registerServiceWorker, isolationUnavailableReason, storage } from "../platform.js";
@@ -69,6 +69,8 @@ function workerPoolSize(model, engine, requested) {
 // output compatibility changes. IndexedDB stores large patterns without the
 // small synchronous localStorage quota.
 let runs = new Map(), caseStates = new Map(), cacheAttempts = new Map();
+// Bundled examples are displayable even when IndexedDB or the solver build tag is unavailable.
+const bundledResults = new Map();
 const CACHE_DB = "radiators-csxcad-results", CACHE_STORE = "resolved-v1", PROJECT_STORE = "projects-v1";
 const INDEX_STORE = "cache-index-v1", DB_VERSION = 3;
 // Every stored result is keyed by this model version, so any change to the
@@ -258,7 +260,7 @@ function importedConfig(cfg){
   const doc=structuredClone(cfg);doc.units??="mm";doc.ports??=[];
   return doc;
 }
-async function importOneResult(data,{overwrite=false}={}){
+function decodeImportedResult(data){
   const {editor_resolved_config,...result}=data??{};
   const doc=importedConfig(editor_resolved_config??result.input_config);
   if(!hasValidS11(result)||!Array.isArray(result.patterns)||!Array.isArray(result.s11.frequency_hz)||
@@ -267,6 +269,10 @@ async function importOneResult(data,{overwrite=false}={}){
   importedConfig(result.input_config);
   const key=JSON.stringify(resolveCase(doc,{}));
   const run={result,frequency:result.patterns.findIndex(p=>p?.record?.radiation_valid),log:[]};
+  return {doc,key,run};
+}
+async function importOneResult(data,{overwrite=false}={}){
+  const {doc,key,run}=decodeImportedResult(data);
   const written=await cachePut(key,run,{overwrite});
   return {doc,written};
 }
@@ -303,7 +309,11 @@ export async function importResultArchive(file,{overwrite=false}={}){
 }
 // Bundled results use the same exact resolved-input cache key and never replace local runs.
 export async function seedExampleResult(data){
-  return importOneResult(data,{overwrite:false});
+  const {doc,key,run}=decodeImportedResult(data);
+  bundledResults.set(key,run);
+  let written=false;
+  try { written=await cachePut(key,run,{overwrite:false}); } catch { /* memory fallback remains available */ }
+  return {doc,written};
 }
 export async function importResultFile(data, options={}){
   const {doc,written}=await importOneResult(data,options);
@@ -332,7 +342,18 @@ export async function restoreResults(ctx) {
   }
   if(!jobs.length)return;
   const cached=await Promise.all(jobs.map(async j=>{
-    try{return {...j,entry:await cacheGet(j.key)};}catch{return j;}
+    let entry;
+    try { entry=await cacheGet(j.key); } catch { /* bundled result does not depend on storage */ }
+    if(!entry){
+      entry=bundledResults.get(j.key);
+      if(!entry){
+        const resolved=JSON.parse(j.key);
+        for(const [sourceKey,bundle] of bundledResults){
+          if(sameResolvedInput(resolved,JSON.parse(sourceKey))){entry=bundle;break;}
+        }
+      }
+    }
+    return {...j,entry};
   }));
   if(runs!==target)return;
   const current=new Map(ctx.getCases().filter(c=>c.config).map(c=>[c.id,JSON.stringify(c.config)]));

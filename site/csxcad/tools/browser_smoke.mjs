@@ -220,6 +220,26 @@ try {
     return run?.cached && run.result?.s11?.frequency_hz?.length===101;
   },{}, {timeout:30000});
   console.log("Bundled Yagi simulation restores from exact cache key: PASS");
+  await page.waitForFunction(()=>window.__csxcad.state.dock==="results");
+  assert.ok(await page.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
+  // The picker must work without IndexedDB, including asynchronous helix scripts.
+  const exampleContext=await browser.newContext({serviceWorkers:"block"});
+  try {
+    await exampleContext.addInitScript(()=>Object.defineProperty(globalThis,"indexedDB",{configurable:true,value:undefined}));
+    const examplePage=await exampleContext.newPage();
+    await examplePage.goto(new URL("?debug=1",base).href);
+    await examplePage.waitForFunction(()=>window.__csxcad?.state.derived?.case);
+    await examplePage.locator("#menuButton").click();
+    await examplePage.locator('[data-action="examples"]').click();
+    await examplePage.locator("#dialog .example-list button").filter({hasText:"2.45 GHz Helical"}).click();
+    await examplePage.waitForFunction(async()=>{
+      const {resultFor}=await import("./js/sim/panel.js");
+      const s=window.__csxcad?.state;
+      return s?.doc.name==="2.45 GHz Helical" && s.dock==="results" && resultFor(s.derived.case.id)?.result?.s11?.frequency_hz?.length===401;
+    },{}, {timeout:30000});
+    await examplePage.locator("#resultCharts").getByText("Best S11",{exact:true}).waitFor({state:"visible",timeout:30000});
+    console.log("Bundled helix picker loads results even without IndexedDB: PASS");
+  } finally { await exampleContext.close(); }
   const original=structuredClone(dipoleFixture);
   const probeDoc={...original,probes:[{name:"current_driven",type:"current",start:[-5,-5,0],stop:[5,5,10]}]};
   const openConfig=doc=>page.locator("#openFile").setInputFiles({name:"probe-edit.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(doc))});

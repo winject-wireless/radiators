@@ -275,6 +275,7 @@ function loadDoc(cfg, message, caseIndex = 0) {
   const next=normalizeDoc(cfg);
   if(state.doc)void archiveProject();
   state.doc = next;
+  showBundledResultsFor = null;
   criteriaPresentation = null;
   state.deletedArchiveKey = null;
   jsonDraft = jsonBase = null;
@@ -1268,6 +1269,8 @@ function syncMeshView({resetSlice=false,jump=false}={}){
   readout.textContent=label+" · "+dims.join(" × ")+" · "+pos+" · Min "+"XYZ"[worst.axis]+" "+worst.min.toPrecision(4)+" mm ("+worst.start.toPrecision(6)+" → "+worst.stop.toPrecision(6)+")";
 }
 
+// Only an explicit example open requests the Results panel; never reopen it after the user closes it.
+let showBundledResultsFor = null;
 function syncResults() {
   void restoreResults(simContext);
   syncSweepDownload($("resultBody"),simContext);
@@ -1275,6 +1278,10 @@ function syncResults() {
   const run = resultFor(caseId);
   const stale = !!run && JSON.stringify(simContext.getCase().config) !== run.key;
   const caseStatus = caseRunState(caseId);
+  if(showBundledResultsFor===state.doc && run && !stale){
+    showBundledResultsFor=null;
+    if(!mobile() || document.body.dataset.sheet!=="results")openSheet("results");
+  }
   syncCaseSelectors();
   if (run !== displayedRun || stale !== displayedStale || displayedCase !== caseId || displayedCaseStatus !== caseStatus) {
     displayedCase = caseId;
@@ -2552,19 +2559,35 @@ function openDialog(title, body, actions = []) {
 }
 
 async function fetchExample(file, entry) {
-  const r=await fetch("./examples/"+encodeURIComponent(file));
+  const r=await fetch("./examples/"+encodeURIComponent(file),{cache:"no-cache"});
   if(!r.ok)throw Error("Example HTTP "+r.status);
   const doc=normalizeDoc(await r.json());
-  let resultMessage="";
+  let resultMessage="", hasResult=false;
   if(entry?.result){
     try{
-      const response=await fetch("./examples/"+encodeURIComponent(entry.result));
+      const response=await fetch("./examples/"+encodeURIComponent(entry.result),{cache:"no-cache"});
       if(!response.ok)throw Error("Result HTTP "+response.status);
       await seedExampleResult(await response.json());
+      hasResult=true;
       resultMessage=" · bundled simulation available";
     }catch(error){resultMessage=" · bundled result unavailable: "+error.message;}
   }
-  return {doc,resultMessage};
+  return {doc,resultMessage,hasResult};
+}
+
+// An unchanged example restored as a local draft may predate its bundled result.
+// Never seed a different or edited project merely because it has the same title.
+async function seedMatchingExample(doc){
+  try {
+    const response=await fetch("./examples/index.json",{cache:"no-cache"});
+    if(!response.ok)return;
+    const entry=(await response.json()).find(e=>e.result&&e.name===doc.name);
+    if(!entry)return;
+    const source=await fetch("./examples/"+encodeURIComponent(entry.file),{cache:"no-cache"});
+    if(!source.ok||JSON.stringify(normalizeDoc(await source.json()))!==JSON.stringify(doc))return;
+    const result=await fetch("./examples/"+encodeURIComponent(entry.result),{cache:"no-cache"});
+    if(result.ok)await seedExampleResult(await result.json());
+  }catch { /* normal drafts remain usable offline */ }
 }
 
 async function showExamples() {
@@ -2582,8 +2605,9 @@ async function showExamples() {
     index.map(e => h("button", { type: "button", onclick: async () => {
       $("dialog").close();
       try {
-        const {doc,resultMessage}=await fetchExample(e.file,e);
+        const {doc,resultMessage,hasResult}=await fetchExample(e.file,e);
         loadDoc(doc, `Loaded ${e.source}${resultMessage}`);
+        if(hasResult){ showBundledResultsFor=state.doc; syncResults(); }
       } catch (err) { setStatus("Could not load example: " + err.message, true); }
     } }, h("strong", { text: e.name }), h("small", { text: `${e.source}${e.sweep ? " · sweep" : ""}${e.generator ? " · Python generator" : ""}${e.result ? " · simulation included" : ""}${e.description ? " — " + e.description : ""}` })))));
 }
@@ -3067,7 +3091,7 @@ async function boot() {
   const draft = storage.get(draftKey()) ?? draftSlots()[0];
   pruneDrafts();
   const params = new URLSearchParams(location.search);
-  let initial = STARTER, message = "2.45 GHz Dipole starter loaded";
+  let initial = STARTER, message = "2.45 GHz Dipole starter loaded", showInitialResult=false;
   if (params.get("example")) {
     // A shared example link must not quietly discard the draft it replaces:
     // keep it as a local project revision the user can reopen.
@@ -3081,6 +3105,7 @@ async function boot() {
       try { const index=await fetch("./examples/index.json"); if(index.ok)entry=(await index.json()).find(e=>e.file===params.get("example")); } catch {}
       const loaded=await fetchExample(params.get("example"),entry);
       initial=loaded.doc;
+      showInitialResult=loaded.hasResult;
       message = "Loaded example " + params.get("example") + loaded.resultMessage + kept;
     } catch { message = "Example not found; starter loaded" + kept; }
   } else if (draft?.doc) {
@@ -3089,6 +3114,8 @@ async function boot() {
     message = `Restored local draft (${new Date(draft.savedAt).toLocaleString()})`;
   }
   try { state.doc = normalizeDoc(initial); } catch { state.doc = normalizeDoc(STARTER); }
+  if(!params.get("example"))await seedMatchingExample(state.doc);
+  if(showInitialResult)showBundledResultsFor=state.doc;
   if(!params.get("example")&&draft?.skipArchive&&JSON.stringify(draft.doc)===JSON.stringify(state.doc))state.deletedArchiveKey=JSON.stringify(state.doc);
   state.sel = null; // open showing the whole model; selecting a part fades the rest
 
