@@ -67,6 +67,33 @@ try {
     assert.deepEqual(seen.map(x=>x.method),["GET","POST","GET","GET"]);
     assert.ok(seen.every(x=>x.authorization==="Bearer test-token"));
     console.log("Remote runner native fetch / health / submission / polling / result: PASS");
+    // A transient network loss must not cancel a job that may be hours in:
+    // the client backs off and keeps polling, and sends no DELETE.
+    const flaky=[];
+    await blockedPage.route("**/remote-flaky/v1/**",async route=>{
+      const req=route.request(), path=new URL(req.url()).pathname, method=req.method();
+      flaky.push({method,path});
+      const polls=flaky.filter(x=>x.method==="GET"&&!x.path.endsWith("/result")).length;
+      if(method==="POST")return route.fulfill({status:200,json:{id:req.postDataJSON().id}});
+      if(path.endsWith("/result"))return route.fulfill({status:200,json:{s11:{logmag_db:[-9]}}});
+      if(polls===1)return route.abort("connectionfailed");                                   // offline
+      if(polls===2)return route.fulfill({status:502,contentType:"text/html",body:"<html>bad gateway</html>"}); // proxy error page
+      return route.fulfill({status:200,json:{state:"done"}});
+    });
+    const flakyEndpoint=new URL("remote-flaky",base).href;
+    const recovered=await blockedPage.evaluate(async endpoint=>{
+      const {RemoteRunner}=await import("./js/sim/remote.js");
+      const notes=[];
+      const result=await new RemoteRunner(endpoint,"test-token").run({schema_version:2},{onStatus:s=>notes.push(s)});
+      return {result,notes};
+    },flakyEndpoint);
+    assert.deepEqual(recovered.result,{s11:{logmag_db:[-9]}});
+    const unreachable=recovered.notes.filter(n=>n.state==="unreachable");
+    assert.equal(unreachable.length,2,"both failures reported as unreachable");
+    assert.match(unreachable[1].error,/HTTP 502/);                       // status kept, not a JSON parse error
+    assert.ok(unreachable[1].retry_ms>unreachable[0].retry_ms,"backs off");
+    assert.ok(!flaky.some(x=>x.method==="DELETE"),"never cancels the remote job on network loss");
+    console.log("Remote runner keeps the job through network loss and proxy errors: PASS");
   } finally { await blocked.close(); }
 
   await page.goto(new URL("?example=examples__dipole_2450.json&debug=1", base).href);
