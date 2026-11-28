@@ -4,7 +4,7 @@
 import {
   parameterSets, resolveTemplate, resolveCase, fieldToValue, valueToField, isTemplate,
   validParameterName, renameParameter, parameterUsage, sweepWarnings, MAX_CASES,
-  UNIT_GROUPS, normalizeWorkspaceUnits, unitGroup, displayUnit, parseUnitField, formatUnitField, displayedNumber,
+  UNIT_GROUPS, normalizeWorkspaceUnits, unitGroup, displayUnit, parseUnitField, formatUnitField, displayedNumber, parseEndCriteria,
 } from "./params.js";
 import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { currentDirection, currentPlaneAxis, currentPlaneLinked, setCurrentPosition, setCurrentDirection, moveCurrentCorner } from "./current-plane.js";
@@ -268,6 +268,7 @@ function loadDoc(cfg, message, caseIndex = 0) {
   const next=normalizeDoc(cfg);
   if(state.doc)void archiveProject();
   state.doc = next;
+  criteriaPresentation = null;
   jsonDraft = jsonBase = null;
   clearResults();
   for (const [k, v] of scriptRT.cache) if (!v.ok && /^timed out/.test(v.error)) scriptRT.cache.delete(k); // retry slow scripts
@@ -500,38 +501,47 @@ function numField(path, { optional = false, def, int = false, unit, placeholder,
 }
 const fmt = v => typeof v === "number" ? String(+v.toPrecision(8)) : JSON.stringify(v);
 
-// The solver stores a dimensionless energy ratio; dB is a second view of it.
-function endCriteriaDbField() {
-  const path = ["solver", "end_criteria"], fallback = 0.0001;
-  const input = h("input", { type: "number", step: "any", max: "0", inputmode: "decimal", "aria-label": "End criteria (dB)" });
-  const hint = h("div", { class: "value" });
-  const wrap = h("div", { class: "field" }, input, hint);
-  const show = () => {
-    const raw = getPath(state.doc, path);
-    const ratio = getPath(state.derived.resolved, path) ?? (raw === undefined ? fallback : NaN);
-    const valid = typeof ratio === "number" && Number.isFinite(ratio) && ratio > 0 && ratio <= 1;
-    const templated = isTemplate(raw);
-    input.disabled = templated;
-    if (document.activeElement !== input) input.value = valid ? String(+((10 * Math.log10(ratio)).toPrecision(12))) : "";
-    hint.textContent = templated ? "Edit the parameter or linear expression above." : valid ? "Relative energy · not dBm" : "Enter a positive linear ratio no greater than 1.";
-    wrap.classList.toggle("invalid", !valid);
-  };
-  input.addEventListener("change", () => {
-    const db = input.valueAsNumber;
-    const ratio = Math.pow(10, db / 10);
-    if (!Number.isFinite(db) || db > 0 || !(ratio > 0)) {
-      wrap.classList.add("invalid"); hint.textContent = "Enter a finite dB value at or below 0."; return;
+// One text field: an explicit dB suffix converts to the canonical linear ratio.
+let criteriaPresentation=null;
+function endCriteriaField() {
+  const path=["solver","end_criteria"], fallback=1e-4;
+  const input=h("input",{type:"text",inputmode:"text",autocapitalize:"off",autocomplete:"off",autocorrect:"off",spellcheck:"false",enterkeyhint:"done","aria-label":"End criteria",placeholder:"0.0001 or -40 dB"});
+  const hint=h("div",{class:"value"});
+  const wrap=h("div",{class:"field"},input,hint);
+  const show=()=>{
+    const raw=getPath(state.doc,path);
+    const ratio=raw===undefined?fallback:getPath(state.derived.resolved,path);
+    const valid=typeof ratio==="number"&&Number.isFinite(ratio)&&ratio>0&&ratio<=1;
+    if(document.activeElement!==input){
+      input.value=criteriaPresentation&&raw===criteriaPresentation.ratio?criteriaPresentation.text:valueToField(raw);
     }
-    if (edit(doc => setPath(doc, path, ratio), { inspector: false, sim: false })) show();
+    wrap.classList.toggle("expr",isTemplate(raw));
+    wrap.classList.toggle("invalid",!valid);
+    if(!valid)hint.textContent="Use a positive linear ratio up to 1, or a nonpositive dB value.";
+    else hint.textContent=(raw===undefined?"Default: ":"")+valueToField(ratio)+" = "+valueToField(10*Math.log10(ratio))+" dB";
+  };
+  input.addEventListener("change",()=>{
+    const text=input.value.trim();
+    let value;
+    try{
+      value=parseEndCriteria(text);
+      if(isTemplate(value)){
+        const ratio=resolveTemplate(value,state.derived.params);
+        if(typeof ratio!=="number"||!Number.isFinite(ratio)||ratio<=0||ratio>1)
+          throw Error("Resolved ratio must be above 0 and at most 1");
+      }
+    }catch(e){wrap.classList.add("invalid");hint.textContent=e.message;return;}
+    criteriaPresentation=typeof value==="number"&&/dB$/i.test(text)?{ratio:value,text:text.replace(/\s*dB$/i," dB")}:null;
+    if(edit(doc=>setPath(doc,path,value),{inspector:false,sim:false})){
+      input.value=criteriaPresentation?.text??valueToField(value);
+      show();
+    }
   });
-  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+  input.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();input.blur();}});
   fieldRefreshers.push(show);
   show();
   return wrap;
 }
-
-
-
 
 function vec3Field(path, opts = {}) {
   const key = handleKey(path);
@@ -1810,9 +1820,8 @@ function inspectSim(box, title) {
       checkField(["outputs", "include_impedance"], "Input impedance")),
     h("details", { class: "form-section" }, h("summary", { text: "Solver settings" }),
       row("Max timesteps", numField(["solver", "max_timesteps"], { optional: true, def: 20000, int: true, aria: "Max timesteps" })),
-      row("End criteria (linear)", numField(["solver", "end_criteria"], { optional: true, def: 0.0001, aria: "End criteria" })),
-      row("End criteria (dB)", endCriteriaDbField()),
-      h("p", { class: "hint", text: "Equivalent relative energy thresholds: −40 dB = 1e−4; −60 dB = 1e−6. Lower is stricter. The JSON always stores the linear ratio." })),
+      row("End criteria", endCriteriaField()),
+      h("p", { class: "hint", text: "Enter a linear ratio (0.0001) or append dB (−40 dB). JSON stores the linear ratio; lower is stricter." })),
     h("details", { class: "form-section" }, h("summary", { text: "Advanced · native CI resources" }),
       h("p", { class: "hint", text: "Native CI / exported JSON only. Browser and remote execution use the CPU controls above; the updated remote runner has no RAM cap." }),
       row("CPUs", numField(["solver", "resources", "cpus"], { optional: true, aria: "CPUs" })),
