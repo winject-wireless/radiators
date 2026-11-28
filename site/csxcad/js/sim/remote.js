@@ -1,8 +1,7 @@
 // Remote runner API. Tokens are session-memory only; never stored in configs.
-export function remoteEndpoint(value, pageProtocol=globalThis.location?.protocol) {
+export function remoteEndpoint(value) {
   const u=new URL(value);
   if(!["http:","https:"].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw Error("Enter a runner HTTP(S) base URL without credentials, query or fragment.");
-  if(u.protocol==="http:"&&!["localhost","127.0.0.1","[::1]"].includes(u.hostname))throw Error("Use HTTPS for a remote host; HTTP is allowed only for localhost.");
   return u.href.replace(/\/+$/,"");
 }
 const RESULT_TIMEOUT=600000, RESULT_ATTEMPTS=5;
