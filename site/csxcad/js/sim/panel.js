@@ -121,9 +121,27 @@ export async function saveLocalProject(doc, caseIndex=0, label="") {
 export async function listLocalProjects() {
   const db=await resultDB();
   return new Promise((resolve,reject)=>{
-    const req=db.transaction(PROJECT_STORE,"readonly").objectStore(PROJECT_STORE).getAll();
-    req.onsuccess=()=>resolve(req.result.sort((a,b)=>b.savedAt-a.savedAt));
-    req.onerror=()=>reject(req.error);
+    const tx=db.transaction(PROJECT_STORE,"readonly");
+    const projects=[];
+    const req=tx.objectStore(PROJECT_STORE).openCursor();
+    req.onsuccess=()=>{
+      const cursor=req.result;
+      if(cursor){projects.push({...cursor.value,key:cursor.primaryKey});cursor.continue();}
+    };
+    tx.oncomplete=()=>resolve(projects.sort((a,b)=>b.savedAt-a.savedAt));
+    tx.onerror=tx.onabort=()=>reject(tx.error||Error("Project list read aborted"));
+  });
+}
+// Delete exactly one saved revision (including labeled imports). Results use a
+// separate, shared resolved-input cache and must not be deleted with a snapshot.
+export async function deleteLocalProject(key) {
+  if(typeof key!=="string"||!key)throw Error("Invalid local project key");
+  const db=await resultDB();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(PROJECT_STORE,"readwrite");
+    tx.oncomplete=()=>resolve();
+    tx.onerror=tx.onabort=()=>reject(tx.error||Error("Project deletion aborted"));
+    tx.objectStore(PROJECT_STORE).delete(key);
   });
 }
 // Imported results are stored under their own exact resolved input, never
