@@ -93,17 +93,17 @@
         <legend>Translation <span>mm</span></legend>
         <div class="pose-row">
           <label for="px">X</label>
-          <input id="pxSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog Plane X position in millimetres in powers of two" aria-valuetext="0 mm" title="Increment X by ±1 / ±2 / ±4 / ±8 mm">
+          <input id="pxSlider" class="pose-jog" type="range" min="-6" max="6" step="1" value="0" list="jogTicks" aria-label="Jog Plane X position in millimetres in powers of two" aria-valuetext="0 mm" title="Increment X by ±1 / ±2 / ±4 / ±8 / ±16 / ±32 mm">
           <input id="px" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane X position in millimetres" autocomplete="off" spellcheck="false">
         </div>
         <div class="pose-row">
           <label for="py">Y</label>
-          <input id="pySlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog Plane Y position in millimetres in powers of two" aria-valuetext="0 mm" title="Increment Y by ±1 / ±2 / ±4 / ±8 mm">
+          <input id="pySlider" class="pose-jog" type="range" min="-6" max="6" step="1" value="0" list="jogTicks" aria-label="Jog Plane Y position in millimetres in powers of two" aria-valuetext="0 mm" title="Increment Y by ±1 / ±2 / ±4 / ±8 / ±16 / ±32 mm">
           <input id="py" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Y position in millimetres" autocomplete="off" spellcheck="false">
         </div>
         <div class="pose-row">
           <label for="pz">Z</label>
-          <input id="pzSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog Plane Z position in millimetres in powers of two" aria-valuetext="0 mm" title="Increment Z by ±1 / ±2 / ±4 / ±8 mm">
+          <input id="pzSlider" class="pose-jog" type="range" min="-6" max="6" step="1" value="0" list="jogTicks" aria-label="Jog Plane Z position in millimetres in powers of two" aria-valuetext="0 mm" title="Increment Z by ±1 / ±2 / ±4 / ±8 / ±16 / ±32 mm">
           <input id="pz" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Z position in millimetres" autocomplete="off" spellcheck="false">
         </div>
       </fieldset>
@@ -111,29 +111,37 @@
         <legend>Rotation <span>degrees</span></legend>
         <div class="pose-row">
           <label for="roll" title="Roll around X axis">X</label>
-          <input id="rollSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog plane rotation about X (roll) in degrees, power-of-two increments" aria-valuetext="0 °" title="Rotate around X (roll) by ±1 / ±2 / ±4 / ±8 °">
+          <input id="rollSlider" class="pose-jog" type="range" min="-90" max="90" step="1" value="0" list="angleTicks" aria-label="Jog plane rotation about X (roll) in degrees, −90° to +90°" aria-valuetext="0 °" title="Rotate around X (roll) by −90° to +90°, linear">
           <input id="roll" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane X-axis rotation (roll) in degrees" autocomplete="off" spellcheck="false">
         </div>
         <div class="pose-row">
           <label for="pitch" title="Pitch around Y axis">Y</label>
-          <input id="pitchSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog plane rotation about Y (pitch) in degrees, power-of-two increments" aria-valuetext="0 °" title="Rotate around Y (pitch) by ±1 / ±2 / ±4 / ±8 °">
+          <input id="pitchSlider" class="pose-jog" type="range" min="-90" max="90" step="1" value="0" list="angleTicks" aria-label="Jog plane rotation about Y (pitch) in degrees, −90° to +90°" aria-valuetext="0 °" title="Rotate around Y (pitch) by −90° to +90°, linear">
           <input id="pitch" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Y-axis rotation (pitch) in degrees" autocomplete="off" spellcheck="false">
         </div>
         <div class="pose-row">
           <label for="yaw" title="Yaw around Z axis">Z</label>
-          <input id="yawSlider" class="pose-jog" type="range" min="-4" max="4" step="1" value="0" list="jogTicks" aria-label="Jog plane rotation about Z (yaw) in degrees, power-of-two increments" aria-valuetext="0 °" title="Rotate around Z (yaw) by ±1 / ±2 / ±4 / ±8 °">
+          <input id="yawSlider" class="pose-jog" type="range" min="-90" max="90" step="1" value="0" list="angleTicks" aria-label="Jog plane rotation about Z (yaw) in degrees, −90° to +90°" aria-valuetext="0 °" title="Rotate around Z (yaw) by −90° to +90°, linear">
           <input id="yaw" class="pose-number" type="text" inputmode="decimal" value="+0.00" aria-label="Plane Z-axis rotation (yaw) in degrees" autocomplete="off" spellcheck="false">
         </div>
       </fieldset>
     </div>
     <datalist id="jogTicks">
+      <option value="-6" label="-32"></option><option value="-5" label="-16"></option>
       <option value="-4" label="-8"></option><option value="-3" label="-4"></option>
       <option value="-2" label="-2"></option><option value="-1" label="-1"></option>
       <option value="0" label="0"></option><option value="1" label="+1"></option>
       <option value="2" label="+2"></option><option value="3" label="+4"></option>
-      <option value="4" label="+8"></option>
+      <option value="4" label="+8"></option><option value="5" label="+16"></option>
+      <option value="6" label="+32"></option>
     </datalist>
-    <p class="plane-helper">Jog ±1 · ±2 · ±4 · ±8 · release to center · type signed decimals</p>
+    <datalist id="angleTicks">
+      <option value="-90" label="-90"></option><option value="-60" label="-60"></option>
+      <option value="-30" label="-30"></option><option value="0" label="0"></option>
+      <option value="30" label="+30"></option><option value="60" label="+60"></option>
+      <option value="90" label="+90"></option>
+    </datalist>
+    <p class="plane-helper">Translate ±1 · ±2 · ±4 · ±8 · ±16 · ±32 mm · rotate −90° to +90° · release to center · type signed decimals</p>
   </section>
 
   <section class="s11-panel panel">
