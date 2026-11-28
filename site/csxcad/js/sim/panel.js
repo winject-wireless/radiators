@@ -123,7 +123,9 @@ async function touchIndex(db,id,patch) {
   await new Promise(resolve=>{
     const tx=db.transaction(INDEX_STORE,"readwrite"),store=tx.objectStore(INDEX_STORE);
     const req=store.get(id);
-    req.onsuccess=()=>{const prev=req.result;if(prev||patch.bytes!==undefined)store.put({...prev,...patch,id},id);};
+    // Always record the entry: one whose index write was lost would otherwise
+    // be invisible to eviction and to the reported cache size forever.
+    req.onsuccess=()=>store.put({bytes:0,...req.result,...patch,id},id);
     tx.oncomplete=tx.onerror=tx.onabort=()=>resolve();
   });
 }

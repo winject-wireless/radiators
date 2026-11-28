@@ -3000,7 +3000,9 @@ registerServiceWorker();
 // A new build is live: this session keeps running its own, consistent build
 // until the user reloads, so offer the reload rather than switching under it.
 onUpdateReady(reload => {
-  const bar = h("div", { class: "toast", role: "status" },
+  // Not class "toast": toast() reuses the first .toast element it finds and
+  // would overwrite this banner with the next status message.
+  const bar = h("div", { class: "update-bar", role: "status" },
     "A new editor build is available.",
     h("button", { type: "button", class: "primary", onclick: reload }, "Reload"));
   Object.assign(bar.style, { position: "fixed", left: "50%", bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
