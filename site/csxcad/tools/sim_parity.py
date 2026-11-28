@@ -94,7 +94,7 @@ def compare(a, b, rel=1e-9):
 
 
 def main():
-    files = [Path(f) for f in sys.argv[1:]] or sorted((ROOT / "antennas").glob("*.json")) + sorted((ROOT / "examples").glob("*.json"))
+    files = [Path(f) for f in sys.argv[1:]] or sorted((ROOT / "antennas").glob("*.json")) + sorted((ROOT / "examples").glob("*.json")) + sorted((ROOT / "tests/fixtures").glob("*.json"))
     failed = 0
     for f in files:
         cfg = json.loads(f.read_text())

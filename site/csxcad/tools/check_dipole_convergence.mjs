@@ -1,9 +1,10 @@
-// End-to-end convergence check for the only bundled example, using the shipped WASM.
+// End-to-end convergence check for a small internal dipole fixture, using the shipped WASM.
 import assert from "node:assert/strict";
 import factory from "../../openems/openems.mjs";
 import { OpenEMSCore } from "../../openems/openems-core.js";
 import { readNf2ff } from "../../openems/openems-post.js";
-import { STARTER } from "../js/schema.js";
+import { readFileSync } from "node:fs";
+const STARTER = JSON.parse(readFileSync(new URL("../../../tests/fixtures/dipole_2450.json", import.meta.url), "utf8"));
 import { buildModel } from "../js/sim/model.js";
 import { runSimulation } from "../js/sim/run.js";
 
@@ -41,6 +42,6 @@ try {
     assert.equal(p.record.radiation_valid,true);
     assert.ok(Number.isFinite(p.max_realized_gain_dbi),"Finite realized gain required");
   }
-  console.log("Bundled dipole convergence PASS");
+  console.log("Internal dipole convergence PASS");
   process.exit(0);
 }catch(e){console.error(e);process.exit(1);}

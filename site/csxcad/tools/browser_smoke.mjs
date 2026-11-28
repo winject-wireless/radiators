@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { chromium } from "playwright";
 
+const dipoleFixture = JSON.parse(await readFile(new URL("../../../tests/fixtures/dipole_2450.json", import.meta.url), "utf8"));
 const base = process.argv[2] || "http://localhost:8080/";
 const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
@@ -60,7 +61,7 @@ try {
       sessionStorage.setItem("csxcad-coi-reload", "1");
     });
     await upgrade.waitForFunction(() => navigator.serviceWorker.controller?.scriptURL.endsWith("/sw-legacy.js"));
-    await upgrade.goto(new URL("?example=examples__dipole_2450.json", base).href);
+    await upgrade.goto(new URL("?example=examples__parametric_yagi.json", base).href);
     await upgrade.waitForFunction(() => crossOriginIsolated && navigator.serviceWorker.controller?.scriptURL.endsWith("/sw.js"), {}, { timeout: 90000 });
     console.log("Legacy service worker upgrade: PASS");
   } finally {
@@ -103,10 +104,11 @@ try {
     console.log("Remote runner native fetch / health / submission / polling / result: PASS");
   } finally { await blocked.close(); }
 
-  await page.goto(new URL("?example=examples__dipole_2450.json&debug=1", base).href);
+  await page.goto(new URL("?example=examples__parametric_yagi.json&debug=1", base).href);
   await page.waitForFunction(() => crossOriginIsolated && window.__csxcad?.viewport && document.querySelector("#sim .sim-controls"), { }, { timeout: 90000 });
   // Repair a thick imported current probe, then change its shared normal position.
-  const original=await page.evaluate(()=>structuredClone(window.__csxcad.state.doc));
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.name),"Parametric Yagi");
+  const original=structuredClone(dipoleFixture);
   const probeDoc={...original,probes:[{name:"current_driven",type:"current",start:[-5,-5,0],stop:[5,5,10]}]};
   const openConfig=doc=>page.locator("#openFile").setInputFiles({name:"probe-edit.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(doc))});
   await openConfig(probeDoc);
@@ -571,7 +573,7 @@ try {
     await mobilePage.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event("resize"));});
     await mobilePage.waitForFunction(()=>Math.abs(document.body.getBoundingClientRect().height-innerHeight)<=1);
     await mobilePage.locator("#panelJson .sheet-close").click();
-    // The only bundled example is the dipole. Check its layout, then use
+    // The only bundled example is the Yagi. Check its layout, then use
     // temporary test-only rows to keep regression coverage of long lists.
     await mobilePage.locator("#menuButton").click();
     await mobilePage.locator('[data-action="examples"]').click();
@@ -588,8 +590,8 @@ try {
         contained:rects.every(r=>r.contained),
         separated:rects.every((r,i)=>i===0||r.top>=rects[i-1].bottom+2)};
     });
-    assert.equal(layout.count,1,"Only the dipole should be bundled");
-    assert.match(await picker.innerText(),/Half-wave dipole 2\.45 GHz/);
+    assert.equal(layout.count,1,"Only the Yagi should be bundled");
+    assert.match(await picker.innerText(),/Parametric Yagi/);
     assert.ok(layout.contained,"Example text escapes its row");
     const overflow=await picker.evaluate(el=>{
       const row=el.querySelector(":scope > button");
@@ -615,7 +617,7 @@ try {
     assert.ok(overflow.separated,"Example rows overlap");
     await mobilePage.locator("#dialogActions").getByRole("button",{name:"Close",exact:true}).click();
     // Reproduce the opposing shell/cap assembly on a mobile WebGL viewport.
-    const assembly=await mobilePage.evaluate(()=>structuredClone(window.__csxcad.state.doc));
+    const assembly=structuredClone(dipoleFixture);
     assembly.materials=[{name:"pec-metal",type:"pec"}];
     assembly.parameters={L:30,d_diameter:4,g_r:1};
     assembly.sweep={mode:"product",parameters:{g_r:{values:[124,62,31]}}};

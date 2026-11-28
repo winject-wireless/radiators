@@ -82,9 +82,9 @@ A simulation remains one top-level `antennas/<simulation>.json` file. An optiona
 `sweep` expands it into independent antenna cases. The UI groups results by
 **simulation → case**, hiding the case selector for a normal single-case simulation.
 
-Start with [examples/helix_sweep.json](../examples/helix_sweep.json) for
+Start with [tests/fixtures/helix_sweep.json](../tests/fixtures/helix_sweep.json) for
 parametric JSON primitives or
-[examples/racetrack_loop_sweep.json](../examples/racetrack_loop_sweep.json)
+[tests/fixtures/racetrack_loop_sweep.json](../tests/fixtures/racetrack_loop_sweep.json)
 for a programmatic racetrack wire generator. Both examples are **outside**
 `antennas/` so they do not launch expensive FDTD jobs on every push.
 
@@ -158,11 +158,11 @@ source later, but still needs native feed/port annotations.
 
 ```bash
 # Validate and list resolved cases without running openEMS:
-python3 scripts/sweep.py examples/racetrack_loop_sweep.json
+python3 scripts/sweep.py tests/fixtures/racetrack_loop_sweep.json
 python3 -m unittest discover -s scripts -p 'test_sweep.py' -v
 
 # To run a sweep through the normal changed-config pipeline:
-cp examples/racetrack_loop_sweep.json antennas/racetrack_loop_sweep.json
+cp tests/fixtures/racetrack_loop_sweep.json antennas/racetrack_loop_sweep.json
 printf 'antennas/racetrack_loop_sweep.json\n' > changed-antennas.txt
 python3 scripts/run_simulations.py --list changed-antennas.txt --results results
 ```

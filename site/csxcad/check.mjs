@@ -106,7 +106,7 @@ const close = (a, b, where) => {
     for (const k of Object.keys(a)) close(a[k], b[k], `${where}.${k}`);
   } else assert.equal(a, b, where);
 };
-const files = ["antennas", "examples"].flatMap(dir => fs.readdirSync(path.join(repo, dir))
+const files = ["antennas", "examples", "tests/fixtures"].flatMap(dir => fs.readdirSync(path.join(repo, dir))
   .filter(f => f.endsWith(".json")).map(f => path.join(dir, f)));
 let compared = 0, parts = 0;
 for (const rel of files) {
@@ -386,9 +386,11 @@ const starterCases = parameterSets(STARTER);
 assert.equal(starterCases.length, 1);
 const starter = resolveCase(STARTER, starterCases[0].parameters);
 assert.deepEqual(checkCase(starter).filter(x => x.level === "error"), []);
-assert.deepEqual(STARTER, JSON.parse(fs.readFileSync(path.join(repo, "examples/dipole_2450.json"), "utf8")));
-assert.equal(starter.solver.end_criteria, 1e-6);
-assert.equal(starter.solver.max_timesteps, 100000);
+assert.deepEqual(STARTER, JSON.parse(fs.readFileSync(path.join(repo, "examples/parametric_yagi.json"), "utf8")));
+assert.equal(starter.solver.end_criteria, 1e-4);
+assert.equal(starter.solver.max_timesteps, 50000);
+assert.equal(starter.probes.length, 3);
+assert.equal(starter.geometry.length, 4);
 assert.ok(buildModel(starter).patterns.includes(2450000000));
 for (const [shape, def] of Object.entries(SHAPES)) assert.ok(tessellate({ shape, ...def.template }).indices.length > 0, shape);
 
@@ -471,7 +473,7 @@ for (const [shape, def] of Object.entries(SHAPES)) assert.ok(tessellate({ shape,
 // Checks catch the classic mistakes
 const broken = structuredClone(starter);
 broken.ports.push({ ...broken.ports[0], excite: true });
-broken.geometry[0].material = "copper";
+broken.geometry[0].material = "undefined-metal";
 broken.domain.stop[2] = 10;
 const msgs = checkCase(broken).map(x => x.msg).join("\n");
 assert.match(msgs, /Exactly one port must be excited/);
