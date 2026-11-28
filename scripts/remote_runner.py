@@ -15,7 +15,7 @@ import shutil
 import signal
 import ssl
 import subprocess
-import tempfile
+import fcntl
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +26,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ID = re.compile(r"[a-f0-9]{32}")
 PATTERN = re.compile(r"pattern_[0-9]+Hz\.json")
 MAX_BODY = 2 * 1024**2
+MAX_BATCH_BODY = 32 * 1024**2
+MAX_JOBS = 256
+MAX_ACTIVE = 64
 TERMINAL = {"done", "failed", "cancelled"}
 SHAPES = {"box", "cylinder", "cylindrical_shell", "sphere", "spherical_shell",
           "wire", "polyhedron", "helix", "hemisphere", "hemispherical_shell"}
@@ -70,37 +73,107 @@ class Runner:
         self.lock = threading.Lock()
         self.jobs = {}
         self.closing = False
-        self.lease_timeout = getattr(args, "lease_timeout", 300)
+        self.work.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.restore()
+
+    def persist(self, j):
+        # A rename makes each job's metadata visible atomically.
+        data = {k: j.get(k) for k in ("id", "state", "error", "cpus", "name",
+                "created_at", "seconds", "batch_id", "pool", "case_key", "case_id")}
+        target = j["path"] / "state.json"
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, allow_nan=False))
+        tmp.replace(target)
+
+    def restore(self):
+        # Do not pretend an interrupted FDTD process can resume from a checkpoint.
+        # Completed results and queued inputs survive a runner restart.
+        for path in self.work.iterdir():
+            if not ID.fullmatch(path.name) or not (path / "state.json").is_file():
+                continue
+            data = json.loads((path / "state.json").read_text())
+            ident, cfg, cpus = validate({"id": path.name, "config": json.loads((path / "config.json").read_text())}, self.args)
+            if data["id"] != ident or data["state"] not in TERMINAL | {"queued", "starting", "running"}:
+                raise ValueError("Invalid stored job " + ident)
+            j = dict(data, path=path, cancel=threading.Event(), created=time.monotonic(),
+                     last_contact=time.monotonic(), cpus=cpus)
+            if j["state"] in ("starting", "running"):
+                self.remove_container("radiators-remote-" + ident)
+                j.update(state="failed", error="Runner restarted during simulation; rerun this case")
+                self.persist(j)
+            if j["state"] in TERMINAL:
+                j["finished_at"] = time.monotonic()
+            self.jobs[ident] = j
+        self.jobs = dict(sorted(self.jobs.items(), key=lambda item: item[1]["created_at"]))
 
     def submit(self, payload):
-        ident, cfg, cpus = validate(payload, self.args)
+        return self.submit_many([payload])[0]
+
+    def submit_many(self, payloads, batch_id=None, pool=None):
+        if not isinstance(payloads, list) or not 1 <= len(payloads) <= MAX_ACTIVE:
+            raise ValueError("Expected 1 to 64 jobs")
+        if batch_id is not None and (not isinstance(batch_id, str) or not ID.fullmatch(batch_id)):
+            raise ValueError("Invalid batch ID")
+        if pool is not None:
+            pool = checked_number(pool, 1, self.args.max_cpus, "batch CPU pool", True)
+        prepared = []
+        for payload in payloads:
+            ident, cfg, cpus = validate(payload, self.args)
+            if len(json.dumps(cfg, allow_nan=False).encode()) > MAX_BODY:
+                raise ValueError("Individual job configuration too large")
+            case_key, case_id = payload.get("case_key"), payload.get("case_id")
+            if case_key is not None and (not isinstance(case_key, str) or len(case_key) > 100):
+                raise ValueError("Invalid case key")
+            if case_id is not None and (not isinstance(case_id, str) or len(case_id) > 160):
+                raise ValueError("Invalid case ID")
+            if pool is not None and cpus > pool:
+                raise ValueError("Job CPU count exceeds batch pool")
+            prepared.append((ident, cfg, cpus, case_key, case_id, payload.get("require_capacity") is True))
+        ids = [p[0] for p in prepared]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Duplicate job IDs in batch")
         with self.lock:
-            if ident in self.jobs:
-                raise ValueError("Job ID already exists")
             if self.closing:
                 raise RuntimeError("Runner is shutting down")
-            # Do not evict an active job or a completed result not yet downloaded.
-            eligible = [key for key, j in self.jobs.items()
-                        if j["state"] in TERMINAL and (j.get("delivered") or time.monotonic()-j.get("finished_at", time.monotonic()) > 3600)]
-            for old in eligible[:-self.args.retain]:
-                shutil.rmtree(self.jobs.pop(old)["path"], ignore_errors=True)
-            if len(self.jobs) >= 256 or sum(j["state"] not in TERMINAL for j in self.jobs.values()) >= 64:
-                raise RuntimeError("Runner job queue full")
-            if payload.get("require_capacity") is True:
-                # Reserve against the authoritative shared CPU budget, under the same lock as submit.
+            new = []
+            for ident, cfg, cpus, case_key, case_id, immediate in prepared:
+                old = self.jobs.get(ident)
+                if old is not None:
+                    if (json.loads((old["path"] / "config.json").read_text()) != cfg or
+                        any(old.get(k) != v for k, v in (("batch_id", batch_id), ("pool", pool),
+                            ("case_key", case_key), ("case_id", case_id)))):
+                        raise ValueError("Job ID already exists with different input")
+                else:
+                    new.append((ident, cfg, cpus, case_key, case_id, immediate))
+            if not new:
+                return ids
+            if len(self.jobs) + len(new) > MAX_JOBS or sum(j["state"] not in TERMINAL for j in self.jobs.values()) + len(new) > MAX_ACTIVE:
+                raise RuntimeError("Runner job queue full; delete unneeded completed jobs")
+            if any(p[-1] for p in new):
                 self.dispatch_locked()
                 used = sum(j["cpus"] for j in self.jobs.values() if j["state"] in ("starting", "running"))
-                if used + cpus > self.args.max_cpus:
+                if used + sum(p[2] for p in new) > self.args.max_cpus:
                     raise RuntimeError("CPU capacity unavailable; try again when a case finishes")
-            path = self.work / ident
-            path.mkdir(mode=0o700)
-            (path / "config.json").write_text(json.dumps(cfg, allow_nan=False))
-            j = {"id": ident, "path": path, "state": "queued", "created": time.monotonic(),
-                 "cancel": threading.Event(), "error": None, "cpus": cpus,
-                 "last_contact": time.monotonic(), "name": str(cfg.get("name", ""))[:160]}
-            self.jobs[ident] = j
+            created = []
+            try:
+                for ident, cfg, cpus, case_key, case_id, immediate in new:
+                    path = self.work / ident
+                    path.mkdir(mode=0o700)
+                    created.append(path)
+                    (path / "config.json").write_text(json.dumps(cfg, allow_nan=False))
+                    j = {"id": ident, "path": path, "state": "queued", "created": time.monotonic(),
+                         "created_at": time.time(), "cancel": threading.Event(), "error": None, "cpus": cpus,
+                         "last_contact": time.monotonic(), "name": str(cfg.get("name", ""))[:160],
+                         "batch_id": batch_id, "pool": pool, "case_key": case_key, "case_id": case_id}
+                    self.persist(j)
+                    self.jobs[ident] = j
+            except Exception:
+                for path in created:
+                    self.jobs.pop(path.name, None)
+                    shutil.rmtree(path, ignore_errors=True)
+                raise
             self.dispatch_locked()
-            return ident
+            return ids
 
     def dispatch_locked(self):
         """Reserve CPU before launching, including jobs in Docker startup."""
@@ -111,13 +184,17 @@ class Runner:
         for j in self.jobs.values():
             if j["state"] != "queued":
                 continue
-            if j["cancel"].is_set() or time.monotonic()-j["last_contact"] >= self.lease_timeout:
-                j.update(state="cancelled", error=j.get("error") or ("Client lease expired" if not j["cancel"].is_set() else None), seconds=0, finished_at=time.monotonic())
+            if j["cancel"].is_set():
+                j.update(state="cancelled", seconds=0, finished_at=time.monotonic())
+                self.persist(j)
                 continue
-            if j["cpus"] > free_cpu:
+            batch_used = sum(a["cpus"] for a in active if a.get("batch_id") == j.get("batch_id"))
+            if j["cpus"] > free_cpu or (j.get("pool") is not None and batch_used + j["cpus"] > j["pool"]):
                 continue
             free_cpu -= j["cpus"]
             j["state"] = "starting"
+            self.persist(j)
+            active.append(j)
             threading.Thread(target=self.run_reserved, args=(j,), daemon=True).start()
 
     def run_reserved(self, j):
@@ -128,6 +205,7 @@ class Runner:
                 if j["state"] not in TERMINAL:
                     j.update(state="failed", error="Job executor exited without result", seconds=0)
                 j["finished_at"] = time.monotonic()
+                self.persist(j)
                 self.dispatch_locked()
 
     def cancel(self, j, reason=None):
@@ -141,24 +219,23 @@ class Runner:
             j["error"] = reason or j.get("error")
             if j["state"] == "queued":
                 j.update(state="cancelled", seconds=0, finished_at=time.monotonic())
+                self.persist(j)
 
-    def expire_leases(self):
+    def purge(self, j):
         with self.lock:
-            now = time.monotonic()
-            for j in self.jobs.values():
-                if j["state"] not in TERMINAL and not j["cancel"].is_set() and now-j["last_contact"] >= self.lease_timeout:
-                    self.cancel_locked(j, "Client lease expired")
-            self.dispatch_locked()
+            if j["state"] not in TERMINAL or "finished_at" not in j:
+                raise RuntimeError("Only finished jobs can be deleted")
+            shutil.rmtree(j["path"])
+            self.jobs.pop(j["id"], None)
 
     def list_jobs(self):
-        # Listing does not renew leases.
         with self.lock:
             now = time.monotonic()
-            return [{"id": j["id"], "state": j["state"], "name": j["name"],
-                     "cpus": j["cpus"],
+            return [{**{k: j.get(k) for k in ("id", "state", "name", "cpus", "case_key", "case_id",
+                     "batch_id", "created_at", "error")},
                      "last_contact_seconds": round(now-j["last_contact"]),
                      "cancel_requested": j["cancel"].is_set()}
-                    for j in self.jobs.values() if j["state"] not in TERMINAL]
+                    for j in self.jobs.values()]
 
     def execute(self, j, cpus):
         name = "radiators-remote-" + j["id"]
@@ -224,8 +301,6 @@ class Runner:
                 j["last_contact"] = time.monotonic()
             out = {k: j[k] for k in ("id", "state", "error")}
             out["seconds"] = j.get("seconds", time.monotonic()-j["created"])
-            if j["state"] in ("failed", "cancelled"):
-                j["delivered"] = True
         log = j["path"] / "runner.log"
         try:
             with log.open("rb") as f:
@@ -248,7 +323,6 @@ class Runner:
                 p["record"] = json.loads((path / filename).read_text())
             result.update(generator="remote native openEMS", seconds=j["seconds"])
             result["postprocessing_incomplete"] = any(not p["record"].get("radiation_valid") for p in result.get("patterns", []))
-            j["delivered"] = True
             return result
 
 
@@ -316,9 +390,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, {"api_version": 1, "engine": "native openEMS",
                     "max_cpus": runner.args.max_cpus, "ncpu_pool": runner.args.max_cpus, "parallel_jobs": True, "memory_limit": False, "max_memory_gib": None,
                     "max_cells": runner.args.max_cells, "max_timesteps": runner.args.max_timesteps,
-                    "lease_timeout": runner.lease_timeout, "job_listing": True, "immediate_start": True})
+                    "lease_timeout": None, "job_listing": True, "immediate_start": True,
+                    "detached_jobs": True, "batch_submission": True, "persistent_jobs": True})
             if method == "GET" and path == "/v1/jobs":
                 return self.reply(200, {"jobs": runner.list_jobs()})
+            if method == "POST" and path == "/v1/batches":
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= MAX_BATCH_BODY:
+                    return self.reply(413, {"error": "Invalid batch size"})
+                payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload, dict) or payload.get("id") is None or payload.get("pool") is None:
+                    raise ValueError("Batch ID and CPU pool required")
+                ids = runner.submit_many(payload.get("jobs"), payload["id"], payload["pool"])
+                return self.reply(202, {"ids": ids})
             if method == "POST" and path == "/v1/jobs":
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= MAX_BODY:
@@ -336,6 +420,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, runner.result(j))
             if method == "GET":
                 return self.reply(200, runner.snapshot(j))
+            if method == "DELETE" and m[2]:
+                runner.purge(j)
+                return self.reply(200, {"id": j["id"], "deleted": True})
             if method == "DELETE" and not m[2]:
                 runner.cancel(j)
                 return self.reply(202, {"id": j["id"], "cancel_requested": True})
@@ -366,11 +453,12 @@ def main():
     p.add_argument("--max-timesteps", type=int, default=2000000)
     p.add_argument("--timeout", type=int, default=3600)
     p.add_argument("--retain", type=int, default=4)
-    p.add_argument("--lease-timeout", type=int, default=300, help="Cancel jobs without status polling for this many seconds")
+    p.add_argument("--lease-timeout", type=int, help=argparse.SUPPRESS)  # legacy; ignored
+    p.add_argument("--work-dir", type=Path, default=Path.home()/".local/state/radiators-runner/jobs")
     args = p.parse_args()
     args.token = os.environ.get("RADIATORS_RUNNER_TOKEN", "")
-    if len(args.token) < 24 or not args.origin or args.retain < 1 or args.timeout < 1 or args.lease_timeout < 60:
-        p.error("Set RADIATORS_RUNNER_TOKEN (at least 24 chars), --origin, positive --retain and --timeout, --lease-timeout >= 60")
+    if len(args.token) < 24 or not args.origin or args.retain < 1 or args.timeout < 1:
+        p.error("Set RADIATORS_RUNNER_TOKEN (at least 24 chars), --origin, positive --retain and --timeout")
     if bool(args.tls_cert) != bool(args.tls_key):
         p.error("TLS requires both --tls-cert and --tls-key")
     if not args.tls_cert and args.bind not in ("127.0.0.1", "localhost"):
@@ -384,8 +472,13 @@ def main():
         tls.load_cert_chain(args.tls_cert, args.tls_key)
     docker = docker_command()
     subprocess.run(docker+["image", "inspect", args.image], check=True, stdout=subprocess.DEVNULL)
-    with tempfile.TemporaryDirectory(prefix="radiators-remote-") as work:
-        runner = Runner(args, docker, Path(work))
+    work = args.work_dir.expanduser().resolve()
+    work.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (work / ".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        runner = Runner(args, docker, work)
+        with runner.lock:
+            runner.dispatch_locked()
         with ThreadingHTTPServer((args.bind, args.port), Handler) as http:
             http.runner = runner
             if tls:
@@ -395,28 +488,21 @@ def main():
             signal.signal(signal.SIGTERM, terminate)
             scheme = "https" if tls else "http"
             print(f"Radiators runner listening on {scheme}://{args.bind}:{args.port}", flush=True)
-            stop_reaper = threading.Event()
-            def reap():
-                while not stop_reaper.wait(2):
-                    runner.expire_leases()
-            reaper = threading.Thread(target=reap, daemon=True)
-            reaper.start()
             try:
                 http.serve_forever()
             except KeyboardInterrupt:
                 pass
             finally:
-                stop_reaper.set()
-                reaper.join()
                 with runner.lock:
                     runner.closing = True
                     for j in runner.jobs.values():
-                        j["cancel"].set()
-                        if j["state"] == "queued":j.update(state="cancelled",error=None,seconds=0,finished_at=time.monotonic())
+                        if j["state"] in ("starting", "running"):
+                            j["error"] = "Runner stopped during simulation; rerun this case"
+                            j["cancel"].set()
                 deadline = time.monotonic()+45
                 while time.monotonic()<deadline:
                     with runner.lock:
-                        if all(j["state"] in TERMINAL for j in runner.jobs.values()):
+                        if all(j["state"] not in ("starting", "running") for j in runner.jobs.values()):
                             break
                     time.sleep(.25)
 
