@@ -325,9 +325,9 @@ export const STARTER = {
   "outputs": {
     "s11": [
       {
-        "start": 2000000000,
+        "start": 2100000000,
         "step": 10000000,
-        "end": 3000000000
+        "end": 2800000000
       }
     ],
     "radiation_frequencies_hz": [
