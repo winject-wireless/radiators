@@ -649,7 +649,15 @@ try {
     ];
     assembly.ports=[{id:1,name:"feed",type:"lumped",start:[0,0,-.1],stop:[0,0,2.1],direction:"z",impedance_ohm:50,excite:true}];
     await mobilePage.locator("#openFile").setInputFiles({name:"shell-assembly.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(assembly))});
-    await mobilePage.waitForFunction(()=>window.__csxcad.viewport.parts.children.length===4,{}, {timeout:30000});
+    // The previous Yagi also has four parts, and the imported shell caps expand
+    // asynchronously. Wait for the actual imported document and both scripts.
+    await mobilePage.waitForFunction(()=>{
+      const {state,viewport}=window.__csxcad??{};
+      return state?.doc?.geometry?.map(g=>g.name).join(",")==="d,g,d_cap,g_cap" &&
+        state.derived?.expanded?.[2]?.objects?.length>0 &&
+        state.derived?.expanded?.[3]?.objects?.length>0 &&
+        viewport?.parts.children.length===4;
+    },{}, {timeout:30000});
     const render=await mobilePage.evaluate(()=>{
       const v=window.__csxcad.viewport;
       v.setSelection(null);v.scene.updateMatrixWorld(true);
