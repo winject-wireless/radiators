@@ -213,7 +213,7 @@ export const STARTER = {
           35,
           32.5
         ],
-        "resolution_mm": 1
+        "resolution_mm": 4
       },
       {
         "start": [
