@@ -133,7 +133,17 @@ def collect_examples():
             raise ValueError(f"Bundled example must use schema v2: {source}")
         name = "examples__" + source.name
         copy2(source, target / name)
+        result_source = source.parent / "results" / (source.stem + ".result.json")
+        result_fields = {}
+        if result_source.is_file():
+            result = json.loads(result_source.read_text())
+            if result.get("schema_version") != 2 or not result.get("input_config") or not result.get("s11"):
+                raise ValueError(f"Invalid bundled simulation result: {result_source}")
+            result_name = "examples__" + result_source.name
+            copy2(result_source, target / result_name)
+            result_fields["result"] = result_name
         index.append({
+            **result_fields,
             "file": name, "source": "examples/" + source.name, "name": cfg["name"],
             "description": cfg.get("description", "")[:160],
             "sweep": "sweep" in cfg, "generator": "generator" in cfg,
