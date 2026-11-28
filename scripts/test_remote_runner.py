@@ -198,6 +198,7 @@ class RemoteTests(unittest.TestCase):
         cmd=launch.call_args.args[0]
         self.assertIn("--cpus=2",cmd)
         self.assertIn("RADIATORS_OPENEMS_THREADS=2",cmd)
+        self.assertIn("OPENEMS_ENGINE=cpu",cmd)
         self.assertFalse(any(a.startswith(("--memory","--memory-swap")) for a in cmd))
 
     def test_api(self):

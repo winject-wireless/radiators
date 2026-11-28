@@ -253,7 +253,7 @@ class Runner:
               "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "--pids-limit=512",
               "--user", f"{os.getuid()}:{os.getgid()}", "--env", "HOME=/tmp",
               "--env", "PYTHONDONTWRITEBYTECODE=1", "--env", "PYTHONUNBUFFERED=1",
-              "--env", f"RADIATORS_OPENEMS_THREADS={cpus}", f"--cpus={cpus}",
+              "--env", f"RADIATORS_OPENEMS_THREADS={cpus}", "--env", "OPENEMS_ENGINE=cpu", f"--cpus={cpus}",
               "-v", f"{ROOT}:/work:ro", "-v", f"{path}:/job:rw", "--workdir", "/work",
               self.args.image, "python", "antennas/simulate_v2.py", "/job/config.json", "--output", "/job/out"]
         proc = None
