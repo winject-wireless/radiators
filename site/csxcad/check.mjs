@@ -453,6 +453,12 @@ const bundledYagi = JSON.parse(fs.readFileSync(path.join(repo, "examples/results
 assert.equal(JSON.stringify(starter), JSON.stringify(bundledYagi.editor_resolved_config ?? bundledYagi.input_config), "Bundled Yagi cache key mismatch");
 assert.ok(bundledYagi.s11.frequency_hz.length > 0 && bundledYagi.patterns.length > 0);
 assert.equal(bundledYagi.aborted, false);
+const helixExample=JSON.parse(fs.readFileSync(path.join(repo,"examples/2_45ghz_helical.json"),"utf8"));
+const bundledHelix=JSON.parse(fs.readFileSync(path.join(repo,"examples/results/2_45ghz_helical.result.json"),"utf8"));
+const helixResolved=expandScripts(resolveCase(helixExample,parameterSets(helixExample)[0].parameters),editorRun);
+assert.equal(JSON.stringify(helixResolved),JSON.stringify(bundledHelix.editor_resolved_config), "Bundled helix cache key mismatch");
+assert.equal(bundledHelix.aborted,false);
+assert.ok(bundledHelix.s11.frequency_hz.length>0 && bundledHelix.patterns.length>0);
 assert.deepEqual(STARTER.parameters, {gap:2,len:50,dist_ref:0.95,dist_dir:0.36,el_rad:2,len_ref:1.06,len_dir:0.84});
 assert.equal(starter.solver.end_criteria, 1e-4);
 assert.equal(starter.solver.max_timesteps, 50000);
