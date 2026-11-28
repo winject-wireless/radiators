@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "Half-wave dipole 2.45 GHz (fast)",
-  "description": "Small half-wave dipole (~130k cells): runs in about 10-30 s, a quick test of in-browser simulation.",
+  "description": "Compact half-wave dipole for a quick browser simulation with a stricter energy-decay criterion.",
   "units": "mm",
   "domain": {
     "start": [
@@ -31,8 +31,8 @@
     "max_cells": 2000000
   },
   "solver": {
-    "max_timesteps": 20000,
-    "end_criteria": 0.0001
+    "max_timesteps": 100000,
+    "end_criteria": 0.000001
   },
   "excitation": {
     "center_hz": 2450000000,
@@ -111,6 +111,7 @@
     "radiation_grid": {
       "theta_step_deg": 10,
       "phi_step_deg": 15
-    }
+    },
+    "include_realized_gain": true
   }
 }

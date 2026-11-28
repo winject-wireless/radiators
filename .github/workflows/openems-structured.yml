@@ -138,6 +138,9 @@ jobs:
           python3 -m unittest discover -s scripts -p test_remote_runner.py
           for f in site/openems/*.js site/openems/openems.mjs; do node --check "$f"; done
           node wasm/openems/test/smoke.mjs
+          mkdir -p site/csxcad/vendor/openems
+          cp site/openems/openems-post.js site/csxcad/vendor/openems/
+          node site/csxcad/tools/check_dipole_convergence.mjs
           python3 scripts/sweep.py examples/racetrack_loop_sweep.json
           python3 scripts/sweep.py examples/helix_sweep.json
       - name: Detect changed antenna configurations

@@ -504,8 +504,8 @@ try {
     await mobilePage.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event("resize"));});
     await mobilePage.waitForFunction(()=>Math.abs(document.body.getBoundingClientRect().height-innerHeight)<=1);
     await mobilePage.locator("#panelJson .sheet-close").click();
-    // The example picker contains long multiline names and descriptions.
-    // Verify no flex shrink or text spill, even beyond the scroll viewport.
+    // The only bundled example is the dipole. Check its layout, then use
+    // temporary test-only rows to keep regression coverage of long lists.
     await mobilePage.locator("#menuButton").click();
     await mobilePage.locator('[data-action="examples"]').click();
     await mobilePage.locator("#dialog .example-list > button").first().waitFor({state:"visible"});
@@ -521,12 +521,31 @@ try {
         contained:rects.every(r=>r.contained),
         separated:rects.every((r,i)=>i===0||r.top>=rects[i-1].bottom+2)};
     });
-    assert.ok(layout.count>=5);
-    assert.ok(layout.scrollable,"Expected example list to scroll");
+    assert.equal(layout.count,1,"Only the dipole should be bundled");
+    assert.match(await picker.innerText(),/Half-wave dipole 2\.45 GHz/);
     assert.ok(layout.contained,"Example text escapes its row");
-    assert.ok(layout.separated,"Example rows overlap");
-    await picker.evaluate(el=>{el.scrollTop=el.scrollHeight;});
-    assert.ok(await picker.evaluate(el=>el.scrollTop>0));
+    const overflow=await picker.evaluate(el=>{
+      const row=el.querySelector(":scope > button");
+      const clones=Array.from({length:12},()=>row.cloneNode(true));
+      el.append(...clones);
+      const rows=[...el.querySelectorAll(":scope > button")];
+      const rects=rows.map(row=>{
+        const r=row.getBoundingClientRect();
+        return {top:r.top,bottom:r.bottom,contained:[...row.children].every(c=>{
+          const b=c.getBoundingClientRect();
+          return b.top>=r.top-1&&b.bottom<=r.bottom+1&&b.left>=r.left-1&&b.right<=r.right+1;
+        })};
+      });
+      el.scrollTop=el.scrollHeight;
+      const result={scrollable:el.scrollHeight>el.clientHeight&&el.scrollTop>0,
+        contained:rects.every(r=>r.contained),
+        separated:rects.every((r,i)=>i===0||r.top>=rects[i-1].bottom+2)};
+      clones.forEach(c=>c.remove());
+      return result;
+    });
+    assert.ok(overflow.scrollable,"Long example list must scroll");
+    assert.ok(overflow.contained,"Example text escapes its row");
+    assert.ok(overflow.separated,"Example rows overlap");
     await mobilePage.locator("#dialogActions").getByRole("button",{name:"Close",exact:true}).click();
     // Reproduce the opposing shell/cap assembly on a mobile WebGL viewport.
     const assembly=await mobilePage.evaluate(()=>structuredClone(window.__csxcad.state.doc));

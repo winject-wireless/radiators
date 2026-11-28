@@ -2424,11 +2424,11 @@ async function showExamples() {
     if (!r.ok) throw Error(r.status);
     index = await r.json();
   } catch {
-    return openDialog("Examples", h("p", { class: "hint", text: "No bundled examples found. Run python3 site/csxcad/prepare.py (the Pages build does this) or open a file from antennas/." }));
+    return openDialog("Open example", h("div", { class: "example-list" },
+      h("button", { type: "button", onclick: () => { $("dialog").close(); loadDoc(STARTER, "Loaded dipole example"); } },
+        h("strong", { text: STARTER.name }), h("small", { text: "Built-in offline fallback" }))));
   }
   openDialog("Open example", h("div", { class: "example-list" },
-    h("button", { type: "button", onclick: () => { $("dialog").close(); loadDoc(STARTER, "Loaded parametric starter"); } },
-      h("strong", { text: "Parametric monopole (starter)" }), h("small", { text: "Built-in · parameters + expressions" })),
     index.map(e => h("button", { type: "button", onclick: async () => {
       $("dialog").close();
       try {
@@ -2861,7 +2861,7 @@ async function boot() {
   // Initial document: ?example=<file>, else local draft, else starter.
   const draft = storage.get(DRAFT_KEY);
   const params = new URLSearchParams(location.search);
-  let initial = STARTER, message = "Parametric starter loaded";
+  let initial = STARTER, message = "Dipole starter loaded";
   if (params.get("example")) {
     try {
       const r = await fetch("./examples/" + encodeURIComponent(params.get("example")));

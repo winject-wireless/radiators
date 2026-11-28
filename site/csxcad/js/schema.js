@@ -162,31 +162,121 @@ export const PORTS = {
 
 export const BOUNDARIES = ["PML_8", "PML_6", "PML_4", "MUR", "PEC", "PMC"];
 
+// Keep this offline fallback identical to examples/dipole_2450.json (checked in CI).
 export const STARTER = {
-  schema_version: 2,
-  name: "Parametric monopole",
-  description: "Quarter-wave monopole over a disk. Parametric starter; review feed, domain and mesh before simulation.",
-  units: "mm",
-  parameters: { f_ghz: 2.45, ground_r: 35, wire_r: 1, gap: 3 },
-  domain: { start: [-120, -120, -100], stop: [120, 120, 120], boundary: Array(6).fill("PML_8") },
-  mesh: { max_cell_mm: 3, growth_ratio: 1.4, max_cells: 5000000 },
-  solver: { max_timesteps: 20000, end_criteria: 0.0001, resources: { cpus: 2, memory_gib: 5 } },
-  excitation: { center_hz: 2450000000, bandwidth_hz: 350000000 },
-  materials: [{ name: "pec-metal", type: "pec" }],
-  geometry: [
-    { name: "ground-disk", material: "pec-metal", shape: "cylinder",
-      start: [0, 0, -0.5], stop: [0, 0, 0], radius: { $param: "ground_r" } },
-    { name: "radiator", material: "pec-metal", shape: "cylinder",
-      start: [0, 0, { $param: "gap" }],
-      stop: [0, 0, { $expr: "gap + 0.95 * 299.792458 / f_ghz / 4" }],
-      radius: { $param: "wire_r" } },
-  ],
-  ports: [{ id: 1, name: "feed", type: "lumped", start: [0, 0, 0], stop: [0, 0, { $param: "gap" }],
-    direction: "z", impedance_ohm: 50, excite: true }],
-  outputs: {
-    s11: [{ start: 2300000000, step: 10000000, end: 2600000000 }],
-    radiation_frequencies_hz: [2450000000],
-    radiation_grid: { theta_step_deg: 5, phi_step_deg: 5 },
-    include_realized_gain: true,
+  "schema_version": 2,
+  "name": "Half-wave dipole 2.45 GHz (fast)",
+  "description": "Compact half-wave dipole for a quick browser simulation with a stricter energy-decay criterion.",
+  "units": "mm",
+  "domain": {
+    "start": [
+      -90,
+      -90,
+      -110
+    ],
+    "stop": [
+      90,
+      90,
+      110
+    ],
+    "boundary": [
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8",
+      "PML_8"
+    ]
   },
+  "mesh": {
+    "max_cell_mm": 6,
+    "local_min_cell_mm": 1,
+    "auto_refine_max_span_mm": 40,
+    "growth_ratio": 1.4,
+    "max_cells": 2000000
+  },
+  "solver": {
+    "max_timesteps": 100000,
+    "end_criteria": 0.000001
+  },
+  "excitation": {
+    "center_hz": 2450000000,
+    "bandwidth_hz": 750000000
+  },
+  "materials": [
+    {
+      "name": "pec",
+      "type": "pec"
+    }
+  ],
+  "geometry": [
+    {
+      "name": "arm-top",
+      "shape": "box",
+      "material": "pec",
+      "start": [
+        -1,
+        -1,
+        1
+      ],
+      "stop": [
+        1,
+        1,
+        28
+      ]
+    },
+    {
+      "name": "arm-bottom",
+      "shape": "box",
+      "material": "pec",
+      "start": [
+        -1,
+        -1,
+        -28
+      ],
+      "stop": [
+        1,
+        1,
+        -1
+      ]
+    }
+  ],
+  "ports": [
+    {
+      "id": 1,
+      "name": "feed",
+      "type": "lumped",
+      "start": [
+        0,
+        0,
+        -1
+      ],
+      "stop": [
+        0,
+        0,
+        1
+      ],
+      "direction": "z",
+      "impedance_ohm": 73,
+      "excite": true
+    }
+  ],
+  "outputs": {
+    "s11": [
+      {
+        "start": 1900000000,
+        "step": 25000000,
+        "end": 3000000000
+      }
+    ],
+    "radiation_frequencies_hz": [
+      2450000000
+    ],
+    "include_impedance": true,
+    "radiation_grid": {
+      "theta_step_deg": 10,
+      "phi_step_deg": 15
+    },
+    "include_realized_gain": true
+  }
 };

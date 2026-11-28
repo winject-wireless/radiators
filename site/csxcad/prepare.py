@@ -2,7 +2,7 @@
 """Assemble the CSXCAD editor as a self-contained static web app.
 
 * Downloads the pinned three.js modules into site/csxcad/vendor/ (cached).
-* Copies antennas/*.json and examples/*.json into site/csxcad/examples/ with
+* Copies the dipole example into site/csxcad/examples/ with
   an index.json, so "Open example" works offline.
 * Writes a complete copy to --out (default: site/csxcad/www, the Capacitor
   webDir) with the service-worker cache version stamped.
@@ -125,21 +125,18 @@ def collect_examples():
         rmtree(target)
     target.mkdir()
     index = []
-    for folder in ("antennas", "examples"):
-        for source in sorted((repo / folder).glob("*.json")):
-            try:
-                cfg = json.loads(source.read_text())
-            except json.JSONDecodeError:
-                continue
-            if cfg.get("schema_version") != 2:
-                continue  # the editor is schema v2 only
-            name = f"{folder}__{source.name}"
-            copy2(source, target / name)
-            index.append({
-                "file": name, "source": f"{folder}/{source.name}", "name": cfg.get("name", source.stem),
-                "description": (cfg.get("description") or "")[:160],
-                "sweep": "sweep" in cfg, "generator": "generator" in cfg,
-            })
+    # Publish one lightweight reference model; keep research designs in the repo.
+    source = repo / "examples" / "dipole_2450.json"
+    cfg = json.loads(source.read_text())
+    if cfg.get("schema_version") != 2:
+        raise ValueError("Bundled dipole must use schema v2")
+    name = "examples__" + source.name
+    copy2(source, target / name)
+    index.append({
+        "file": name, "source": "examples/" + source.name, "name": cfg["name"],
+        "description": cfg.get("description", "")[:160],
+        "sweep": False, "generator": False,
+    })
     (target / "index.json").write_text(json.dumps(index, indent=1))
     print(f"bundled {len(index)} schema v2 example(s)")
 
