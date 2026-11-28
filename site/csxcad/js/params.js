@@ -319,6 +319,18 @@ function pyRepr(v, isFloat = false) {
 }
 
 // Full case expansion of a config (without running Python generators).
+// A portable comparison for resolved bundled inputs. Trigonometric geometry
+// scripts may differ by a few floating-point ULPs between JS engines.
+// Keep all keys, array order and nonnumeric settings strict.
+export function sameResolvedInput(a,b) {
+  if(a===b)return true;
+  if(typeof a==="number" && typeof b==="number")
+    return Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=1e-12*Math.max(1,Math.abs(a),Math.abs(b));
+  if(!a||!b||typeof a!=="object"||typeof b!=="object"||Array.isArray(a)!==Array.isArray(b))return false;
+  const ak=Object.keys(a),bk=Object.keys(b);
+  return ak.length===bk.length && ak.every(k=>Object.hasOwn(b,k)&&sameResolvedInput(a[k],b[k]));
+}
+
 export function resolveCase(config, parameters) {
   const base = structuredClone(config);
   delete base.sweep;
