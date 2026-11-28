@@ -9,6 +9,13 @@ import { probeDiagnostics, updateSolverDiagnostics, diagnosticWarnings } from ".
 import { collectDiagnostics } from "./wasm-diagnostics.js";
 
 const finite = x => (Number.isFinite(x) ? x : null);
+// Radiation efficiency above 1 is non-physical; allow a small numeric margin.
+// Keep this and antennas/simulate_v2.py (EFFICIENCY_LIMIT) in step.
+export const EFFICIENCY_LIMIT = 1.02;
+export const efficiencyWarning = eta =>
+  `Radiation efficiency ${(eta * 100).toFixed(1)}% exceeds 100%, which is not physical: ` +
+  "check NF2FF box clearance from the PML (and that no near-field plane is inside it), " +
+  "that the run converged, and the feed's accepted power. Realized gain is not reported.";
 const finiteArr = a => Array.from(a, finite);
 
 // openEMS can return success even when an excitation primitive was never used.
@@ -142,22 +149,30 @@ export async function runSimulation(ems, model, { config, engine = "basic", thre
     const eta = accepted > 0 ? finite(ff.prad[0] / accepted) : null;
     const refl = Math.hypot(pf.s11.re[0], pf.s11.im[0]);
     const mismatch = Math.max(0, 1 - refl * refl);
-    const gainFactor = eta !== null ? eta * mismatch : null;
+    // P_rad > P_accepted is not physical. It means the near-field box is too
+    // close to the PML (or has planes inside it), the run did not converge, or
+    // the accepted power is near zero from a bad feed. Realized gain would be
+    // inflated by the same factor, so it is not reported.
+    const efficiencyValid = eta === null ? null : eta <= EFFICIENCY_LIMIT;
+    const gainFactor = eta !== null && efficiencyValid ? eta * mismatch : null;
     const record = {
       frequency_hz: f, theta_deg: [...model.theta], phi_deg: [...model.phi], directivity_dbi: dbi,
       max_directivity_dbi: dmax, radiated_power_w: prad, radiation_valid: valid,
-      radiation_warning: valid ? null : "Far-field unavailable: zero radiated power or undefined directivity. Check feed, mesh, and NF2FF boundaries.",
-      radiation_efficiency: eta, mismatch_efficiency: finite(mismatch), unit: "dBi",
+      radiation_warning: valid ? (efficiencyValid === false ? efficiencyWarning(eta) : null)
+        : "Far-field unavailable: zero radiated power or undefined directivity. Check feed, mesh, and NF2FF boundaries.",
+      radiation_efficiency: eta, efficiency_valid: efficiencyValid, mismatch_efficiency: finite(mismatch), unit: "dBi",
     };
     if (outputs.include_realized_gain) {
       record.realized_gain_dbi = valid && gainFactor !== null ? dbi.map(r => r.map(v => v + 10 * Math.log10(Math.max(gainFactor, 1e-30)))) : null;
     }
     result.patterns.push({
       frequency_hz: f, file: `pattern_${Math.trunc(f)}Hz.json`, max_directivity_dbi: dmax, radiation_efficiency: eta,
+      efficiency_valid: efficiencyValid,
       max_realized_gain_dbi: valid && gainFactor !== null && outputs.include_realized_gain ? finite(dmax + 10 * Math.log10(Math.max(gainFactor, 1e-30))) : null,
       record,
     });
     if (!valid) result.postprocessing_incomplete = true;
+    if (efficiencyValid === false) { const w = efficiencyWarning(eta); warnings.push(w); onWarning?.({ message: w, fatal: false }); }
     } catch (e) {
       result.postprocessing_incomplete = true;
       const message = "Far-field " + (f / 1e9).toFixed(3) + " GHz failed: " + e.message;

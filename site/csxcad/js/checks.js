@@ -85,6 +85,34 @@ function contactShape(g,bounds){
   return {name:g.name||shape,bounds,distance,curved,feature,mesh};
 }
 const boundDistance=(p,[lo,hi])=>norm(p.map((v,i)=>Math.max(lo[i]-v,v-hi[i],0)));
+const SPEED=299792458;
+// Cell size the configuration asks for inside a box, as the mesher applies it:
+// a refinement counts only where it covers the whole box.
+function localSpacing(mesh,lo,hi){
+  const resolution=mesh?.resolution_mm??mesh?.max_cell_mm??5;
+  if((mesh?.grid_mode??"feature")==="uniform")return mesh?.uniform_step_mm>0?mesh.uniform_step_mm:resolution;
+  let spacing=resolution;
+  if(mesh?.local_min_cell_mm>0&&Math.max(...hi.map((v,i)=>v-lo[i]))<=(mesh.auto_refine_max_span_mm??40))
+    spacing=Math.min(spacing,mesh.local_min_cell_mm);
+  for(const r of mesh?.refinements||[]){
+    if(r?.enabled===false||!(r.resolution_mm>0)||!Array.isArray(r.start)||!Array.isArray(r.stop))continue;
+    if(lo.every((v,i)=>v>=Math.min(r.start[i],r.stop[i])-EPS&&hi[i]<=Math.max(r.start[i],r.stop[i])+EPS))
+      spacing=Math.min(spacing,r.resolution_mm);
+  }
+  return spacing;
+}
+// Uniform mode fills the domain with linspace, so the actual spacing is the
+// domain span divided by the interval count, not exactly uniform_step_mm.
+function uniformPitch(mesh,ds,de){
+  const step=(mesh?.uniform_step_mm>0?mesh.uniform_step_mm:mesh?.resolution_mm??mesh?.max_cell_mm??5);
+  return ds.map((v,i)=>{
+    const n=Math.max(1,Math.ceil((de[i]-v)/step));
+    return (de[i]-v)/n;
+  });
+}
+// How far a coordinate sits from the nearest grid line. CSXCAD snaps every
+// primitive to the nearest line, so this is how much the part can move.
+const offGrid=(value,origin,pitch)=>{const k=(value-origin)/pitch;return Math.abs(k-Math.round(k))*pitch;};
 function endSamples(a,b,k,end){
   const axes=[0,1,2].filter(i=>i!==k),values=i=>a[i]===b[i]?[a[i]]:[a[i],(a[i]+b[i])/2,b[i]];
   return values(axes[0]).flatMap(x=>values(axes[1]).map(y=>{const q=[...end];q[axes[0]]=x;q[axes[1]]=y;return q;}));
@@ -214,7 +242,9 @@ export function checkCase(cfg) {
     if (!(gr >= 1.01 && gr <= 2)) err("mesh", "mesh.growth_ratio must be 1.01..2");
     if (fin(f0) && fin(fc) && fin(res)) {
       const lambda = 299792458 / (f0 + fc) * 1000;
-      if (res > lambda / 10) warn("mesh", `max_cell_mm ${res} > λmin/10 (${(lambda / 10).toFixed(2)} mm)`);
+      // Free-space floor only; the per-material limit below is stricter
+      // wherever a dielectric actually has geometry.
+      if (res > lambda / 10) warn("mesh", `max_cell_mm ${res} > free-space λmin/10 (${(lambda / 10).toFixed(2)} mm)`);
     }
     for (const [i, r] of (mesh.refinements || []).entries()) {
       if(r?.enabled===false)continue;
@@ -247,7 +277,7 @@ export function checkCase(cfg) {
   // Geometry
   const geometry = cfg.geometry;
   if (!Array.isArray(geometry) || !geometry.some(g=>g?.enabled!==false)) err("geometry", "At least one enabled geometry object required");
-  const conductors=[];
+  const conductors=[],parts=[];
   (geometry || []).forEach((g, i) => {
     if(g.enabled===false)return;
     const label = g.name || g.shape || `#${i + 1}`;
@@ -267,6 +297,7 @@ export function checkCase(cfg) {
     else if (bounds && ds && de && !(bounds[0].every((v, k) => v >= ds[k]) && bounds[1].every((v, k) => v <= de[k]))) {
       err(label, "Geometry must fit inside domain including thickness", ref);
     }
+    if(bounds && bounds.flat().every(fin)) parts.push({ g, label, ref, bounds, material: m });
     if(bounds && bounds.flat().every(fin) && ["pec","conductive","conducting_sheet"].includes(m?.type)){
       try{
         const c=contactShape(g,bounds);
@@ -289,6 +320,66 @@ export function checkCase(cfg) {
       if(gap<min){min=gap;side="XYZ"[i]+(s?"+":"−");}
     }
     if(min>=0&&min<quarter)warn("domain","Conductor-to-domain clearance at "+side+" is "+Number(min.toPrecision(3))+" mm before PML thickness, below λ/4 ("+Number(quarter.toPrecision(3))+" mm) at the excitation low edge. Check boundary convergence.");
+  }
+
+  // Mesh against the materials and the real feature sizes. Inside a dielectric
+  // the wavelength is shorter by √εr (FR4: 2.1×), so the free-space λ/10 rule
+  // alone accepts meshes that are far too coarse in a substrate.
+  if (mesh && fin(f0) && fin(fc) && f0 + fc > 0) {
+    const lambda0 = SPEED / (f0 + fc) * 1000;
+    for (const part of parts) {
+      const [lo, hi] = part.bounds;
+      const spacing = localSpacing(mesh, lo, hi);
+      const eps = part.material?.type === "dielectric" ? Number(part.material.epsilon) : 1;
+      if (eps > 1) {
+        const limit = lambda0 / Math.sqrt(eps) / 10;
+        if (spacing > limit) {
+          warn("mesh", `${part.label}: ${Number(spacing.toPrecision(3))} mm cells exceed λ/10 = ${limit.toFixed(2)} mm inside ` +
+            `${part.material.name} (εr ${eps}) at ${((f0 + fc) / 1e9).toFixed(3)} GHz; the free-space limit (${(lambda0 / 10).toFixed(2)} mm) does not apply here.`, part.ref);
+        }
+        // Feature mode adds lines at the faces, so the slab always gets at
+        // least one cell; quote the sizes, not a fractional cell count.
+        const thickness = Math.min(...hi.map((v, i) => v - lo[i]));
+        if (thickness > 0 && thickness / spacing < 3) {
+          warn("mesh", `${part.label}: ${Number(thickness.toPrecision(3))} mm of ${part.material.name} meshed at ` +
+            `${Number(spacing.toPrecision(3))} mm gives fewer than 3 cells through the slab. Refine to ` +
+            `${Number((thickness / 3).toPrecision(3))} mm or less across its thickness.`, part.ref);
+        }
+      }
+      // A wire thinner than its cell is simulated with a radius the mesh
+      // chooses, which moves helix and loop impedance.
+      const shape = part.g.shape ?? part.g.type;
+      const diameter = Number(part.g.wire_diameter);
+      if ((shape === "wire" || shape === "helix") && diameter > 0 && diameter < spacing) {
+        warn("mesh", `${part.label}: wire Ø ${Number(diameter.toPrecision(3))} mm is thinner than the local cell ` +
+          `(${Number(spacing.toPrecision(3))} mm), so the mesh sets the effective radius. Refine around the wire before trusting its impedance.`, part.ref);
+      }
+    }
+  }
+
+  // Uniform grid mode adds no lines for geometry or ports: CSXCAD snaps each
+  // primitive to the nearest line, so anything off-grid moves by up to half a
+  // cell, and a rod can end up a full step shorter or longer than specified.
+  if (mesh && (mesh.grid_mode ?? "feature") === "uniform" && ds && de && de.every((v, i) => v > ds[i])) {
+    const pitch = uniformPitch(mesh, ds, de);
+    const offenders = [];
+    for (const part of parts) {
+      const slip = [0, 1, 2].map(i => Math.max(offGrid(part.bounds[0][i], ds[i], pitch[i]), offGrid(part.bounds[1][i], ds[i], pitch[i])));
+      const k = slip.indexOf(Math.max(...slip));
+      if (slip[k] > pitch[k] / 4) offenders.push({ part, axis: k, slip: slip[k] });
+    }
+    if (offenders.length) {
+      // One aggregated warning: a scripted array puts every element off-grid,
+      // and dozens of identical notes would bury the rest of the checks.
+      offenders.sort((a, b) => b.slip / pitch[b.axis] - a.slip / pitch[a.axis]);
+      const worst = offenders[0];
+      const names = offenders.slice(0, 3).map(o => o.part.label).join(", ");
+      warn("mesh", `${offenders.length} part(s) are off the uniform grid (${names}${offenders.length > 3 ? ` and ${offenders.length - 3} more` : ""}). ` +
+        `Worst: ${worst.part.label}, ${Number(worst.slip.toPrecision(3))} mm off the ${Number(pitch[worst.axis].toPrecision(3))} mm ` +
+        `${"XYZ"[worst.axis]} grid. Uniform mode adds no lines for geometry, so CSXCAD snaps each face by up to ` +
+        `${Number((pitch[worst.axis] / 2).toPrecision(3))} mm and a length can change by a full cell. ` +
+        "Align sizes and positions to the step, or use feature mode.", worst.part.ref);
+    }
   }
 
   // Ports
@@ -332,7 +423,25 @@ export function checkCase(cfg) {
       if (a && b && ["x", "y", "z"].includes(d)) {
         const k = "xyz".indexOf(d);
         if (a[k] === b[k]) err(label, `Lumped port has zero length along its direction ${d}`, ref);
-        else checkFeed(p,a,b,k,conductors,mesh,msg=>warn(label,msg,ref),getFeedGrid);
+        else {
+          // In uniform mode the port's own end planes are not grid lines, so a
+          // feed shorter than one cell can collapse or move off the gap it
+          // bridges — and S11 is still produced, so nothing else catches it.
+          if (mesh && (mesh.grid_mode ?? "feature") === "uniform" && ds && de && de.every((v, i) => v > ds[i])) {
+            const pitch = uniformPitch(mesh, ds, de), length = Math.abs(a[k] - b[k]);
+            if (length < pitch[k]) {
+              err(label, `Port is ${Number(length.toPrecision(3))} mm along ${d}, shorter than the uniform cell ` +
+                `(${Number(pitch[k].toPrecision(3))} mm): it can collapse or move to another cell edge. Lengthen the feed or refine the grid.`, ref);
+            } else {
+              const slip = Math.max(offGrid(a[k], ds[k], pitch[k]), offGrid(b[k], ds[k], pitch[k]));
+              if (slip > pitch[k] / 4) {
+                warn(label, `Port end planes are ${Number(slip.toPrecision(3))} mm off the uniform ` +
+                  `${Number(pitch[k].toPrecision(3))} mm grid along ${d} and will be snapped; the excited gap may not be where it is specified.`, ref);
+              }
+            }
+          }
+          checkFeed(p,a,b,k,conductors,mesh,msg=>warn(label,msg,ref),getFeedGrid);
+        }
       }
     } else if (p.type === "msl" || p.type === "coaxial") {
       const metal = mats.get(p.metal_material);

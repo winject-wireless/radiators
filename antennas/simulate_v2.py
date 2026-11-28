@@ -13,6 +13,17 @@ from mesh_refinement import refinement_seeds
 from v2_diagnostics import prepare as prepare_probes, install as install_probes, collect as collect_probes
 
 
+# Radiation efficiency above 1 is non-physical; allow a small numeric margin.
+# Keep this and site/csxcad/js/sim/run.js (EFFICIENCY_LIMIT) in step.
+EFFICIENCY_LIMIT=1.02
+
+
+def efficiency_warning(eta):
+    return (f"Radiation efficiency {eta*100:.1f}% exceeds 100%, which is not physical: "
+            "check NF2FF box clearance from the PML (and that no near-field plane is inside it), "
+            "that the run converged, and the feed's accepted power. Realized gain is not reported.")
+
+
 def require(cond, message):
     if not cond:
         raise ValueError(message)
@@ -413,7 +424,14 @@ def output_data(config, resultdir):
         reflection=complex(np.asarray(current.uf_ref).ravel()[0]/
                            np.asarray(current.uf_inc).ravel()[0])
         mismatch=max(0,1-abs(reflection)**2)
-        gain_factor=eta*mismatch if eta is not None else None
+        # P_rad > P_accepted is not physical: NF2FF box too close to the PML (or
+        # near-field planes inside it), a run that did not converge, or an
+        # accepted power near zero from a bad feed. Realized gain would carry
+        # the same inflation, so it is withheld. Mirrors js/sim/run.js.
+        efficiency_valid=None if eta is None else bool(eta<=EFFICIENCY_LIMIT)
+        gain_factor=eta*mismatch if eta is not None and efficiency_valid else None
+        if efficiency_valid is False:
+            print("WARNING:",efficiency_warning(eta),"at",f,"Hz")
         record={
             "frequency_hz":f,
             "theta_deg":theta.tolist(),
@@ -422,9 +440,10 @@ def output_data(config, resultdir):
             "max_directivity_dbi":dmax,
             "radiated_power_w":radiated_power,
             "radiation_valid":valid_radiation,
-            "radiation_warning":None if valid_radiation else
+            "radiation_warning":(efficiency_warning(eta) if efficiency_valid is False else None) if valid_radiation else
                 "Far-field unavailable: zero radiated power or undefined directivity. Check feed, mesh, and NF2FF boundaries.",
             "radiation_efficiency":eta,
+            "efficiency_valid":efficiency_valid,
             "mismatch_efficiency":finite(mismatch),
             "unit":"dBi"
         }
@@ -442,6 +461,7 @@ def output_data(config, resultdir):
             "file":pattern_file,
             "max_directivity_dbi":record["max_directivity_dbi"],
             "radiation_efficiency":eta,
+            "efficiency_valid":efficiency_valid,
             "max_realized_gain_dbi":finite(dmax+10*np.log10(max(gain_factor,1e-30)))
                 if valid_radiation and gain_factor is not None and include_realized else None
         })

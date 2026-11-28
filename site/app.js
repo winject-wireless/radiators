@@ -966,11 +966,19 @@ function readPoseNumber(value){
  const num=Number(text);
  return Number.isFinite(num)&&Math.abs(num)<=1000000?num:null;
 }
-// Uniformly spaced detents map to ±1, ±2, ±4, ±8 in world units.
+// Translation: uniformly spaced detents map to ±1, ±2, ±4, ±8, ±16, ±32 mm.
+const JOG_DETENTS=6;
 function logarithmicJogOffset(detent){
- const n=Math.max(-4,Math.min(4,Math.round(detent)));
+ const n=Math.max(-JOG_DETENTS,Math.min(JOG_DETENTS,Math.round(detent)));
  return n===0?0:Math.sign(n)*Math.pow(2,Math.abs(n)-1);
 }
+// Rotation: a linear angular scale, −90° to +90°, one degree per step.
+const ANGLE_JOG_LIMIT=90;
+function linearJogOffset(value){
+ return Math.max(-ANGLE_JOG_LIMIT,Math.min(ANGLE_JOG_LIMIT,Math.round(value)));
+}
+const isTranslationAxis=id=>["px","py","pz"].includes(id);
+const jogOffset=(id,value)=>isTranslationAxis(id)?logarithmicJogOffset(value):linearJogOffset(value);
 function resetIncrementalSlider(id){
  sliderOffsets[id]=0;
  const slider=el(id+"Slider");
@@ -982,7 +990,7 @@ function resetIncrementalSliders(){
 }
 function applyIncrementalSlider(id,detent){
  if(!Number.isFinite(detent))return;
- const offset=logarithmicJogOffset(detent);
+ const offset=jogOffset(id,detent);
  const delta=offset-sliderOffsets[id];
  sliderOffsets[id]=offset;
  const slider=el(id+"Slider");

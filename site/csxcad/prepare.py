@@ -11,6 +11,7 @@ No runtime CDN: the published page and the Android APK load only local files.
 """
 import argparse
 import hashlib
+import re
 import json
 from pathlib import Path
 from shutil import copy2, copytree, rmtree
@@ -141,6 +142,23 @@ def collect_examples():
     print(f"bundled {len(index)} schema v2 example(s)")
 
 
+def verify_shell(out: Path):
+    """Every path the service worker precaches must exist in the build.
+
+    sw.js adds the shell entries individually, so a missing file no longer
+    fails the install; without this check it would instead disappear silently
+    and only break offline use (and in-browser simulation) later.
+    """
+    text = (out / "sw.js").read_text()
+    body = text.split("const SHELL = [", 1)[1].split("];", 1)[0]
+    body = re.sub(r"//[^\n]*", "", body)  # the list may carry // comments
+    paths = [entry.strip().strip('",\'') for entry in body.replace("\n", " ").split(",")]
+    missing = sorted({p for p in paths if p and p not in ("./",) and not (out / p[2:]).is_file()})
+    if missing:
+        raise RuntimeError("service worker shell lists missing file(s): " + ", ".join(missing))
+    print(f"service worker shell: {len([p for p in paths if p])} path(s) present")
+
+
 def build(out: Path):
     if out.exists():
         rmtree(out)
@@ -149,6 +167,7 @@ def build(out: Path):
         copy2(here / name, out / name)
     for folder in ("js", "vendor", "examples"):
         copytree(here / folder, out / folder)
+    verify_shell(out)
     digest = hashlib.sha256()
     for path in sorted(p for p in out.rglob("*") if p.is_file()):
         digest.update(path.relative_to(out).as_posix().encode())

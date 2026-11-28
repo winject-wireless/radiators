@@ -75,13 +75,41 @@ export function isolationUnavailableReason() {
   return null;
 }
 
+// Ask a newly installed worker to activate at once. Used only when this page
+// has no isolation yet (nothing to keep consistent, and the page reloads right
+// after): with isolation already working, a new build waits for the reload the
+// user accepts in onUpdateReady instead.
+function claimWhenReady(registration) {
+  // Stops at the end of the isolation attempt: left in place, it would also
+  // auto-activate a future build under a running page, which is what
+  // onUpdateReady's reload prompt exists to prevent.
+  const stop = new AbortController();
+  const push = worker => {
+    if (!worker || stop.signal.aborted) return;
+    if (worker.state === "installed") worker.postMessage({ type: "skip-waiting" });
+    else worker.addEventListener("statechange", () => {
+      if (worker.state === "installed") worker.postMessage({ type: "skip-waiting" });
+    }, { signal: stop.signal });
+  };
+  push(registration.installing);
+  push(registration.waiting);
+  registration.addEventListener("updatefound", () => push(registration.installing), { signal: stop.signal });
+  return () => stop.abort();
+}
+
+// Wait until this worker is the registration's activated worker. It does not
+// have to control *this* page yet: when an older worker (e.g. a previous
+// non-isolating one) still holds control, the reload that follows hands the
+// page to the activated worker. Requiring control first deadlocked that
+// upgrade — the page never reloaded, so control never changed.
 async function waitForController(registration) {
   const sw = navigator.serviceWorker;
-  const deadline = Date.now() + 30000;
+  const self = new URL("./sw.js", location.href).href;
+  const deadline = Date.now() + 90000; // a cold install precaches the whole shell
   while (Date.now() < deadline) {
     const active = registration.active;
     if (!registration.installing && !registration.waiting && active?.state === "activated" &&
-        sw.controller === active && active.scriptURL === new URL("./sw.js", location.href).href) return;
+        active.scriptURL === self && (sw.controller === active || sw.controller?.scriptURL !== self)) return;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw Error("The isolation service worker did not take control. Check browser site permissions and reload.");
@@ -91,6 +119,7 @@ export function registerServiceWorker({ manual = false } = {}) {
   if (isNative() || !("serviceWorker" in navigator) || !globalThis.isSecureContext ||
       location.protocol === "file:" || window.top !== window.self) return Promise.resolve(isolationUnavailableReason());
   if (isolationSetup) return isolationSetup;
+  let stopClaiming = null;
   isolationSetup = (async () => {
     try {
       const registration = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
@@ -98,6 +127,7 @@ export function registerServiceWorker({ manual = false } = {}) {
         try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch { /* storage blocked */ }
         return null;
       }
+      stopClaiming = claimWhenReady(registration);
       // Explicitly check for an updated worker if an older one is already active.
       if (!registration.installing && !registration.waiting && registration.active) {
         try { await registration.update(); } catch { /* offline: use the active worker */ }
@@ -117,8 +147,39 @@ export function registerServiceWorker({ manual = false } = {}) {
     } catch (error) {
       return "Cannot enable the simulation service worker: " + error.message;
     }
-  })().finally(() => { isolationSetup = null; });
+  // stopClaiming is released only once this page is isolated: on the timeout
+  // path the worker may still be installing, and tearing the listener down
+  // then would leave the page uncontrolled for good.
+  })().then(result => { if (globalThis.crossOriginIsolated) stopClaiming?.(); return result; },
+            error => { stopClaiming?.(); throw error; })
+      .finally(() => { isolationSetup = null; });
   return isolationSetup;
+}
+
+// A deploy installs a new service worker with its own content-hashed cache.
+// It deliberately does not skipWaiting: this session keeps the worker, and so
+// the exact build, it started with — otherwise a module loaded later (a script
+// worker, the openEMS worker) could come from the new build and run against an
+// old main.js. Offer a reload instead, and switch over only when accepted.
+export function onUpdateReady(notify) {
+  if (isNative() || !("serviceWorker" in navigator)) return;
+  const sw = navigator.serviceWorker;
+  let accepted = false;
+  sw.addEventListener("controllerchange", () => { if (accepted) location.reload(); });
+  const offer = worker => {
+    if (!worker || !sw.controller) return; // first install: nothing is replaced
+    notify(() => { accepted = true; worker.postMessage({ type: "skip-waiting" }); });
+  };
+  sw.getRegistration().then(registration => {
+    if (!registration) return;
+    offer(registration.waiting);
+    registration.addEventListener("updatefound", () => {
+      const installing = registration.installing;
+      installing?.addEventListener("statechange", () => {
+        if (installing.state === "installed") offer(registration.waiting || installing);
+      });
+    });
+  }).catch(() => { /* storage or registration unavailable */ });
 }
 
 // Installed Android PWAs and WebViews can report a CSS viewport taller than

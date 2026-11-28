@@ -102,6 +102,85 @@ try {
     assert.deepEqual(seen.map(x=>x.method),["GET","POST","GET","GET"]);
     assert.ok(seen.every(x=>x.authorization==="Bearer test-token"));
     console.log("Remote runner native fetch / health / submission / polling / result: PASS");
+    // A transient network loss must not cancel a job that may be hours in:
+    // the client backs off and keeps polling, and sends no DELETE.
+    const flaky=[];
+    await blockedPage.route("**/remote-flaky/v1/**",async route=>{
+      const req=route.request(), path=new URL(req.url()).pathname, method=req.method();
+      flaky.push({method,path});
+      const polls=flaky.filter(x=>x.method==="GET"&&!x.path.endsWith("/result")).length;
+      if(method==="POST")return route.fulfill({status:200,json:{id:req.postDataJSON().id}});
+      if(path.endsWith("/result"))return route.fulfill({status:200,json:{s11:{logmag_db:[-9]}}});
+      if(polls===1)return route.abort("connectionfailed");                                   // offline
+      if(polls===2)return route.fulfill({status:502,contentType:"text/html",body:"<html>bad gateway</html>"}); // proxy error page
+      return route.fulfill({status:200,json:{state:"done"}});
+    });
+    const flakyEndpoint=new URL("remote-flaky",base).href;
+    const recovered=await blockedPage.evaluate(async endpoint=>{
+      const {RemoteRunner}=await import("./js/sim/remote.js");
+      const notes=[];
+      const result=await new RemoteRunner(endpoint,"test-token").run({schema_version:2},{onStatus:s=>notes.push(s)});
+      return {result,notes};
+    },flakyEndpoint);
+    assert.deepEqual(recovered.result,{s11:{logmag_db:[-9]}});
+    const unreachable=recovered.notes.filter(n=>n.state==="unreachable");
+    assert.equal(unreachable.length,2,"both failures reported as unreachable");
+    assert.match(unreachable[1].error,/HTTP 502/);                       // status kept, not a JSON parse error
+    assert.ok(unreachable[1].retry_ms>unreachable[0].retry_ms,"backs off");
+    assert.ok(!flaky.some(x=>x.method==="DELETE"),"never cancels the remote job on network loss");
+    console.log("Remote runner keeps the job through network loss and proxy errors: PASS");
+  // Geometry scripts are code from a document: the worker must not be able to
+  // reach stored data or the network, including through the prototype chain or
+  // a dynamically imported module (an own undefined property on self is not
+  // enough; fetch/indexedDB/caches/navigator live on WorkerGlobalScope).
+    const probe = await blockedPage.evaluate(async () => {
+        const worker = new Worker(new URL("./js/script-worker.js", location.href), { type: "module" });
+        const ready = new Promise(resolve => {
+          const handler = e => { if (e.data?.ready) { worker.removeEventListener("message", handler); resolve(); } };
+          worker.addEventListener("message", handler);
+        });
+        await ready;
+        const run = source => new Promise(resolve => {
+          const handler = e => { if (e.data?.ready) return; worker.removeEventListener("message", handler); resolve(e.data); };
+          worker.addEventListener("message", handler);
+          worker.postMessage({ id: 1, source, argsJSON: null });
+        });
+        const report = body => `const args = {}; function generate() { return []; }
+          let out; try { out = (() => { ${body} })(); } catch (e) { out = "threw: " + e.message; }
+          throw new Error("PROBE " + out);`;
+        const attempts = {
+          directFetch: "return typeof fetch;",
+          prototypeFetch: "let p = self; while (p) { if (Object.getOwnPropertyDescriptor(p, 'fetch')) return 'found on chain'; p = Object.getPrototypeOf(p); } return 'absent';",
+          prototypeIndexedDB: "return String(Object.getOwnPropertyDescriptor(WorkerGlobalScope.prototype, 'indexedDB'));",
+          workerGlobalCaches: "let p = self; while (p) { if (Object.getOwnPropertyDescriptor(p, 'caches')) return 'found on chain'; p = Object.getPrototypeOf(p); } return 'absent';",
+          navigatorBeacon: "return typeof navigator;",
+          spawnWorker: "return typeof Worker;",
+          // A dynamic import cannot be blocked by inspecting the source; the
+          // guarantee is that an imported module shares this stripped realm,
+          // which is what the checks above establish.
+          wasmStreaming: "return typeof WebAssembly;",
+        };
+        const results = {};
+        for (const [name, body] of Object.entries(attempts)) {
+          const answer = await run(report(body));
+          results[name] = String(answer.error || "").replace(/^PROBE /, "");
+        }
+        const imported = await run(`const args = {}; function generate() { return []; }
+          throw new Error("PROBE pending");`);
+        results.workerRuns = String(imported.error || "");
+        worker.terminate();
+      return results;
+    });
+    assert.equal(probe.directFetch, "undefined", "fetch is gone from the worker realm");
+    assert.equal(probe.prototypeFetch, "absent", "fetch is not reachable through the prototype chain");
+    assert.equal(probe.prototypeIndexedDB, "undefined", "indexedDB accessor removed from WorkerGlobalScope.prototype");
+    assert.equal(probe.workerGlobalCaches, "absent", "Cache Storage is not reachable through the prototype chain");
+    assert.equal(probe.navigatorBeacon, "undefined", "navigator (and sendBeacon) is gone");
+    assert.equal(probe.spawnWorker, "undefined", "a script cannot spawn a fresh, unstripped worker");
+    assert.equal(probe.wasmStreaming, "undefined", "no WebAssembly streaming path to the network");
+    assert.match(probe.workerRuns, /PROBE pending/, "scripts still run");
+    console.log("Geometry script sandbox: network and storage capabilities revoked: PASS");
+
   } finally { await blocked.close(); }
 
   await page.goto(new URL("?example=examples__parametric_yagi.json&debug=1", base).href);

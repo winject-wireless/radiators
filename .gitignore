@@ -1,3 +1,5 @@
 aidocs/
 site/dist/
 __pycache__/
+parity-js/
+node_modules/

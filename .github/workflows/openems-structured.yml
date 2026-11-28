@@ -20,11 +20,11 @@ on:
       - 'docker/openems/**'
       - 'scripts/**'
       - '.github/workflows/openems-structured.yml'
+# Only deploy-pages may publish; simulate runs PR code (geometry scripts via
+# Node vm and Python generators) and must not hold a Pages or OIDC token.
 permissions:
   contents: read
   actions: read
-  pages: write
-  id-token: write
 concurrency:
   group: radiators-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -153,6 +153,7 @@ jobs:
         run: |
           set -euo pipefail
           : > changed-antennas.txt
+          : > changed-model-code.txt
           if [[ "$EVENT" == "workflow_dispatch" ]]; then
             [[ "$INPUT_ANTENNA" =~ ^antennas/[a-zA-Z0-9_-]+\.json$ ]] || { echo "Invalid antenna path"; exit 1; }
             [[ -f "$INPUT_ANTENNA" ]] || { echo "Antenna not found: $INPUT_ANTENNA"; exit 1; }
@@ -173,7 +174,17 @@ jobs:
               'site/csxcad/js/scriptcore.js' 'site/csxcad/js/schema.js' > changed-sweep-code.txt
             python3 scripts/select_sweep_dependents.py --changed changed-sweep-code.txt >> changed-antennas.txt
             sort -u changed-antennas.txt -o changed-antennas.txt
+            # The mesher and the model builder exist twice (Python and JS).
+            # When either side changes, the parity check below must run even if
+            # no antenna configuration changed.
+            git diff --name-only --diff-filter=ACMRD "$BASE_SHA" HEAD -- \
+              'antennas/simulate_v2.py' 'antennas/mesh_refinement.py' 'antennas/v2_geometry.py' \
+              'site/csxcad/js/sim/mesh.js' 'site/csxcad/js/sim/model.js' 'site/csxcad/js/geometry.js' \
+              'site/csxcad/js/scriptcore.js' 'site/csxcad/tools/sim_parity.py' > changed-model-code.txt
           fi
+          echo "Model-generating code changed:"
+          cat changed-model-code.txt
+          echo "model_code=$(wc -l < changed-model-code.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
           echo "Selected antenna configurations:"
           cat changed-antennas.txt
           echo "count=$(wc -l < changed-antennas.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
@@ -213,7 +224,7 @@ jobs:
           cat selected-antennas.txt
       - name: Restore or bootstrap openEMS Docker image
         id: image
-        if: steps.plan.outputs.count != '0'
+        if: steps.plan.outputs.count != '0' || steps.changed.outputs.model_code != '0'
         env:
           GH_TOKEN: ${{ github.token }}
           SELECTED_RUNNER: ${{ needs.select-runner.outputs.selected-type }}
@@ -233,7 +244,7 @@ jobs:
             bash scripts/ensure-openems-image.sh
           fi
       - name: Save new solver image artifact (only on first build)
-        if: steps.plan.outputs.count != '0' && steps.image.outputs.cache_hit == 'false'
+        if: (steps.plan.outputs.count != '0' || steps.changed.outputs.model_code != '0') && steps.image.outputs.cache_hit == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.image.outputs.artifact_name }}
@@ -241,6 +252,31 @@ jobs:
           compression-level: 0
           retention-days: 90
           if-no-files-found: error
+      # The browser simulator and native CSXCAD build the same model twice, so a
+      # mismatch would silently give different S11 in Browser and Remote modes.
+      # Compare the mesh and every primitive for all repo configs: XML/mesh
+      # generation only, no FDTD run. node runs on the host (the solver image
+      # has no node), the native side runs in the image.
+      - name: Check browser/native mesh and model parity for every config
+        if: steps.plan.outputs.count != '0' || steps.changed.outputs.model_code != '0'
+        run: |
+          set -euo pipefail
+          rm -rf parity-js
+          python3 site/csxcad/tools/sim_parity.py --emit-js parity-js
+          python3 - <<'PY'
+          import os, subprocess, sys
+          sys.path.insert(0, "scripts")
+          from restore_openems_image import docker_command
+          command = docker_command() + [
+              "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}",
+              "--env", "HOME=/tmp", "--env", "PYTHONDONTWRITEBYTECODE=1",
+              "--pids-limit=512", "-v", f"{os.getcwd()}:/work", "--workdir", "/work",
+              "radiators-openems:ci",
+              "python", "site/csxcad/tools/sim_parity.py", "--js-dir", "parity-js",
+          ]
+          print(" ".join(command), flush=True)
+          sys.exit(subprocess.call(command))
+          PY
       - name: Simulate missing or changed cases within runner CPU/RAM limits
         if: steps.plan.outputs.count != '0'
         run: |
@@ -299,7 +335,7 @@ jobs:
             source/site/dist/
           if-no-files-found: warn
           retention-days: 14
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           path: source/site/dist
@@ -330,9 +366,12 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [simulate, browser-smoke]
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

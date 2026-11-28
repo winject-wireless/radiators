@@ -1,7 +1,9 @@
 // Offline cache for the CSXCAD editor (browser / installed PWA only; the
 // Capacitor Android build serves files from the APK and skips this).
-// CACHE_VERSION is replaced by prepare.py with a content hash.
+// CACHE_VERSION is replaced by prepare.py with a content hash of the build.
 const CACHE = "csxcad-CACHE_VERSION";
+// BUILD-INFO.txt is here because the result cache keys every stored result by
+// the openEMS build, and that must work offline too.
 const SHELL = [
   "./", "./index.html", "./help.html", "./app.css", "./manifest.webmanifest", "./icon.svg",
   "./js/main.js", "./js/current-plane.js", "./js/params.js", "./js/schema.js", "./js/geometry.js",
@@ -12,11 +14,35 @@ const SHELL = [
   "./js/sim/wasm-diagnostics.js", "./js/sim/probe-playback.js", "./js/sim/remote.js", "./js/sim/diagnostics.js", "./js/sim/radiation.js", "./js/sim/mesh.js", "./js/sim/mesh-view.js", "./js/sim/model.js", "./js/sim/run.js", "./js/sim/plot.js", "./js/sim/panel.js", "./js/sim/zip.js",
   "./vendor/openems/openems.js", "./vendor/openems/openems-core.js", "./vendor/openems/openems-post.js",
   "./vendor/openems/openems-worker.js", "./vendor/openems/openems.mjs", "./vendor/openems/openems.wasm",
+  "./vendor/openems/BUILD-INFO.txt",
   "./vendor/three.module.min.js", "./vendor/addons/controls/OrbitControls.js", "./vendor/addons/environments/RoomEnvironment.js", "./vendor/addons/controls/TransformControls.js",
 ];
+const SHELL_PATHS = new Set(SHELL.map(p => p.replace(/^\.\//, "")));
+// One missing file must not fail the whole install: this worker also supplies
+// cross-origin isolation, without which in-browser simulation is unavailable.
+// (site/csxcad/check.mjs verifies every SHELL path exists in the build.)
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(async c => {
+    // Revalidate the app shell (a deploy changes it), but let the HTTP cache
+    // serve the large versioned vendor assets the page has usually just
+    // fetched: forcing a reload of all of it costs ~6 MB and can make install
+    // slow enough to delay taking control.
+    const revalidated = p => !p.startsWith("./vendor/") || p.endsWith("BUILD-INFO.txt");
+    const results = await Promise.allSettled(SHELL.map(p => c.add(revalidated(p) ? new Request(p, { cache: "reload" }) : p)));
+    const missing = SHELL.filter((_, i) => results[i].status === "rejected");
+    if (missing.length) console.warn("sw: not cached for offline use:", missing.join(" "));
+    // Without skipWaiting a superseded worker never activates, so its ~10 MB
+    // cache would never be deleted. Keep this build and the newest other one
+    // (the worker still controlling open tabs); drop any earlier leftovers.
+    const keys = await caches.keys();
+    const stale = keys.filter(k => k.startsWith("csxcad-") && k !== CACHE).slice(0, -1);
+    await Promise.all(stale.map(k => caches.delete(k)));
+  }));
 });
+// No skipWaiting: an open session keeps the worker and the cache of the build
+// it started with, so it can never mix old and new modules. The page offers a
+// reload instead and sends "skip-waiting" when the user accepts.
+self.addEventListener("message", e => { if (e.data?.type === "skip-waiting") self.skipWaiting(); });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith("csxcad-") && k !== CACHE)
     .map(k => caches.delete(k)))).then(() => self.clients.claim()));
@@ -32,19 +58,45 @@ function isolate(r) {
   headers.set("Cross-Origin-Resource-Policy", "same-origin");
   return new Response(r.body, { status: r.status, statusText: r.statusText, headers });
 }
-// Network first (fresh after deploys), cache fallback when offline.
+// Write to Cache Storage only when the entry is new or the validators changed:
+// openems.wasm alone is 4 MB, and re-writing it on every load is pure cost.
+async function store(request, response, cached) {
+  const fresh = h => (h.get("etag") || "") + "|" + (h.get("last-modified") || "") + "|" + (h.get("content-length") || "");
+  if (cached && fresh(cached.headers) === fresh(response.headers) && fresh(response.headers) !== "||") return;
+  try { (await caches.open(CACHE)).put(request, response); } catch { /* quota or opaque response */ }
+}
+// Always read from this build's own cache. A bare caches.match() searches every
+// cache, so it could answer from a newer build that has installed but not
+// activated — exactly the mixed-build state this worker avoids.
+async function cached(request) {
+  return (await caches.open(CACHE)).match(request, { ignoreSearch: true });
+}
+// The module graph and vendor assets of this build are served cache-first: that
+// is what must not mix across versions, and it keeps the 4 MB wasm from being
+// rewritten on every load. Navigations stay network-first, so a new deploy is
+// picked up (and its worker update check triggered) on the next page load
+// rather than only after the reload prompt.
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   if (e.request.cache === "only-if-cached" && e.request.mode !== "same-origin") return;
-  // Revalidate the small app shell instead of trusting the browser's HTTP
-  // freshness lifetime. Large immutable vendor assets keep normal caching.
   const scope = new URL(self.registration.scope);
   const relative = url.pathname.slice(scope.pathname.length);
-  const request = e.request.mode === "navigate" || relative === "app.css" || relative.startsWith("js/") || relative.startsWith("examples/")
-    ? new Request(e.request, { cache: "no-cache" }) : e.request;
-  e.respondWith(fetch(request).then(r => {
-    if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
-    return isolate(r);
-  }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(isolate)));
+  const navigation = e.request.mode === "navigate" || relative === "";
+  const shell = !navigation && SHELL_PATHS.has(relative);
+  // Bundled examples are not part of the versioned shell, but still must be
+  // revalidated rather than trusted to the browser's HTTP freshness lifetime.
+  const revalidate = navigation || shell || relative.startsWith("examples/");
+  e.respondWith((async () => {
+    const hit = await cached(e.request);
+    if (shell && hit) return isolate(hit);
+    try {
+      const response = await fetch(revalidate ? new Request(e.request, { cache: "no-cache" }) : e.request);
+      if (response.ok) await store(e.request, response.clone(), hit);
+      return isolate(response);
+    } catch (error) {
+      if (hit) return isolate(hit);
+      throw error;
+    }
+  })());
 });

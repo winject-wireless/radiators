@@ -59,14 +59,28 @@ function workerPoolSize(model, engine, requested) {
 // small synchronous localStorage quota.
 let runs = new Map(), caseStates = new Map(), cacheAttempts = new Map();
 const CACHE_DB = "radiators-csxcad-results", CACHE_STORE = "resolved-v1", PROJECT_STORE = "projects-v1";
+const INDEX_STORE = "cache-index-v1", DB_VERSION = 3;
+// Every stored result is keyed by this model version, so any change to the
+// mesher, the model builder or the wasm solver invalidates results by itself,
+// without hand-written per-change key prefixes. Bump it when browser results
+// are no longer comparable with the previous build's.
+const MODEL_VERSION = "m3";
+// Keep the store bounded: patterns are megabytes each and the origin's quota
+// is shared with drafts and projects. Least-recently-used entries go first.
+const CACHE_MAX_ENTRIES = 120, CACHE_MAX_BYTES = 192 << 20;
 let dbPromise;
 function resultDB() {
   if (!dbPromise) dbPromise = new Promise((resolve,reject)=>{
     if (!globalThis.indexedDB) { reject(Error("IndexedDB unavailable")); return; }
-    const req=indexedDB.open(CACHE_DB,2);
-    req.onupgradeneeded=()=>{
-      if(!req.result.objectStoreNames.contains(CACHE_STORE))req.result.createObjectStore(CACHE_STORE);
-      if(!req.result.objectStoreNames.contains(PROJECT_STORE))req.result.createObjectStore(PROJECT_STORE);
+    const req=indexedDB.open(CACHE_DB,DB_VERSION);
+    req.onupgradeneeded=e=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(CACHE_STORE))db.createObjectStore(CACHE_STORE);
+      if(!db.objectStoreNames.contains(PROJECT_STORE))db.createObjectStore(PROJECT_STORE);
+      if(!db.objectStoreNames.contains(INDEX_STORE))db.createObjectStore(INDEX_STORE);
+      // Results written before version 3 use the old unversioned keys and can
+      // never be read again; drop them instead of leaving them in the quota.
+      if(e.oldVersion<3)req.transaction.objectStore(CACHE_STORE).clear();
     };
     req.onsuccess=()=>{const db=req.result;db.onversionchange=()=>{db.close();dbPromise=null;};resolve(db);};
     req.onerror=()=>reject(req.error);
@@ -74,38 +88,119 @@ function resultDB() {
   }).catch(e=>{dbPromise=null;throw e;});
   return dbPromise;
 }
-// Expanded scripted hemisphere meshes already produce different resolved
-// keys when their faces change. Legacy shell primitives need a targeted
-// cache revision; unrelated existing results remain valid.
-function cacheStorageKey(key) {
-  const cfg=JSON.parse(key);
-  const mesh=cfg.mesh??{};
-  // Old refined results used independent, overlapping mesh seed grids.
-  const refined=(mesh.grid_mode??"feature")==="feature"&&
-    (mesh.local_min_cell_mm!=null||mesh.refinements?.some(r=>r?.enabled!==false));
-  if(refined)return "priority-refinement-v2:"+key;
-  return cfg.geometry?.some(g=>(g.shape??g.type)==="hemispherical_shell")
-    ? "hemisphere-rim-v2:"+key : key;
+// The openEMS wasm build identifies itself in BUILD-INFO.txt; a rebuilt solver
+// must not return results recorded by the previous one.
+let solverTagPromise;
+function solverTag() {
+  // Never memoize a failure: a single offline moment would otherwise key every
+  // result of the session as "solver-unknown" and strand them. BUILD-INFO.txt
+  // is in the service worker's precached shell, so this works offline too.
+  if(!solverTagPromise)solverTagPromise=(async()=>{
+    const r=await fetch(new URL("../../vendor/openems/BUILD-INFO.txt",import.meta.url),{cache:"no-cache"});
+    if(!r.ok)throw Error("BUILD-INFO.txt HTTP "+r.status);
+    const commits=(await r.text()).split("\n").map(l=>l.trim().split(/\s+/).pop()).filter(v=>/^[0-9a-f]{40}$/.test(v));
+    if(!commits.length)throw Error("BUILD-INFO.txt has no build commits");
+    return commits.join("").slice(0,16);
+  })().catch(e=>{solverTagPromise=null;throw e;});
+  return solverTagPromise;
 }
-async function cacheGet(key) {
-  const db=await resultDB();
+async function digest(text) {
+  const bytes=new TextEncoder().encode(text);
+  if(globalThis.crypto?.subtle?.digest){
+    const hash=await crypto.subtle.digest("SHA-256",bytes);
+    return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");
+  }
+  // Insecure contexts have no WebCrypto: a non-cryptographic 64-bit digest
+  // with the length still separates distinct configs within one browser.
+  let a=0x811c9dc5,b=0x01000193;
+  for(const byte of bytes){a=(a^byte)*16777619>>>0;b=(b+byte+(b<<3))>>>0;}
+  return a.toString(16).padStart(8,"0")+b.toString(16).padStart(8,"0")+"-"+bytes.length;
+}
+// A short, bounded key: the full resolved config lives in the value, so a
+// polyhedron-heavy model no longer becomes a multi-megabyte primary key.
+async function cacheStorageKey(key) {
+  return MODEL_VERSION+":"+await solverTag()+":"+await digest(key);
+}
+async function touchIndex(db,id,patch) {
+  await new Promise(resolve=>{
+    const tx=db.transaction(INDEX_STORE,"readwrite"),store=tx.objectStore(INDEX_STORE);
+    const req=store.get(id);
+    // Always record the entry: one whose index write was lost would otherwise
+    // be invisible to eviction and to the reported cache size forever.
+    req.onsuccess=()=>store.put({bytes:0,...req.result,...patch,id},id);
+    tx.oncomplete=tx.onerror=tx.onabort=()=>resolve();
+  });
+}
+function indexEntries(db) {
   return new Promise((resolve,reject)=>{
-    const req=db.transaction(CACHE_STORE,"readonly").objectStore(CACHE_STORE).get(cacheStorageKey(key));
-    req.onsuccess=()=>resolve(req.result);
+    const req=db.transaction(INDEX_STORE,"readonly").objectStore(INDEX_STORE).getAll();
+    req.onsuccess=()=>resolve(req.result||[]);
     req.onerror=()=>reject(req.error);
   });
 }
-async function cachePut(key, run, { overwrite=true }={}) {
+async function evictOldest(db) {
+  const entries=(await indexEntries(db)).sort((a,b)=>(b.usedAt||0)-(a.usedAt||0));
+  let bytes=0,drop=[];
+  for(const [i,entry] of entries.entries()){
+    bytes+=entry.bytes||0;
+    if(i>=CACHE_MAX_ENTRIES||(i>0&&bytes>CACHE_MAX_BYTES))drop.push(entry.id);
+  }
+  if(!drop.length)return 0;
+  await new Promise(resolve=>{
+    const tx=db.transaction([CACHE_STORE,INDEX_STORE],"readwrite");
+    for(const id of drop){tx.objectStore(CACHE_STORE).delete(id);tx.objectStore(INDEX_STORE).delete(id);}
+    tx.oncomplete=tx.onerror=tx.onabort=()=>resolve();
+  });
+  return drop.length;
+}
+// Cached results and their index, for the "Clear cached results" action.
+export async function resultCacheUsage() {
+  const entries=await indexEntries(await resultDB());
+  return {count:entries.length,bytes:entries.reduce((n,e)=>n+(e.bytes||0),0)};
+}
+export async function clearResultCache() {
+  // start() holds a reference to `runs`; replacing it mid-sweep cancels the
+  // run and orphans results that were already computed.
+  if(sim.running)throw Error("A simulation is running. Stop it before clearing cached results.");
   const db=await resultDB();
-  return new Promise((resolve,reject)=>{
+  const {count,bytes}=await resultCacheUsage();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction([CACHE_STORE,INDEX_STORE],"readwrite");
+    tx.objectStore(CACHE_STORE).clear();tx.objectStore(INDEX_STORE).clear();
+    tx.oncomplete=()=>resolve();
+    tx.onerror=tx.onabort=()=>reject(tx.error||Error("Clearing the result cache was aborted"));
+  });
+  runs=new Map();cacheAttempts=new Map();
+  return {count,bytes};
+}
+async function cacheGet(key) {
+  const db=await resultDB(),id=await cacheStorageKey(key);
+  const entry=await new Promise((resolve,reject)=>{
+    const req=db.transaction(CACHE_STORE,"readonly").objectStore(CACHE_STORE).get(id);
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+  if(entry)await touchIndex(db,id,{usedAt:Date.now()}); // least-recently-used order
+  return entry;
+}
+async function cachePut(key, run, { overwrite=true }={}) {
+  const db=await resultDB(),id=await cacheStorageKey(key);
+  const value={result:run.result,frequency:run.frequency,log:run.log,config:JSON.parse(key),savedAt:Date.now()};
+  const bytes=JSON.stringify(value).length;
+  const written=await new Promise((resolve,reject)=>{
     const tx=db.transaction(CACHE_STORE,"readwrite");
-    let written=false;
-    tx.oncomplete=()=>resolve(written);
+    let done=false;
+    tx.oncomplete=()=>resolve(done);
     tx.onerror=tx.onabort=()=>reject(tx.error||Error("Result cache write aborted"));
-    const store=tx.objectStore(CACHE_STORE), id=cacheStorageKey(key);
-    const put=()=>{store.put({result:run.result,frequency:run.frequency,log:run.log,savedAt:Date.now()},id);written=true;};
+    const store=tx.objectStore(CACHE_STORE);
+    const put=()=>{store.put(value,id);done=true;};
     if(overwrite)put();else{const request=store.getKey(id);request.onsuccess=()=>{if(request.result===undefined)put();};}
   });
+  if(written){
+    await touchIndex(db,id,{bytes,usedAt:Date.now()});
+    await evictOldest(db);
+  }
+  return written;
 }
 // Each distinct template is a locally saved revision; saving the same template
 // updates its timestamp and selected case, never deletes another revision.
@@ -554,6 +649,13 @@ async function start(ctx, all = false, id = ctx.getCase().id) {
           const config=structuredClone(c.config);config.solver??={};config.solver.resources??={};config.solver.resources.cpus=cpu.perJob;
           job.stage="submitting remote job";updateProgress();
           result=await job.remote.run(config,{requireCapacity:c.immediate,onStatus:status=>{
+            // "unreachable" is a client-side network report, not a job state:
+            // keep the last solver log and progress, and say what is happening.
+            if(status.state==="unreachable"){
+              job.warning=status.message;job.stage="Connection lost — retrying";
+              ctx.onBadge(simStatus());updateProgress();return;
+            }
+            if(/^(Connection lost|Result download failed)/.test(job.warning||""))job.warning=null;
             job.remoteState=status.state;
             job.stage=status.state==="queued"?"Waiting for server resources":status.state==="starting"?"Starting native solver":status.state==="done"?"Retrieving result":"Native solver · "+status.state;
             job.log=(status.log||"").split("\n").slice(-2000);
@@ -827,6 +929,10 @@ const chartCard = (title, svg) => h("figure", { class: "chart-card" }, h("figcap
 function patternCards(p) {
   const rec = p.record;
   if (!rec.radiation_valid) return h("div", { class: "note warn", text: `${ghz(p.frequency_hz)}: ${rec.radiation_warning}` });
+  // Directivity still stands when the efficiency is non-physical; say so next
+  // to the cuts instead of quietly showing an inflated realized gain.
+  const efficiencyNote = rec.efficiency_valid === false
+    ? h("div", { class: "note warn", text: `${ghz(p.frequency_hz)}: ${rec.radiation_warning}` }) : null;
   const th = rec.theta_deg, ph = rec.phi_deg, D = rec.directivity_dbi;
   const col = a => ph.findIndex(v => Math.abs(v - a) < 1e-6);
   const elevation = (a, b) => {
@@ -839,6 +945,7 @@ function patternCards(p) {
   const azimuth = it90 >= 0 ? { angleDeg: [...ph], value: D[it90] } : null;
   const rMax = Math.ceil((p.max_directivity_dbi ?? 0) / 5) * 5;
   return h("div", { class: "sim-pattern" }, h("h4", { text: `${ghz(p.frequency_hz)} · Dmax ${fmt(p.max_directivity_dbi)} dBi` }),
+    efficiencyNote,
     h("div", { class: "sim-polars" },
       chartCard("φ = 0° cut (xz), angle = θ", polarChart({ series: [elevation(0, 180)], rMax, rMin: rMax - 30 })),
       chartCard("φ = 90° cut (yz), angle = θ", polarChart({ series: [elevation(90, 270)], rMax, rMin: rMax - 30 })),
