@@ -123,6 +123,21 @@ try {
   await openConfig(original);
   await page.waitForFunction(()=>!(window.__csxcad.state.doc.probes??[]).length);
   console.log("Current probe plane editor: PASS");
+  // The linear and dB inputs must edit the same canonical solver value.
+  await page.locator('[data-dock="sim"]').click();
+  const solverSettings=page.locator('#sim details[data-sim-section="Solver settings"]');
+  if(!await solverSettings.evaluate(el=>el.open)) await solverSettings.locator("summary").click();
+  const ratioField=solverSettings.getByLabel("End criteria",{exact:true});
+  const dbField=solverSettings.getByLabel("End criteria (dB)",{exact:true});
+  await dbField.fill("-60"); await dbField.press("Tab");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.solver.end_criteria),1e-6);
+  assert.equal(Number(await ratioField.inputValue()),1e-6);
+  await ratioField.fill("0.00001"); await ratioField.press("Tab");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.solver.end_criteria),1e-5);
+  assert.equal(Number(await dbField.inputValue()),-50);
+  await openConfig(original);
+  await page.waitForFunction(value=>JSON.stringify(window.__csxcad.state.doc.solver)===JSON.stringify(value),original.solver);
+  console.log("Solver convergence units: PASS");
   await page.locator("#meshToggle").click();
   assert.match(await page.locator("#meshReadout").textContent(),/Generated mesh preview.*Min/);
   assert.ok(await page.evaluate(()=>window.__csxcad.viewport.meshView.children.length>0));

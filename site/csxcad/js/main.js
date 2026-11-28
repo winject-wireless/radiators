@@ -500,6 +500,39 @@ function numField(path, { optional = false, def, int = false, unit, placeholder,
 }
 const fmt = v => typeof v === "number" ? String(+v.toPrecision(8)) : JSON.stringify(v);
 
+// The solver stores a dimensionless energy ratio; dB is a second view of it.
+function endCriteriaDbField() {
+  const path = ["solver", "end_criteria"], fallback = 0.0001;
+  const input = h("input", { type: "number", step: "any", max: "0", inputmode: "decimal", "aria-label": "End criteria (dB)" });
+  const hint = h("div", { class: "value" });
+  const wrap = h("div", { class: "field" }, input, hint);
+  const show = () => {
+    const raw = getPath(state.doc, path);
+    const ratio = getPath(state.derived.resolved, path) ?? (raw === undefined ? fallback : NaN);
+    const valid = typeof ratio === "number" && Number.isFinite(ratio) && ratio > 0 && ratio <= 1;
+    const templated = isTemplate(raw);
+    input.disabled = templated;
+    if (document.activeElement !== input) input.value = valid ? String(+((10 * Math.log10(ratio)).toPrecision(12))) : "";
+    hint.textContent = templated ? "Edit the parameter or linear expression above." : valid ? "Relative energy · not dBm" : "Enter a positive linear ratio no greater than 1.";
+    wrap.classList.toggle("invalid", !valid);
+  };
+  input.addEventListener("change", () => {
+    const db = input.valueAsNumber;
+    const ratio = Math.pow(10, db / 10);
+    if (!Number.isFinite(db) || db > 0 || !(ratio > 0)) {
+      wrap.classList.add("invalid"); hint.textContent = "Enter a finite dB value at or below 0."; return;
+    }
+    if (edit(doc => setPath(doc, path, ratio), { inspector: false, sim: false })) show();
+  });
+  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+  fieldRefreshers.push(show);
+  show();
+  return wrap;
+}
+
+
+
+
 function vec3Field(path, opts = {}) {
   const key = handleKey(path);
   const unit=opts.unit??(path.at(-1)==="axis"?"":path.at(-1)==="rotate_deg"?"°":"mm");
@@ -1777,7 +1810,9 @@ function inspectSim(box, title) {
       checkField(["outputs", "include_impedance"], "Input impedance")),
     h("details", { class: "form-section" }, h("summary", { text: "Solver settings" }),
       row("Max timesteps", numField(["solver", "max_timesteps"], { optional: true, def: 20000, int: true, aria: "Max timesteps" })),
-      row("End criteria", numField(["solver", "end_criteria"], { optional: true, def: 0.0001, aria: "End criteria" }))),
+      row("End criteria (linear)", numField(["solver", "end_criteria"], { optional: true, def: 0.0001, aria: "End criteria" })),
+      row("End criteria (dB)", endCriteriaDbField()),
+      h("p", { class: "hint", text: "Equivalent relative energy thresholds: −40 dB = 1e−4; −60 dB = 1e−6. Lower is stricter. The JSON always stores the linear ratio." })),
     h("details", { class: "form-section" }, h("summary", { text: "Advanced · native CI resources" }),
       h("p", { class: "hint", text: "Native CI / exported JSON only. Browser and remote execution use the CPU controls above; the updated remote runner has no RAM cap." }),
       row("CPUs", numField(["solver", "resources", "cpus"], { optional: true, aria: "CPUs" })),
