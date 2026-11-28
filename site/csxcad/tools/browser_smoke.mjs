@@ -214,6 +214,12 @@ try {
   await page.waitForFunction(() => crossOriginIsolated && window.__csxcad?.viewport && document.querySelector("#sim .sim-controls"), { }, { timeout: 90000 });
   // Repair a thick imported current probe, then change its shared normal position.
   assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.name),"Parametric Yagi");
+  await page.waitForFunction(async()=>{
+    const {resultFor}=await import("./js/sim/panel.js");
+    const run=resultFor(window.__csxcad.state.derived.case.id);
+    return run?.cached && run.result?.s11?.frequency_hz?.length===101;
+  },{}, {timeout:30000});
+  console.log("Bundled Yagi simulation restores from exact cache key: PASS");
   const original=structuredClone(dipoleFixture);
   const probeDoc={...original,probes:[{name:"current_driven",type:"current",start:[-5,-5,0],stop:[5,5,10]}]};
   const openConfig=doc=>page.locator("#openFile").setInputFiles({name:"probe-edit.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(doc))});
@@ -720,6 +726,7 @@ try {
     assert.equal(layout.count,2,"The Yagi and helical examples should be bundled");
     assert.match(await picker.innerText(),/2\.45 GHz Helical/);
     assert.match(await picker.innerText(),/Parametric Yagi/);
+    assert.match(await picker.innerText(),/simulation included/);
     assert.ok(layout.contained,"Example text escapes its row");
     assert.ok(layout.separated,"Example rows overlap");
     const overflow=await picker.evaluate(el=>{
