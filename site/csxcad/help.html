@@ -156,16 +156,46 @@ figcaption {font-size:13px;color:var(--muted);line-height:1.6;border-top:1px sol
   pre {white-space:pre-wrap;overflow-wrap:anywhere}
   .table-wrap {overflow:visible}
   tr,figure {break-inside:avoid}
-}</style>
+}
+/* Mobile navigation stays reachable even when reading the last chapter. */
+.header-actions {display:flex;align-items:center;gap:8px;flex:none}
+.toc-toggle,.toc-dismiss,.toc-backdrop {display:none}
+@media(max-width:760px) {
+  .enhanced .site-header {z-index:40}
+  .enhanced .toc-toggle {display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel-soft);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+  .enhanced .toc-toggle[aria-expanded="true"] {background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
+  .enhanced .toc-toggle svg {width:17px;height:17px;flex:none}
+  .enhanced .back {font-size:0;gap:0;min-width:40px;justify-content:center}
+  .enhanced .back::before {content:"←";font-size:20px;line-height:1}
+  .enhanced .brand > div {min-width:0}
+  .enhanced .brand small {white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .enhanced .contents {display:none;position:fixed;z-index:35;top:calc(var(--header-height) + 8px);right:8px;left:8px;max-height:calc(100dvh - var(--header-height) - 16px - env(safe-area-inset-bottom,0px));margin:0;padding:0 10px 8px;overflow:auto;overscroll-behavior:contain;box-shadow:0 12px 36px rgb(0 0 0 / .35);background:var(--panel)}
+  .enhanced .contents[open] {display:block}
+  .enhanced .contents summary {position:sticky;top:0;background:var(--panel);z-index:1;border-bottom:1px solid var(--line);padding:12px 8px}
+  .enhanced .contents nav a {min-height:44px}
+  .enhanced .toc-backdrop:not([hidden]) {display:block;position:fixed;inset:0;z-index:30;background:rgb(0 0 0 / .48)}
+  .enhanced.toc-open {overflow:hidden}
+}
+@media(max-width:340px) {
+  .enhanced .brand small {display:none}
+  .header-actions {gap:5px}
+  .enhanced .toc-toggle {padding-inline:7px}
+}
+@media print {.toc-toggle,.toc-backdrop {display:none!important}}
+</style>
 </head>
 <body id="top">
   <a class="skip" href="#main">Skip to manual</a>
   <header class="site-header">
     <div class="top">
       <div class="brand"><img src="./icon.svg" alt=""><div><strong>Radiators</strong><small>CSXCAD documentation</small></div></div>
-      <a class="back" href="./">← Back to editor</a>
+      <div class="header-actions">
+        <button class="toc-toggle" id="tocToggle" type="button" aria-expanded="false" aria-controls="contents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/></svg> Contents</button>
+        <a class="back" href="./" aria-label="Back to editor" title="Back to editor">← Back to editor</a>
+      </div>
     </div>
   </header>
+  <div class="toc-backdrop" id="tocBackdrop" hidden aria-hidden="true"></div>
   <div class="layout">
     <details class="contents" id="contents" open>
       <summary>Table of contents</summary>
@@ -587,8 +617,46 @@ node check.mjs</code></pre>
 (() => {
   const contents=document.getElementById("contents");
   const small=window.matchMedia("(max-width:760px)");
-  if(small.matches) contents.open=false;
-  small.addEventListener?.("change",e=>{contents.open=!e.matches;});
+
+  const toggle=document.getElementById("tocToggle");
+  const backdrop=document.getElementById("tocBackdrop");
+  const main=document.getElementById("main");
+  document.body.classList.add("enhanced");
+  function syncContents(){
+    const open=small.matches&&contents.open;
+    toggle.setAttribute("aria-expanded",String(open));
+    backdrop.hidden=!open;
+    document.body.classList.toggle("toc-open",open);
+    main.inert=open;
+  }
+  function setContents(open,{restoreFocus=false,focusCurrent=false}={}){
+    contents.open=small.matches?open:true;
+    syncContents();
+    if(restoreFocus&&small.matches)toggle.focus({preventScroll:true});
+    if(open&&small.matches&&focusCurrent){
+      const current=contents.querySelector('a[aria-current="location"]')||contents.querySelector("nav a");
+      current?.focus({preventScroll:true});
+      if(current){
+        const r=current.getBoundingClientRect(), box=contents.getBoundingClientRect();
+        if(r.top<box.top+48||r.bottom>box.bottom)contents.scrollTop+=r.top-box.top-56;
+      }
+    }
+  }
+  setContents(!small.matches);
+  small.addEventListener?.("change",()=>setContents(!small.matches));
+  toggle.addEventListener("click",()=>setContents(!contents.open,{focusCurrent:!contents.open}));
+  backdrop.addEventListener("click",()=>setContents(false,{restoreFocus:true}));
+  contents.addEventListener("toggle",()=>{
+    const wasOpen=toggle.getAttribute("aria-expanded")==="true";
+    syncContents();
+    if(wasOpen&&!contents.open&&small.matches)toggle.focus({preventScroll:true});
+  });
+  document.addEventListener("keydown",e=>{
+    if(e.key==="Escape"&&small.matches&&contents.open){
+      e.preventDefault();
+      setContents(false,{restoreFocus:true});
+    }
+  });
   const links=[...contents.querySelectorAll("nav a")];
   const sections=[...document.querySelectorAll("main .section")];
   function markCurrent(){
@@ -609,7 +677,15 @@ node check.mjs</code></pre>
   window.addEventListener("resize",update);
   markCurrent();
   for(const link of links){
-    link.addEventListener("click",()=>{if(small.matches)contents.open=false;});
+    link.addEventListener("click",()=>{
+      if(!small.matches)return;
+      setContents(false);
+      const target=document.getElementById(link.hash.slice(1));
+      if(target){
+        target.setAttribute("tabindex","-1");
+        target.focus({preventScroll:true});
+      }
+    });
   }
   for(const button of document.querySelectorAll(".copy-code")){
     const code=button.closest(".code-block").querySelector("code");

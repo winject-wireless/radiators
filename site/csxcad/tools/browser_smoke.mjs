@@ -11,6 +11,40 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, acc
 const errors = [];
 page.on("pageerror", e => { errors.push(e.message); console.error(e); });
 try {
+  // Help contents must stay reachable from any scroll position without
+  // occupying reading space or shifting the article when opened.
+  const help=await browser.newPage({viewport:{width:360,height:740},isMobile:true,hasTouch:true});
+  try {
+    await help.goto(new URL("help.html",base).href);
+    const toc=help.locator("#contents"),button=help.locator("#tocToggle");
+    assert.ok(await button.isVisible(),"Mobile contents button missing");
+    assert.equal(await button.getAttribute("aria-expanded"),"false");
+    assert.equal(await toc.isVisible(),false,"Mobile contents should start closed");
+    await help.locator("#troubleshooting").evaluate(el=>el.scrollIntoView({behavior:"instant"}));
+    const before=await help.evaluate(()=>scrollY);
+    assert.ok(before>1000,"Test did not scroll into help");
+    const buttonRect=await button.boundingBox();
+    assert.ok(buttonRect.y>=0&&buttonRect.y+buttonRect.height<100,"Contents button must stay in header");
+    await button.click();
+    assert.equal(await button.getAttribute("aria-expanded"),"true");
+    assert.ok(await toc.isVisible());
+    assert.ok(await toc.evaluate(el=>el.scrollHeight>el.clientHeight),"Long contents must scroll independently");
+    assert.equal(await help.evaluate(()=>scrollY),before,"Opening contents moved the article");
+    await help.keyboard.press("Escape");
+    assert.equal(await button.getAttribute("aria-expanded"),"false");
+    await button.click();
+    await toc.getByRole("link",{name:/Simulation domain and mesh/}).click();
+    await help.waitForURL(/#mesh$/);
+    assert.equal(await button.getAttribute("aria-expanded"),"false");
+    assert.equal(await toc.isVisible(),false);
+    await help.waitForFunction(()=>{const r=document.querySelector("#mesh").getBoundingClientRect();return r.top>=0&&r.top<150;});
+    assert.ok(await help.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),"Mobile help overflows horizontally");
+    await help.setViewportSize({width:1280,height:900});
+    await help.waitForFunction(()=>document.querySelector("#contents").open);
+    assert.ok(await toc.isVisible(),"Desktop sidebar must remain visible");
+    assert.equal(await button.isVisible(),false);
+    console.log("Help sticky mobile contents and desktop sidebar: PASS");
+  } finally {await help.close();}
   // Simulate upgrading an already-installed non-isolating editor worker.
   // The previous worker can be active when navigator.serviceWorker.ready resolves.
   const legacyHtml = new URL("../www/legacy-test.html", import.meta.url);
