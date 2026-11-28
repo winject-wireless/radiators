@@ -80,16 +80,21 @@ export function isolationUnavailableReason() {
 // after): with isolation already working, a new build waits for the reload the
 // user accepts in onUpdateReady instead.
 function claimWhenReady(registration) {
+  // Stops at the end of the isolation attempt: left in place, it would also
+  // auto-activate a future build under a running page, which is what
+  // onUpdateReady's reload prompt exists to prevent.
+  const stop = new AbortController();
   const push = worker => {
-    if (!worker) return;
+    if (!worker || stop.signal.aborted) return;
     if (worker.state === "installed") worker.postMessage({ type: "skip-waiting" });
     else worker.addEventListener("statechange", () => {
       if (worker.state === "installed") worker.postMessage({ type: "skip-waiting" });
-    });
+    }, { signal: stop.signal });
   };
   push(registration.installing);
   push(registration.waiting);
-  registration.addEventListener("updatefound", () => push(registration.installing));
+  registration.addEventListener("updatefound", () => push(registration.installing), { signal: stop.signal });
+  return () => stop.abort();
 }
 
 async function waitForController(registration) {
@@ -108,6 +113,7 @@ export function registerServiceWorker({ manual = false } = {}) {
   if (isNative() || !("serviceWorker" in navigator) || !globalThis.isSecureContext ||
       location.protocol === "file:" || window.top !== window.self) return Promise.resolve(isolationUnavailableReason());
   if (isolationSetup) return isolationSetup;
+  let stopClaiming = null;
   isolationSetup = (async () => {
     try {
       const registration = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
@@ -115,7 +121,7 @@ export function registerServiceWorker({ manual = false } = {}) {
         try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch { /* storage blocked */ }
         return null;
       }
-      claimWhenReady(registration);
+      stopClaiming = claimWhenReady(registration);
       // Explicitly check for an updated worker if an older one is already active.
       if (!registration.installing && !registration.waiting && registration.active) {
         try { await registration.update(); } catch { /* offline: use the active worker */ }
@@ -135,7 +141,7 @@ export function registerServiceWorker({ manual = false } = {}) {
     } catch (error) {
       return "Cannot enable the simulation service worker: " + error.message;
     }
-  })().finally(() => { isolationSetup = null; });
+  })().finally(() => { isolationSetup = null; stopClaiming?.(); });
   return isolationSetup;
 }
 

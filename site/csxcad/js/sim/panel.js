@@ -92,14 +92,16 @@ function resultDB() {
 // must not return results recorded by the previous one.
 let solverTagPromise;
 function solverTag() {
+  // Never memoize a failure: a single offline moment would otherwise key every
+  // result of the session as "solver-unknown" and strand them. BUILD-INFO.txt
+  // is in the service worker's precached shell, so this works offline too.
   if(!solverTagPromise)solverTagPromise=(async()=>{
-    try{
-      const r=await fetch(new URL("../../vendor/openems/BUILD-INFO.txt",import.meta.url),{cache:"no-cache"});
-      if(!r.ok)throw Error(r.status);
-      const commits=(await r.text()).split("\n").map(l=>l.trim().split(/\s+/).pop()).filter(v=>/^[0-9a-f]{40}$/.test(v));
-      return commits.length?commits.join("").slice(0,16):"solver-unknown";
-    }catch{return "solver-unknown";}
-  })();
+    const r=await fetch(new URL("../../vendor/openems/BUILD-INFO.txt",import.meta.url),{cache:"no-cache"});
+    if(!r.ok)throw Error("BUILD-INFO.txt HTTP "+r.status);
+    const commits=(await r.text()).split("\n").map(l=>l.trim().split(/\s+/).pop()).filter(v=>/^[0-9a-f]{40}$/.test(v));
+    if(!commits.length)throw Error("BUILD-INFO.txt has no build commits");
+    return commits.join("").slice(0,16);
+  })().catch(e=>{solverTagPromise=null;throw e;});
   return solverTagPromise;
 }
 async function digest(text) {
@@ -157,6 +159,9 @@ export async function resultCacheUsage() {
   return {count:entries.length,bytes:entries.reduce((n,e)=>n+(e.bytes||0),0)};
 }
 export async function clearResultCache() {
+  // start() holds a reference to `runs`; replacing it mid-sweep cancels the
+  // run and orphans results that were already computed.
+  if(sim.running)throw Error("A simulation is running. Stop it before clearing cached results.");
   const db=await resultDB();
   const {count,bytes}=await resultCacheUsage();
   await new Promise((resolve,reject)=>{

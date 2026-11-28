@@ -11,6 +11,7 @@ No runtime CDN: the published page and the Android APK load only local files.
 """
 import argparse
 import hashlib
+import re
 import json
 from pathlib import Path
 from shutil import copy2, copytree, rmtree
@@ -153,6 +154,7 @@ def verify_shell(out: Path):
     """
     text = (out / "sw.js").read_text()
     body = text.split("const SHELL = [", 1)[1].split("];", 1)[0]
+    body = re.sub(r"//[^\n]*", "", body)  # the list may carry // comments
     paths = [entry.strip().strip('",\'') for entry in body.replace("\n", " ").split(",")]
     missing = sorted({p for p in paths if p and p not in ("./",) and not (out / p[2:]).is_file()})
     if missing:

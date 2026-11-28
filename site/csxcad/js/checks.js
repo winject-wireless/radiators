@@ -337,10 +337,13 @@ export function checkCase(cfg) {
           warn("mesh", `${part.label}: ${Number(spacing.toPrecision(3))} mm cells exceed λ/10 = ${limit.toFixed(2)} mm inside ` +
             `${part.material.name} (εr ${eps}) at ${((f0 + fc) / 1e9).toFixed(3)} GHz; the free-space limit (${(lambda0 / 10).toFixed(2)} mm) does not apply here.`, part.ref);
         }
+        // Feature mode adds lines at the faces, so the slab always gets at
+        // least one cell; quote the sizes, not a fractional cell count.
         const thickness = Math.min(...hi.map((v, i) => v - lo[i]));
         if (thickness > 0 && thickness / spacing < 3) {
-          warn("mesh", `${part.label}: ${Number(thickness.toPrecision(3))} mm of ${part.material.name} with ${Number(spacing.toPrecision(3))} mm cells is ` +
-            `${(thickness / spacing).toFixed(1)} cells through the slab. Use at least 3 across a dielectric thickness.`, part.ref);
+          warn("mesh", `${part.label}: ${Number(thickness.toPrecision(3))} mm of ${part.material.name} meshed at ` +
+            `${Number(spacing.toPrecision(3))} mm gives fewer than 3 cells through the slab. Refine to ` +
+            `${Number((thickness / 3).toPrecision(3))} mm or less across its thickness.`, part.ref);
         }
       }
       // A wire thinner than its cell is simulated with a radius the mesh

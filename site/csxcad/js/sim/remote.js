@@ -5,6 +5,7 @@ export function remoteEndpoint(value, pageProtocol=globalThis.location?.protocol
   if(u.protocol==="http:"&&!["localhost","127.0.0.1","[::1]"].includes(u.hostname))throw Error("Use HTTPS for a remote host; HTTP is allowed only for localhost.");
   return u.href.replace(/\/+$/,"");
 }
+const RESULT_TIMEOUT=600000, RESULT_ATTEMPTS=5;
 export class RemoteRunner {
   // Window.fetch must keep its global receiver, not the RemoteRunner instance.
   constructor(url,token,fetcher=(...args)=>globalThis.fetch(...args)) {
@@ -54,7 +55,7 @@ export class RemoteRunner {
     // must never cancel it: poll with backoff and keep the job on the host.
     // Only abort() (the Stop button) cancels, and the job ID stays available so
     // the client can reattach after the connection comes back.
-    let failures=0;
+    let failures=0,downloads=0;
     for(;;){
       if(this.cancelled)await this.abort();
       let state;
@@ -71,14 +72,18 @@ export class RemoteRunner {
       if(state.state==="cancelled")throw Error(state.error||"Remote job cancelled");
       if(state.state==="failed")throw Error(state.error||"Remote solver failed");
       if(state.state==="done"){
-        // Treat a failed download like any other connection loss: the job stays
-        // done on the host, so the next poll returns done and retries it.
-        try{return await this.request(path+"/result","GET",undefined,{timeout:0});}
+        // A failed download is retried a bounded number of times with its own
+        // backoff: a pruned or malformed result must end the run rather than
+        // poll forever with the case stuck "running". RESULT_TIMEOUT is long
+        // (inlined patterns are large) but never absent, or a half-open
+        // connection would hang with no retry at all.
+        try{return await this.request(path+"/result","GET",undefined,{timeout:RESULT_TIMEOUT});}
         catch(e){
           if(this.cancelled)throw Error("Remote job cancelled");
-          const wait=Math.min(30000,1500*2**Math.min(failures++,4));
-          onStatus?.({state:"unreachable",attempts:failures,retry_ms:wait,error:e.message,
-            message:`Result download failed (${e.message}); retrying in ${Math.round(wait/1000)} s.`});
+          if(++downloads>=RESULT_ATTEMPTS)throw Error("Remote result download failed after "+downloads+" attempts ("+this.id+"): "+e.message);
+          const wait=Math.min(30000,1500*2**Math.min(downloads-1,4));
+          onStatus?.({state:"unreachable",attempts:downloads,retry_ms:wait,error:e.message,
+            message:`Result download failed (${e.message}); retry ${downloads} of ${RESULT_ATTEMPTS-1} in ${Math.round(wait/1000)} s.`});
           await new Promise(r=>setTimeout(r,wait));
           continue;
         }

@@ -2,6 +2,8 @@
 // Capacitor Android build serves files from the APK and skips this).
 // CACHE_VERSION is replaced by prepare.py with a content hash of the build.
 const CACHE = "csxcad-CACHE_VERSION";
+// BUILD-INFO.txt is here because the result cache keys every stored result by
+// the openEMS build, and that must work offline too.
 const SHELL = [
   "./", "./index.html", "./help.html", "./app.css", "./manifest.webmanifest", "./icon.svg",
   "./js/main.js", "./js/current-plane.js", "./js/params.js", "./js/schema.js", "./js/geometry.js",
@@ -12,6 +14,7 @@ const SHELL = [
   "./js/sim/wasm-diagnostics.js", "./js/sim/probe-playback.js", "./js/sim/remote.js", "./js/sim/diagnostics.js", "./js/sim/radiation.js", "./js/sim/mesh.js", "./js/sim/mesh-view.js", "./js/sim/model.js", "./js/sim/run.js", "./js/sim/plot.js", "./js/sim/panel.js", "./js/sim/zip.js",
   "./vendor/openems/openems.js", "./vendor/openems/openems-core.js", "./vendor/openems/openems-post.js",
   "./vendor/openems/openems-worker.js", "./vendor/openems/openems.mjs", "./vendor/openems/openems.wasm",
+  "./vendor/openems/BUILD-INFO.txt",
   "./vendor/three.module.min.js", "./vendor/addons/controls/OrbitControls.js", "./vendor/addons/environments/RoomEnvironment.js", "./vendor/addons/controls/TransformControls.js",
 ];
 const SHELL_PATHS = new Set(SHELL.map(p => p.replace(/^\.\//, "")));
@@ -23,6 +26,12 @@ self.addEventListener("install", e => {
     const results = await Promise.allSettled(SHELL.map(p => c.add(new Request(p, { cache: "reload" }))));
     const missing = SHELL.filter((_, i) => results[i].status === "rejected");
     if (missing.length) console.warn("sw: not cached for offline use:", missing.join(" "));
+    // Without skipWaiting a superseded worker never activates, so its ~10 MB
+    // cache would never be deleted. Keep this build and the newest other one
+    // (the worker still controlling open tabs); drop any earlier leftovers.
+    const keys = await caches.keys();
+    const stale = keys.filter(k => k.startsWith("csxcad-") && k !== CACHE).slice(0, -1);
+    await Promise.all(stale.map(k => caches.delete(k)));
   }));
 });
 // No skipWaiting: an open session keeps the worker and the cache of the build
@@ -51,6 +60,12 @@ async function store(request, response, cached) {
   if (cached && fresh(cached.headers) === fresh(response.headers) && fresh(response.headers) !== "||") return;
   try { (await caches.open(CACHE)).put(request, response); } catch { /* quota or opaque response */ }
 }
+// Always read from this build's own cache. A bare caches.match() searches every
+// cache, so it could answer from a newer build that has installed but not
+// activated — exactly the mixed-build state this worker avoids.
+async function cached(request) {
+  return (await caches.open(CACHE)).match(request, { ignoreSearch: true });
+}
 // The versioned shell is served cache-first (consistent build, no repeated
 // writes); everything else is network-first with a cache fallback offline.
 self.addEventListener("fetch", e => {
@@ -61,14 +76,14 @@ self.addEventListener("fetch", e => {
   const relative = url.pathname.slice(scope.pathname.length);
   const shell = e.request.mode === "navigate" || SHELL_PATHS.has(relative) || relative === "";
   e.respondWith((async () => {
-    const cached = await caches.match(e.request, { ignoreSearch: true });
-    if (shell && cached) return isolate(cached);
+    const hit = await cached(e.request);
+    if (shell && hit) return isolate(hit);
     try {
       const response = await fetch(shell ? new Request(e.request, { cache: "no-cache" }) : e.request);
-      if (response.ok) await store(e.request, response.clone(), cached);
+      if (response.ok) await store(e.request, response.clone(), hit);
       return isolate(response);
     } catch (error) {
-      if (cached) return isolate(cached);
+      if (hit) return isolate(hit);
       throw error;
     }
   })());

@@ -104,7 +104,8 @@ const add = (el, ...kids) => el.append(...kids.flat().filter(k => k !== null && 
 const DRAFT_KEY = "radiators-csxcad-draft-v1";      // legacy single slot (migrated on first save)
 const DRAFT_PREFIX = "radiators-csxcad-draft-v2:";  // one slot per tab, so two tabs never overwrite each other
 const DRAFT_TAB_KEY = "radiators-csxcad-tab";
-const DRAFT_SLOTS = 3;                              // keep a few recent drafts; prune the rest
+const DRAFT_SLOTS = 12;                             // cap on retained tab slots
+const DRAFT_STALE_MS = 14 * 864e5;                  // and on their age
 const DRAFT_DEBOUNCE = 500;
 const UNDO_LIMIT = 200, UNDO_BYTES = 32 << 20;      // cap history by size too: 200 snapshots of a 2 MB model is 400 MB
 const PREFS_KEY = "radiators-csxcad-prefs-v1";
@@ -311,21 +312,28 @@ function draftSlots() { // newest first, including the legacy single slot
 }
 const otherDrafts = () => draftSlots().filter(d => d.key !== draftKey());
 
+// Drop other tabs' slots only when they are stale, or when there are more than
+// DRAFT_SLOTS of them: another tab may be open and idle, and its draft is its
+// unsaved work. Never on a save — reading every slot back would undo the whole
+// point of debouncing the write.
+function pruneDrafts({ aggressive = false } = {}) {
+  const cutoff = Date.now() - (aggressive ? 864e5 : DRAFT_STALE_MS);
+  let dropped = 0;
+  otherDrafts().forEach((draft, i) => {
+    if (i >= DRAFT_SLOTS || !(Date.parse(draft.savedAt) > cutoff)) { storage.remove(draft.key); dropped++; }
+  });
+  return dropped;
+}
+
 let persistTimer = 0, persistWarned = false;
 function writeDraft() {
   persistTimer = 0;
   if (!state.doc) return;
   const entry = { doc: state.doc, caseIndex: state.caseIndex, savedAt: new Date().toISOString() };
-  if (storage.set(draftKey(), entry)) {
-    storage.remove(DRAFT_KEY);
-    for (const d of otherDrafts().slice(DRAFT_SLOTS - 1)) storage.remove(d.key);
-    persistWarned = false;
-    return;
-  }
-  // localStorage is full (~5 MB). Reclaim the other slots, then say so: the
-  // user must not believe a draft was saved when it was not.
-  for (const d of otherDrafts()) storage.remove(d.key);
-  if (storage.set(draftKey(), entry)) { persistWarned = false; return; }
+  if (storage.set(draftKey(), entry)) { storage.remove(DRAFT_KEY); persistWarned = false; return; }
+  // localStorage is full (~5 MB). Reclaim what is safe to reclaim, then say so:
+  // the user must not believe a draft was saved when it was not.
+  if (pruneDrafts({ aggressive: true }) && storage.set(draftKey(), entry)) { persistWarned = false; return; }
   storage.remove(draftKey()); // a partial/stale draft is worse than none
   if (!persistWarned) {
     persistWarned = true;
@@ -2949,6 +2957,7 @@ async function boot() {
 
   // Initial document: ?example=<file>, else local draft, else starter.
   const draft = storage.get(draftKey()) ?? draftSlots()[0];
+  pruneDrafts();
   const params = new URLSearchParams(location.search);
   let initial = STARTER, message = "Parametric starter loaded";
   if (params.get("example")) {
@@ -3000,11 +3009,14 @@ registerServiceWorker();
 // A new build is live: this session keeps running its own, consistent build
 // until the user reloads, so offer the reload rather than switching under it.
 onUpdateReady(reload => {
-  // Not class "toast": toast() reuses the first .toast element it finds and
-  // would overwrite this banner with the next status message.
+  // One banner per session: offer() can fire for a waiting worker at load and
+  // again on a later updatefound. Not class "toast" either — toast() reuses the
+  // first .toast element it finds and would overwrite this.
+  if (document.querySelector(".update-bar")) return;
   const bar = h("div", { class: "update-bar", role: "status" },
     "A new editor build is available.",
-    h("button", { type: "button", class: "primary", onclick: reload }, "Reload"));
+    h("button", { type: "button", class: "primary", onclick: reload }, "Reload"),
+    h("button", { type: "button", "aria-label": "Dismiss", onclick: () => bar.remove() }, "Later"));
   Object.assign(bar.style, { position: "fixed", left: "50%", bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
     transform: "translateX(-50%)", background: "var(--panel)", border: "1px solid var(--line-2)",
     padding: "8px 12px", borderRadius: "18px", zIndex: 101, display: "flex", gap: "10px", alignItems: "center",

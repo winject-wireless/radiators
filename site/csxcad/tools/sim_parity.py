@@ -114,7 +114,7 @@ def main():
     files = args.configs or sorted((ROOT / "antennas").glob("*.json")) + sorted((ROOT / "examples").glob("*.json"))
     if args.emit_js:
         args.emit_js.mkdir(parents=True, exist_ok=True)
-    failed = emitted = 0
+    failed = emitted = compared = skipped = 0
     for f in files:
         cfg = json.loads(f.read_text())
         if cfg.get("schema_version") != 2:
@@ -137,6 +137,7 @@ def main():
                     py = python_xml(c, Path(tmp))
             except Exception as e:
                 print(f"SKIP {label}: python: {e}")
+                skipped += 1
                 continue
             try:
                 if args.js_dir:
@@ -151,8 +152,20 @@ def main():
                 problems = [f"js: {e}"]
             print(("OK   " if not problems else "FAIL ") + label + ("" if not problems else ": " + "; ".join(problems[:4])))
             failed += bool(problems)
+            compared += 1
     if args.emit_js:
         print(f"wrote {emitted} JS model(s) to {args.emit_js}")
+        sys.exit(1 if failed else 0)
+    print(f"compared {compared} case(s), {skipped} skipped, {failed} mismatched")
+    # A run that compared nothing is not a passing parity check: without this,
+    # a broken openEMS import inside the solver image would turn every case
+    # into SKIP and the CI step green.
+    if not compared:
+        print("ERROR: no case could be compared with native CSXCAD")
+        sys.exit(1)
+    if skipped and args.js_dir:
+        print("ERROR: skipped cases are failures in CI mode (--js-dir)")
+        sys.exit(1)
     sys.exit(1 if failed else 0)
 
 
