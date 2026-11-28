@@ -27,7 +27,7 @@ Published at `https://winject-wireless.github.io/radiators/csxcad/`.
   port, unique IDs, geometry and ports inside the domain, materials, coax
   radii, S11 inside the excitation band…), run for every sweep case.
 - Source / resolved JSON view, undo/redo, local draft autosave, drag & drop,
-  bundled examples from `antennas/` and `examples/`.
+  one bundled Parametric Yagi example (also the default starter). Additional examples are added individually under `examples/`; research configs and test fixtures are not published.
 - Configs that use a Python `generator` open, but their generated geometry only
   exists when the radiators scripts run.
 
@@ -94,7 +94,7 @@ Scripts are stored in the config under `scripts.<name>.source`. The simulator
 expands them after resolving parameters (`scripts/sweep.py` runs
 `scripts/geometry_scripts.mjs`, which needs Node.js); the editor runs the same
 `js/scriptcore.js` in a Web Worker. Scripts get 2 s per run. See
-`examples/script_radials_sweep.json`.
+`tests/fixtures/script_radials_sweep.json`.
 
 ## Simulating in the browser
 
@@ -122,8 +122,7 @@ was computed. For sweeps, **Run all** queues a snapshot of the resolved cases an
   the new service worker actually controls the document before reloading. If isolation is
   blocked, open the editor directly in Chrome (not an embedded browser), or use **Retry isolation**
   in the Simulation panel. The native Android WebView may not expose SharedArrayBuffer.
-- Large models are slow on phones; the dipole example (`examples/dipole_2450.json`,
-  ~130k cells) is a quick test.
+- Large models are slow on phones. The bundled Yagi is a single simulation with editable parameters; use a suitable CPU allocation.
 
 ### Inspecting a radiation result
 

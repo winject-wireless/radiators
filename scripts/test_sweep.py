@@ -22,7 +22,7 @@ class ScriptTests(unittest.TestCase):
     """JS geometry scripts expand to plain primitives before the simulator sees them."""
 
     def test_script_example_expands(self):
-        path = ROOT / "examples" / "script_radials_sweep.json"
+        path = ROOT / "tests" / "fixtures" / "script_radials_sweep.json"
         config = json.loads(path.read_text())
         cases = expand_cases(config, path)
         self.assertEqual([c["parameters"]["n_radials"] for c in cases], [4, 8])
@@ -37,7 +37,7 @@ class ScriptTests(unittest.TestCase):
                 self.assertNotIn("script", g)
 
     def test_disabled_objects_skip_resolution_and_scripts(self):
-        path = ROOT / "examples" / "script_radials_sweep.json"
+        path = ROOT / "tests" / "fixtures" / "script_radials_sweep.json"
         config = json.loads(path.read_text())
         expected = expand_cases(config, path)
         config["geometry"].extend([
@@ -48,7 +48,7 @@ class ScriptTests(unittest.TestCase):
         self.assertFalse(config["geometry"][-1]["enabled"])
 
     def test_script_errors_are_reported(self):
-        path = ROOT / "examples" / "script_radials_sweep.json"
+        path = ROOT / "tests" / "fixtures" / "script_radials_sweep.json"
         config = json.loads(path.read_text())
         bad = copy.deepcopy(config)
         bad["geometry"][1]["args"]["count"] = 2  # below the declared min of 3
@@ -65,7 +65,7 @@ class ScriptTests(unittest.TestCase):
         import sys
         sys.path.insert(0, str(ROOT / "antennas"))
         from v2_geometry import helix_points
-        path = ROOT / "examples" / "helix_sweep.json"
+        path = ROOT / "tests" / "fixtures" / "helix_sweep.json"
         legacy = json.loads(path.read_text())
         helix = legacy["geometry"][1]
         scripted = copy.deepcopy(legacy)
@@ -88,7 +88,7 @@ class ScriptTests(unittest.TestCase):
         import sys
         sys.path.insert(0, str(ROOT / "antennas"))
         from v2_geometry import hemisphere_mesh, install_geometry
-        path = ROOT / "examples" / "helix_sweep.json"
+        path = ROOT / "tests" / "fixtures" / "helix_sweep.json"
         base = json.loads(path.read_text())
         for thickness in (0, 1.5):
             cfg = copy.deepcopy(base)
@@ -129,7 +129,7 @@ class ScriptTests(unittest.TestCase):
         import sys
         sys.path.insert(0, str(ROOT / "antennas"))
         from v2_geometry import install_geometry
-        path = ROOT / "examples" / "helix_sweep.json"
+        path = ROOT / "tests" / "fixtures" / "helix_sweep.json"
         cfg = json.loads(path.read_text())
         cfg.pop("sweep")
         cfg["geometry"] = [{"name": "horn", "script": "tapered_cylinder", "args": {
@@ -164,14 +164,14 @@ class ScriptTests(unittest.TestCase):
             install_geometry(None, g)
 
     def test_builtin_names_are_reserved(self):
-        path = ROOT / "examples" / "script_radials_sweep.json"
+        path = ROOT / "tests" / "fixtures" / "script_radials_sweep.json"
         config = json.loads(path.read_text())
         config["scripts"]["helix"] = {"source": "const args = {}; function generate() { return []; }"}
         with self.assertRaisesRegex(ValueError, "reserved"):
             expand_cases(config, path)
 
     def test_configs_without_scripts_are_unchanged(self):
-        path = ROOT / "examples" / "helix_sweep.json"
+        path = ROOT / "tests" / "fixtures" / "helix_sweep.json"
         config = json.loads(path.read_text())
         for case in expand_cases(config, path):
             self.assertNotIn("scripts", case["config"])
@@ -179,7 +179,7 @@ class ScriptTests(unittest.TestCase):
 
 class SweepTests(unittest.TestCase):
     def example(self, filename):
-        path = ROOT / "examples" / filename
+        path = ROOT / "tests" / "fixtures" / filename
         return json.loads(path.read_text()), path
 
     def test_racetrack_sweep(self):

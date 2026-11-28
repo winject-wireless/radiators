@@ -4,13 +4,13 @@
 import {
   parameterSets, resolveTemplate, resolveCase, fieldToValue, valueToField, isTemplate,
   validParameterName, renameParameter, parameterUsage, sweepWarnings, MAX_CASES,
-  UNIT_GROUPS, normalizeWorkspaceUnits, unitGroup, displayUnit, parseUnitField, formatUnitField, displayedNumber,
+  UNIT_GROUPS, normalizeWorkspaceUnits, unitGroup, displayUnit, parseUnitField, formatUnitField, displayedNumber, parseEndCriteria,
 } from "./params.js";
 import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { currentDirection, currentPlaneAxis, currentPlaneLinked, setCurrentPosition, setCurrentDirection, moveCurrentCorner } from "./current-plane.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
-import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects, importResultArchive, importResultFile, clearResultCache, resultCacheUsage } from "./sim/panel.js";
+import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects, deleteLocalProject, importResultArchive, importResultFile, clearResultCache, resultCacheUsage } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
@@ -114,6 +114,7 @@ const mobile = () => matchMedia("(max-width: 760px), (max-height: 520px) and (ma
 // ---------------------------------------------------------------- state
 const state = {
   doc: null,
+  deletedArchiveKey: null, // suppress auto-saving an explicitly deleted active revision
   sel: null,            // {kind:"geometry"|"port"|"material", index}
   hidden: new Set(),
   caseIndex: 0,
@@ -274,6 +275,8 @@ function loadDoc(cfg, message, caseIndex = 0) {
   const next=normalizeDoc(cfg);
   if(state.doc)void archiveProject();
   state.doc = next;
+  criteriaPresentation = null;
+  state.deletedArchiveKey = null;
   jsonDraft = jsonBase = null;
   clearResults();
   for (const [k, v] of scriptRT.cache) if (!v.ok && /^timed out/.test(v.error)) scriptRT.cache.delete(k); // retry slow scripts
@@ -329,7 +332,12 @@ let persistTimer = 0, persistWarned = false;
 function writeDraft() {
   persistTimer = 0;
   if (!state.doc) return;
-  const entry = { doc: state.doc, caseIndex: state.caseIndex, savedAt: new Date().toISOString() };
+  // skipArchive (from the local-project delete flow) must survive the move to
+  // per-tab slots: it tells boot not to re-archive a revision just deleted.
+  const entry = { doc: state.doc, caseIndex: state.caseIndex, savedAt: new Date().toISOString(),
+    // Only serialize again when a revision was actually deleted; this runs on
+    // every debounced save.
+    skipArchive: state.deletedArchiveKey !== null && state.deletedArchiveKey === JSON.stringify(state.doc) };
   if (storage.set(draftKey(), entry)) { storage.remove(DRAFT_KEY); persistWarned = false; return; }
   // localStorage is full (~5 MB). Reclaim what is safe to reclaim, then say so:
   // the user must not believe a draft was saved when it was not.
@@ -566,6 +574,48 @@ function numField(path, { optional = false, def, int = false, unit, placeholder,
   return wrap;
 }
 const fmt = v => typeof v === "number" ? String(+v.toPrecision(8)) : JSON.stringify(v);
+
+// One text field: an explicit dB suffix converts to the canonical linear ratio.
+let criteriaPresentation=null;
+function endCriteriaField() {
+  const path=["solver","end_criteria"], fallback=1e-4;
+  const input=h("input",{type:"text",inputmode:"text",autocapitalize:"off",autocomplete:"off",autocorrect:"off",spellcheck:"false",enterkeyhint:"done","aria-label":"End criteria",placeholder:"0.0001 or -40 dB"});
+  const hint=h("div",{class:"value"});
+  const wrap=h("div",{class:"field"},input,hint);
+  const show=()=>{
+    const raw=getPath(state.doc,path);
+    const ratio=raw===undefined?fallback:getPath(state.derived.resolved,path);
+    const valid=typeof ratio==="number"&&Number.isFinite(ratio)&&ratio>0&&ratio<=1;
+    if(document.activeElement!==input){
+      input.value=criteriaPresentation&&raw===criteriaPresentation.ratio?criteriaPresentation.text:valueToField(raw);
+    }
+    wrap.classList.toggle("expr",isTemplate(raw));
+    wrap.classList.toggle("invalid",!valid);
+    if(!valid)hint.textContent="Use a positive linear ratio up to 1, or a nonpositive dB value.";
+    else hint.textContent=(raw===undefined?"Default: ":"")+valueToField(ratio)+" = "+valueToField(10*Math.log10(ratio))+" dB";
+  };
+  input.addEventListener("change",()=>{
+    const text=input.value.trim();
+    let value;
+    try{
+      value=parseEndCriteria(text);
+      if(isTemplate(value)){
+        const ratio=resolveTemplate(value,state.derived.params);
+        if(typeof ratio!=="number"||!Number.isFinite(ratio)||ratio<=0||ratio>1)
+          throw Error("Resolved ratio must be above 0 and at most 1");
+      }
+    }catch(e){wrap.classList.add("invalid");hint.textContent=e.message;return;}
+    criteriaPresentation=typeof value==="number"&&/dB$/i.test(text)?{ratio:value,text:text.replace(/\s*dB$/i," dB")}:null;
+    if(edit(doc=>setPath(doc,path,value),{inspector:false,sim:false})){
+      input.value=criteriaPresentation?.text??valueToField(value);
+      show();
+    }
+  });
+  input.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();input.blur();}});
+  fieldRefreshers.push(show);
+  show();
+  return wrap;
+}
 
 function vec3Field(path, opts = {}) {
   const key = handleKey(path);
@@ -1125,7 +1175,19 @@ const simContext = {
   slug: () => slug(),
   getTemplate: () => structuredClone(state.doc),
   archiveProject: () => { void archiveProject(); },
-  onBadge(text) { for (const id of ["simBadge", "simBadgeMobile"]) { const b = $(id); if (b) b.textContent = text; } },
+  onBadge(text) {
+    const description = text === "✓" ? "Results available" : text === "!" ? "Failed or partial result" : text ? `Progress ${text}` : "Not running";
+    for (const id of ["simBadge", "simBadgeMobile"]) {
+      const b = $(id);
+      if (!b) continue;
+      b.textContent = text;
+      b.dataset.status = text === "✓" ? "ok" : text === "!" ? "warn" : text ? "running" : "idle";
+      if (id === "simBadgeMobile") {
+        b.closest("button").setAttribute("aria-label", text ? `Simulation: ${description}` : "Simulation");
+        b.closest("button").title = `Simulation: ${description}`;
+      }
+    }
+  },
   notify: (msg, error = false) => setStatus(msg, error),
   refresh: () => { renderSim(); syncResults(); },
   setDiagnosticFrame: arrows=>viewport?.setDiagnosticFrame(arrows),
@@ -1832,7 +1894,8 @@ function inspectSim(box, title) {
       checkField(["outputs", "include_impedance"], "Input impedance")),
     h("details", { class: "form-section" }, h("summary", { text: "Solver settings" }),
       row("Max timesteps", numField(["solver", "max_timesteps"], { optional: true, def: 20000, int: true, aria: "Max timesteps" })),
-      row("End criteria", numField(["solver", "end_criteria"], { optional: true, def: 0.0001, aria: "End criteria" }))),
+      row("End criteria", endCriteriaField()),
+      h("p", { class: "hint", text: "Enter a linear ratio (0.0001) or append dB (−40 dB). JSON stores the linear ratio; lower is stricter." })),
     h("details", { class: "form-section" }, h("summary", { text: "Advanced · native CI resources" }),
       h("p", { class: "hint", text: "Native CI / exported JSON only. Browser and remote execution use the CPU controls above; the updated remote runner has no RAM cap." }),
       row("CPUs", numField(["solver", "resources", "cpus"], { optional: true, aria: "CPUs" })),
@@ -2166,10 +2229,14 @@ function sweepAxis(name, spec) {
 function renderChecks() {
   const { list, caseCount } = state.derived.checks;
   const errors = list.filter(c => c.level === "error").length, warns = list.length - errors;
+  const status = errors ? "error" : warns ? "warn" : "ok";
+  const description = errors || warns ? `${errors} error${errors === 1 ? "" : "s"}, ${warns} warning${warns === 1 ? "" : "s"}` : "No errors or warnings";
   for (const id of ["checkBadge", "checkBadgeMobile"]) {
-    const b = $(id);
-    b.textContent = errors ? errors : warns ? warns : "✓";
-    b.className = "badge " + (errors ? "error" : warns ? "warn" : "ok");
+    const shield = $(id);
+    shield.dataset.status = status;
+    const button = shield.closest("button");
+    button.title = `Checks: ${description}`;
+    button.setAttribute("aria-label", `Checks: ${description}`);
   }
   const box = $("checks");
   box.replaceChildren(
@@ -2491,11 +2558,11 @@ async function showExamples() {
     if (!r.ok) throw Error(r.status);
     index = await r.json();
   } catch {
-    return openDialog("Examples", h("p", { class: "hint", text: "No bundled examples found. Run python3 site/csxcad/prepare.py (the Pages build does this) or open a file from antennas/." }));
+    return openDialog("Open example", h("div", { class: "example-list" },
+      h("button", { type: "button", onclick: () => { $("dialog").close(); loadDoc(STARTER, "Loaded example"); } },
+        h("strong", { text: STARTER.name }), h("small", { text: "Built-in offline fallback" }))));
   }
   openDialog("Open example", h("div", { class: "example-list" },
-    h("button", { type: "button", onclick: () => { $("dialog").close(); loadDoc(STARTER, "Loaded parametric starter"); } },
-      h("strong", { text: "Parametric monopole (starter)" }), h("small", { text: "Built-in · parameters + expressions" })),
     index.map(e => h("button", { type: "button", onclick: async () => {
       $("dialog").close();
       try {
@@ -2509,9 +2576,12 @@ const slug = () => (state.doc?.name || "antenna").toLowerCase().replace(/[^a-z0-
 
 async function archiveProject({explicit=false}={}) {
   if(!state.doc)return false;
+  const key=JSON.stringify(state.doc);
+  if(!explicit&&state.deletedArchiveKey===key)return false;
   try{
     await saveLocalProject(state.doc,state.caseIndex);
     if(explicit){
+      if(state.deletedArchiveKey===key){state.deletedArchiveKey=null;persist();}
       try{await navigator.storage?.persist?.();}catch{}
       setStatus("Saved to local projects");
     }
@@ -2521,12 +2591,34 @@ async function archiveProject({explicit=false}={}) {
 async function showLocalProjects() {
   try{
     const projects=await listLocalProjects();
-    const list=h("div",{class:"example-list"},projects.map(project=>h("button",{type:"button",onclick:()=>{
-      $("dialog").close();
-      loadDoc(project.doc,"Opened local project",project.caseIndex);
-      void restoreResults(simContext);
-    }},h("strong",{text:project.label||project.doc.name||"Untitled antenna"}),h("small",{text:new Date(project.savedAt).toLocaleString()+" · "+(project.doc.geometry?.length??0)+" parts"}))));
-    openDialog("Local projects",h("div",{},h("p",{class:"hint",text:"Saved project revisions and matching simulation results are stored on this device. Opening a project does not rerun it. Export important files for backup."}),projects.length?list:h("p",{class:"hint",text:"No saved projects yet. Use Save locally or run a simulation."})),[["Save current project",()=>void archiveProject({explicit:true})]]);
+    const list=h("div",{class:"example-list project-list"},projects.map(project=>{
+      const name=project.label||project.doc.name||"Untitled antenna";
+      const details=new Date(project.savedAt).toLocaleString()+" · "+(project.doc.geometry?.length??0)+" parts";
+      const open=h("button",{type:"button",class:"project-open",onclick:()=>{
+        $("dialog").close();
+        loadDoc(project.doc,"Opened local project",project.caseIndex);
+        void restoreResults(simContext);
+      }},h("strong",{text:name}),h("small",{text:details}));
+      const remove=iconBtn("trash","Delete "+name,async()=>{
+        if(!window.confirm("Delete saved project revision '"+name+"'?\n"+details+"\n\nThe current workspace and shared cached simulation results will be retained."))return;
+        remove.disabled=true;open.disabled=true;
+        try{
+          await deleteLocalProject(project.key);
+          if(state.doc&&project.key===JSON.stringify(state.doc)){
+            state.deletedArchiveKey=project.key;
+            persist();
+          }
+          $("dialog").close();
+          await showLocalProjects();
+          setStatus("Deleted local project");
+        }catch(e){
+          remove.disabled=false;open.disabled=false;
+          setStatus("Local project deletion failed: "+e.message,true);
+        }
+      },{danger:true});
+      return h("div",{class:"project-row"},open,remove);
+    }));
+    openDialog("Local projects",h("div",{},h("p",{class:"hint",text:"Saved project revisions and matching simulation results are stored on this device. Delete removes the selected saved revision, not the current workspace or shared result cache. Export important files for backup."}),projects.length?list:h("p",{class:"hint",text:"No saved projects yet. Use Save locally or run a simulation."})),[["Save current project",()=>void archiveProject({explicit:true})]]);
   }catch(e){setStatus("Local projects unavailable: "+e.message,true);}
 }
 async function save() {
@@ -2959,7 +3051,7 @@ async function boot() {
   const draft = storage.get(draftKey()) ?? draftSlots()[0];
   pruneDrafts();
   const params = new URLSearchParams(location.search);
-  let initial = STARTER, message = "Parametric starter loaded";
+  let initial = STARTER, message = "Parametric Yagi starter loaded";
   if (params.get("example")) {
     // A shared example link must not quietly discard the draft it replaces:
     // keep it as a local project revision the user can reopen.
@@ -2979,6 +3071,7 @@ async function boot() {
     message = `Restored local draft (${new Date(draft.savedAt).toLocaleString()})`;
   }
   try { state.doc = normalizeDoc(initial); } catch { state.doc = normalizeDoc(STARTER); }
+  if(!params.get("example")&&draft?.skipArchive&&JSON.stringify(draft.doc)===JSON.stringify(state.doc))state.deletedArchiveKey=JSON.stringify(state.doc);
   state.sel = null; // open showing the whole model; selecting a part fades the rest
 
   // 3D (WebGL may be unavailable in some WebViews; the editor still works).

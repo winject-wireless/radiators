@@ -63,18 +63,18 @@
     <div id="viewport" class="viewport"></div>
     <div class="view-toolbar top-left">
       <div class="seg view-presets" role="group" aria-label="View presets">
-        <button data-view="perspective" title="Perspective projection">Persp</button>
-        <button data-view="iso" title="Isometric projection (orthographic)">Iso</button>
-        <button data-view="top" aria-pressed="false" title="Show top view">Top</button>
-        <button data-view="front" aria-pressed="false" title="Show front view">Front</button>
-        <button data-view="right" aria-pressed="false" title="Show right view">Right</button>
+        <button data-view="perspective" title="Perspective projection"><span class="control-label">Persp</span></button>
+        <button data-view="iso" title="Isometric projection (orthographic)"><span class="control-label">Iso</span></button>
+        <button data-view="top" aria-pressed="false" title="Show top view"><span class="control-label">Top</span></button>
+        <button data-view="front" aria-pressed="false" title="Show front view"><span class="control-label">Front</span></button>
+        <button data-view="right" aria-pressed="false" title="Show right view"><span class="control-label">Right</span></button>
       </div>
       <div class="seg toggles" role="group" aria-label="Show">
-        <button data-toggle="domain" aria-pressed="false" title="Simulation domain and mesh refinement boxes">Domain</button>
-        <button data-toggle="ports" aria-pressed="true" title="Ports">Ports</button>
-        <button data-toggle="grid" aria-pressed="true" title="Ground grid">Grid</button>
-        <button id="meshToggle" aria-pressed="false" title="Show actual FDTD mesh">Mesh</button>
-        <button data-toggle="xray" aria-pressed="false" title="Transparent solids">X-ray</button>
+        <button data-toggle="domain" aria-pressed="false" title="Simulation domain and mesh refinement boxes"><span class="control-label">Domain</span></button>
+        <button data-toggle="ports" aria-pressed="true" title="Ports"><span class="control-label">Ports</span></button>
+        <button data-toggle="grid" aria-pressed="true" title="Ground grid"><span class="control-label">Grid</span></button>
+        <button id="meshToggle" aria-pressed="false" title="Show actual FDTD mesh"><span class="control-label">Mesh</span></button>
+        <button data-toggle="xray" aria-pressed="false" title="Transparent solids"><span class="control-label">X-ray</span></button>
       </div>
       <label id="caseWrap" class="case-select">
         <span>Case</span>
@@ -98,11 +98,11 @@
       </div>
       <div id="radiationTools" class="radiation-tools" hidden>
         <div class="seg" role="group" aria-label="Radiation sections">
-          <button data-section="XY" aria-pressed="true" title="XY section: Z = 0, or probe Z when Follow is active">XY</button>
-          <button data-section="YZ" aria-pressed="true" title="YZ section: X = 0, or probe X when Follow is active">YZ</button>
-          <button data-section="XZ" aria-pressed="true" title="XZ section: Y = 0, or probe Y when Follow is active">XZ</button>
-          <button id="sectionFollow" aria-pressed="false" title="Follow the visible sampling point; off keeps planes at the global origin">Follow</button>
-          <button id="probeToggle" aria-pressed="true" title="Show sampling point">Point</button>
+          <button data-section="XY" aria-pressed="true" title="XY section: Z = 0, or probe Z when Follow is active"><span class="control-label">XY</span></button>
+          <button data-section="YZ" aria-pressed="true" title="YZ section: X = 0, or probe X when Follow is active"><span class="control-label">YZ</span></button>
+          <button data-section="XZ" aria-pressed="true" title="XZ section: Y = 0, or probe Y when Follow is active"><span class="control-label">XZ</span></button>
+          <button id="sectionFollow" aria-pressed="false" title="Follow the visible sampling point; off keeps planes at the global origin"><span class="control-label">Follow</span></button>
+          <button id="probeToggle" aria-pressed="true" title="Show sampling point"><span class="control-label">Point</span></button>
         </div>
       </div>
     </div>
@@ -139,11 +139,11 @@
   <section class="dock" aria-label="Params, scripts, checks and simulation">
     <div id="dockResize" class="dock-resize" role="separator" aria-label="Resize bottom dock" aria-orientation="horizontal" aria-valuemin="150" aria-valuemax="600" aria-valuenow="270" tabindex="0" title="Drag to resize; double-click to reset"></div>
     <div class="dock-tabs" role="tablist">
-      <button role="tab" data-dock="params" aria-selected="true">Params</button>
-      <button role="tab" data-dock="scripts" aria-selected="false">Scripts</button>
-      <button role="tab" data-dock="checks" aria-selected="false">Checks <span id="checkBadge" class="badge"></span></button>
-      <button role="tab" data-dock="sim" aria-selected="false">Simulation <span id="caseBadge" class="badge info"></span><span id="simBadge" class="badge run"></span></button>
-      <button role="tab" data-dock="results" aria-controls="panelResults" aria-selected="false">Results</button>
+      <button role="tab" data-dock="params" aria-selected="true"><span class="control-label">Params</span></button>
+      <button role="tab" data-dock="scripts" aria-selected="false"><span class="control-label">Scripts</span></button>
+      <button role="tab" data-dock="checks" aria-selected="false"><span id="checkBadge" class="check-shield" data-status="warn" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6z"/><path data-mark="ok" d="M8.5 12l2.5 2.5 4.5-5"/><path data-mark="warn" d="M12 8v5m0 3v.1"/><path data-mark="error" d="m9 9 6 6m0-6-6 6"/></svg></span><span class="control-label">Checks</span></button>
+      <button role="tab" data-dock="sim" aria-selected="false"><span class="control-label">Simulation</span><span id="caseBadge" class="badge info"></span><span id="simBadge" class="badge run"></span></button>
+      <button role="tab" data-dock="results" aria-controls="panelResults" aria-selected="false"><span class="control-label">Results</span></button>
       <button id="dockToggle" class="icon dock-toggle" aria-label="Collapse dock" title="Collapse / expand"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
     <div id="panelParams" class="panel dock-panel" data-sheet-name="params" data-dock-name="params">
@@ -192,12 +192,12 @@
 </main>
 
 <nav class="mobile-nav" aria-label="Panels">
-  <button data-sheet="model"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8.5 4.5L12 12 3.5 7.5zM3.5 12 12 16.5l8.5-4.5M3.5 16.5 12 21l8.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Model</button>
-  <button data-sheet="params"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Params</button>
-  <button data-sheet="scripts"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Scripts</button>
-  <button data-sheet="checks"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6zM8.5 12l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Checks<span id="checkBadgeMobile" class="badge"></span></button>
-  <button data-sheet="sim"><span aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2.5-6 4 12 3-9 2 3H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Simulation<span id="simBadgeMobile" class="badge run"></span></button>
-  <button data-sheet="results"><span aria-hidden="true">∿</span>Results</button>
+  <button data-sheet="model"><span class="nav-icon" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8.5 4.5L12 12 3.5 7.5zM3.5 12 12 16.5l8.5-4.5M3.5 16.5 12 21l8.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="control-label">Model</span></button>
+  <button data-sheet="params"><span class="nav-icon" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="control-label">Params</span></button>
+  <button data-sheet="scripts"><span class="nav-icon" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="control-label">Scripts</span></button>
+  <button data-sheet="checks" title="Checks pending"><span id="checkBadgeMobile" class="check-shield" data-status="warn" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6z"/><path data-mark="ok" d="M8.5 12l2.5 2.5 4.5-5"/><path data-mark="warn" d="M12 8v5m0 3v.1"/><path data-mark="error" d="m9 9 6 6m0-6-6 6"/></svg></span><span class="control-label">Checks</span></button>
+  <button data-sheet="sim"><span class="nav-icon" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2.5-6 4 12 3-9 2 3H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="simBadgeMobile" class="badge run"></span></span><span class="control-label">Simulation</span></button>
+  <button data-sheet="results"><span class="nav-icon" aria-hidden="true">∿</span><span class="control-label">Results</span></button>
 </nav>
 
 <footer class="statusbar"><span id="status" role="status">Loading…</span><span class="muted status-note">CSXCAD editor · openEMS browser simulation</span></footer>

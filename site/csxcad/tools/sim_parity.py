@@ -102,7 +102,7 @@ def case_name(path, case_id):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("configs", nargs="*", type=Path,
-                        help="schema v2 configs (default: antennas/*.json and examples/*.json)")
+                        help="schema v2 configs (default: antennas/*.json, examples/*.json, tests/fixtures/*.json)")
     # CI has node on the runner and native openEMS only inside Docker, which has
     # no node: --emit-js writes the JS XML on the host, --js-dir compares
     # against it in the container.
@@ -111,7 +111,8 @@ def main():
     parser.add_argument("--js-dir", type=Path, metavar="DIR",
                         help="read the JS model XML from DIR instead of running node")
     args = parser.parse_args()
-    files = args.configs or sorted((ROOT / "antennas").glob("*.json")) + sorted((ROOT / "examples").glob("*.json"))
+    files = args.configs or (sorted((ROOT / "antennas").glob("*.json")) + sorted((ROOT / "examples").glob("*.json"))
+                             + sorted((ROOT / "tests/fixtures").glob("*.json")))
     if args.emit_js:
         args.emit_js.mkdir(parents=True, exist_ok=True)
     failed = emitted = compared = skipped = 0

@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { sweepWarnings, evaluate, parameterSets, resolveCase, fieldToValue, valueToField, renameParameter, sweepValues, parseUnitField, formatUnitField, normalizeWorkspaceUnits, resolveTemplate } from "./js/params.js";
+import { sweepWarnings, evaluate, parameterSets, resolveCase, fieldToValue, valueToField, renameParameter, sweepValues, parseUnitField, formatUnitField, normalizeWorkspaceUnits, resolveTemplate, parseEndCriteria } from "./js/params.js";
 import { tessellate, solverBounds, displayBounds, helixPoints, transformer } from "./js/geometry.js";
 import { checkCase } from "./js/checks.js";
 import { STARTER, SHAPES } from "./js/schema.js";
@@ -72,6 +72,13 @@ assert.equal(formatUnitField(2.45e9,"Hz","MHz"),"2450");
 assert.equal(normalizeWorkspaceUnits({frequency:"invalid"}).frequency,"GHz");
 assert.throws(()=>parseUnitField("1 mm","Hz","GHz"));
 assert.throws(()=>parseUnitField("1 bananas","Hz","GHz"));
+for(const s of ["0.0001","1e-4","-40 dB","-40dB","−40 DB"])assert.equal(parseEndCriteria(s),1e-4,s);
+assert.equal(parseEndCriteria("-60 dB"),1e-6);
+assert.equal(parseEndCriteria("0 dB"),1);
+assert.equal(parseEndCriteria(""),undefined);
+assert.deepEqual(parseEndCriteria("threshold"),{$param:"threshold"});
+assert.deepEqual(parseEndCriteria("threshold/10"),{$expr:"threshold/10"});
+for(const s of ["-40","0","2","5 dB","-40 dBm","1 mW","1e400","-4000 dB"])assert.throws(()=>parseEndCriteria(s),s);
 assert.deepEqual(resolveCase({workspace_units:{frequency:"MHz"},frequency:1e9},{}),{frequency:1e9});
 const renamed = renameParameter({ parameters: { gap: 1 }, geometry: [{ r: { $expr: "gap*2 + gapx + 1e3" }, s: { $param: "gap" } }], sweep: { parameters: { gap: { values: [1] } } } }, "gap", "g");
 assert.deepEqual(renamed, { parameters: { g: 1 }, geometry: [{ r: { $expr: "g*2 + gapx + 1e3" }, s: { $param: "g" } }], sweep: { parameters: { g: { values: [1] } } } });
@@ -106,7 +113,7 @@ const close = (a, b, where) => {
     for (const k of Object.keys(a)) close(a[k], b[k], `${where}.${k}`);
   } else assert.equal(a, b, where);
 };
-const files = ["antennas", "examples"].flatMap(dir => fs.readdirSync(path.join(repo, dir))
+const files = ["antennas", "examples", "tests/fixtures"].flatMap(dir => fs.readdirSync(path.join(repo, dir))
   .filter(f => f.endsWith(".json")).map(f => path.join(dir, f)));
 let compared = 0, parts = 0;
 for (const rel of files) {
@@ -304,19 +311,48 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
   assert.throws(() => buildModel({ ...cfg, ports: [{ ...cfg.ports[0], type: "msl" }] }), /not supported in the browser/);
 }
 
+const MONOPOLE_FIXTURE = {
+  schema_version: 2,
+  name: "Parametric monopole",
+  description: "Quarter-wave monopole over a disk. Parametric starter; review feed, domain and mesh before simulation.",
+  units: "mm",
+  parameters: { f_ghz: 2.45, ground_r: 35, wire_r: 1, gap: 3 },
+  domain: { start: [-120, -120, -100], stop: [120, 120, 120], boundary: Array(6).fill("PML_8") },
+  mesh: { max_cell_mm: 3, growth_ratio: 1.4, max_cells: 5000000 },
+  solver: { max_timesteps: 20000, end_criteria: 0.0001, resources: { cpus: 2, memory_gib: 5 } },
+  excitation: { center_hz: 2450000000, bandwidth_hz: 350000000 },
+  materials: [{ name: "pec-metal", type: "pec" }],
+  geometry: [
+    { name: "ground-disk", material: "pec-metal", shape: "cylinder",
+      start: [0, 0, -0.5], stop: [0, 0, 0], radius: { $param: "ground_r" } },
+    { name: "radiator", material: "pec-metal", shape: "cylinder",
+      start: [0, 0, { $param: "gap" }],
+      stop: [0, 0, { $expr: "gap + 0.95 * 299.792458 / f_ghz / 4" }],
+      radius: { $param: "wire_r" } },
+  ],
+  ports: [{ id: 1, name: "feed", type: "lumped", start: [0, 0, 0], stop: [0, 0, { $param: "gap" }],
+    direction: "z", impedance_ohm: 50, excite: true }],
+  outputs: {
+    s11: [{ start: 2300000000, step: 10000000, end: 2600000000 }],
+    radiation_frequencies_hz: [2450000000],
+    radiation_grid: { theta_step_deg: 5, phi_step_deg: 5 },
+    include_realized_gain: true,
+  },
+};
+
 // Compact two-arm model: the coarse X mesh used to place the PML_8 dump
 // faces past each other. All six faces must enclose the translated strips.
 {
   const cfg = {
-    ...STARTER,
-    domain: { ...STARTER.domain, start: [-43, -39, -72], stop: [43, 39, 72] },
+    ...MONOPOLE_FIXTURE,
+    domain: { ...MONOPOLE_FIXTURE.domain, start: [-43, -39, -72], stop: [43, 39, 72] },
     mesh: { max_cell_mm: 6, growth_ratio: 1.4 },
     geometry: [1, -1].map(sign => ({
       shape: "box", material: "pec-metal",
       start: [-5, -0.25, Math.min(0, sign * 31)], stop: [5, 0.25, Math.max(0, sign * 31)],
       transform: { translate: [0, 0, sign * 2.5] },
     })),
-    ports: [{ ...STARTER.ports[0], start: [0, 0, -2.6], stop: [0, 0, 2.6] }],
+    ports: [{ ...MONOPOLE_FIXTURE.ports[0], start: [0, 0, -2.6], stop: [0, 0, 2.6] }],
   };
   const model = buildModel(cfg);
   [5, 0.25, 33.5].forEach((extent, i) => {
@@ -371,13 +407,22 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
     refinements: [{ start: [-21, -21, -1], stop: [21, 21, 2], resolution_mm: 0.5 }] } };
   assert.ok(!msgs(fine).some(m => /substrate/.test(m)), "a refinement covering the slab clears both warnings");
   // A wire thinner than its cell: the mesh, not the geometry, sets the radius.
+  const metal = cfg.materials.find(m => m.type === "pec")?.name ?? cfg.materials[0].name;
   const wire = { ...cfg, mesh: { max_cell_mm: 4, growth_ratio: 1.4 },
-    geometry: [...cfg.geometry, { name: "thin", shape: "wire", material: "pec-metal", wire_diameter: 0.4, points: [[-10, 0, 10], [10, 0, 10]] }] };
+    geometry: [...cfg.geometry, { name: "thin", shape: "wire", material: metal, wire_diameter: 0.4, points: [[-10, 0, 10], [10, 0, 10]] }] };
   assert.ok(msgs(wire).some(m => /thin: wire Ø 0.4 mm is thinner than the local cell/.test(m)), "thin wire vs cell size");
   // Uniform mode: geometry off the grid, and a feed shorter than one cell.
-  const uni = { ...cfg, mesh: { max_cell_mm: 2, growth_ratio: 1.4, grid_mode: "uniform", uniform_step_mm: 2 },
-    geometry: [...cfg.geometry, { name: "rod", shape: "box", material: "pec-metal", start: [-1.3, -0.5, 5.7], stop: [1.3, 0.5, 27.3] }] };
-  assert.ok(msgs(uni).some(m => /part\(s\) are off the uniform grid.*rod/.test(m)), "off-grid parts in uniform mode");
+  // Place the rod half a cell off the grid relative to the domain start, so the
+  // test does not depend on the starter's domain.
+  const step = 2, halfOff = n => cfg.domain.start[2] + step * (n + 0.5);
+  const uni = { ...cfg, mesh: { max_cell_mm: step, growth_ratio: 1.4, grid_mode: "uniform", uniform_step_mm: step },
+    geometry: [{ name: "rod", shape: "box", material: metal,
+      start: [-2, -2, halfOff(10)], stop: [2, 2, halfOff(20)] }] };
+  assert.ok(msgs(uni).some(m => /1 part\(s\) are off the uniform grid \(rod\).*1 mm off the 2 mm Z grid/.test(m)),
+    "off-grid parts in uniform mode, with the snapping distance");
+  const aligned = { ...uni, geometry: [{ ...uni.geometry[0], start: [-2, -2, halfOff(10) + step / 2], stop: [2, 2, halfOff(20) + step / 2] }] };
+  assert.ok(!msgs(aligned).some(m => /off the uniform grid/.test(m)), "a grid-aligned part is not flagged");
+  assert.deepEqual(errs(aligned).filter(m => /uniform/.test(m)), []);
   const short = { ...uni, ports: [{ ...cfg.ports[0], start: [0, 0, 0], stop: [0, 0, 0.5] }] };
   assert.ok(errs(short).some(m => /shorter than the uniform cell/.test(m)), "feed shorter than one uniform cell");
   console.log("Mesh checks: dielectric λ, slab cells, thin wire, uniform grid snapping: PASS");
@@ -402,12 +447,18 @@ const starterCases = parameterSets(STARTER);
 assert.equal(starterCases.length, 1);
 const starter = resolveCase(STARTER, starterCases[0].parameters);
 assert.deepEqual(checkCase(starter).filter(x => x.level === "error"), []);
-assert.ok(Math.abs(starter.geometry[1].stop[2] - (3 + 0.95 * 299.792458 / 2.45 / 4)) < 1e-9);
+assert.deepEqual(STARTER, JSON.parse(fs.readFileSync(path.join(repo, "examples/parametric_yagi.json"), "utf8")));
+assert.deepEqual(STARTER.parameters, {gap:2,len:50,dist_ref:0.95,dist_dir:0.36,el_rad:2,len_ref:1.06,len_dir:0.84});
+assert.equal(starter.solver.end_criteria, 1e-4);
+assert.equal(starter.solver.max_timesteps, 50000);
+assert.equal(starter.probes.length, 3);
+assert.equal(starter.geometry.length, 4);
+assert.ok(buildModel(starter).patterns.includes(2450000000));
 for (const [shape, def] of Object.entries(SHAPES)) assert.ok(tessellate({ shape, ...def.template }).indices.length > 0, shape);
 
 // Feed connectivity checks: actual conductor, not just an enclosing AABB.
 {
-  const good=structuredClone(starter);
+  const good=resolveCase(MONOPOLE_FIXTURE,parameterSets(MONOPOLE_FIXTURE)[0].parameters);
   const feedWarnings=c=>checkCase(c).filter(x=>x.where==="port feed").map(x=>x.msg);
   assert.equal(feedWarnings(good).length,0,"Flush planar monopole feed must pass");
   const gap=structuredClone(good);
@@ -484,7 +535,7 @@ for (const [shape, def] of Object.entries(SHAPES)) assert.ok(tessellate({ shape,
 // Checks catch the classic mistakes
 const broken = structuredClone(starter);
 broken.ports.push({ ...broken.ports[0], excite: true });
-broken.geometry[0].material = "copper";
+broken.geometry[0].material = "undefined-metal";
 broken.domain.stop[2] = 10;
 const msgs = checkCase(broken).map(x => x.msg).join("\n");
 assert.match(msgs, /Exactly one port must be excited/);

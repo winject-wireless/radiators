@@ -75,11 +75,14 @@ self.addEventListener("fetch", e => {
   const scope = new URL(self.registration.scope);
   const relative = url.pathname.slice(scope.pathname.length);
   const shell = e.request.mode === "navigate" || SHELL_PATHS.has(relative) || relative === "";
+  // Bundled examples are not part of the versioned shell, but still must be
+  // revalidated rather than trusted to the browser's HTTP freshness lifetime.
+  const revalidate = shell || relative.startsWith("examples/");
   e.respondWith((async () => {
     const hit = await cached(e.request);
     if (shell && hit) return isolate(hit);
     try {
-      const response = await fetch(shell ? new Request(e.request, { cache: "no-cache" }) : e.request);
+      const response = await fetch(revalidate ? new Request(e.request, { cache: "no-cache" }) : e.request);
       if (response.ok) await store(e.request, response.clone(), hit);
       return isolate(response);
     } catch (error) {

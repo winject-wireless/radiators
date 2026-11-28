@@ -1,26 +1,299 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="color-scheme" content="light dark"><meta name="description" content="Radiators CSXCAD editor and openEMS simulator user manual"><title>Help · Radiators CSXCAD</title><link rel="icon" href="./icon.svg" type="image/svg+xml"><style>
-:root{color-scheme:light dark;--bg:#f8fafc;--surface:#fff;--text:#172334;--muted:#526174;--line:#dbe2ea;--accent:#075985;--code:#edf2f7;--note:#f1f5f9} @media(prefers-color-scheme:dark){:root{--bg:#10151e;--surface:#171f2b;--text:#e7edf5;--muted:#a9b8ca;--line:#354252;--accent:#7dd3fc;--code:#111924;--note:#202c39}}
-*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:1.2rem}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}a{color:var(--accent);text-underline-offset:3px}a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}header{border-bottom:1px solid var(--line);background:var(--surface)}.top{max-width:1400px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px clamp(16px,3vw,40px);flex-wrap:wrap}.brand{display:flex;align-items:center;gap:10px;font-weight:700}.brand img{width:34px;height:34px}.layout{max-width:1400px;margin:auto;display:grid;grid-template-columns:250px minmax(0,1fr);gap:clamp(24px,4vw,64px);padding:32px clamp(16px,3vw,40px) 72px}nav{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;border-right:1px solid var(--line);padding-right:16px}nav a{display:block;font-size:.9rem;padding:5px 0;text-decoration:none}nav a:hover{text-decoration:underline}nav p{font-size:.8rem;color:var(--muted)}main{min-width:0;max-width:920px}h1{font-size:clamp(2rem,4vw,3rem);line-height:1.15;letter-spacing:-.035em;margin:.25rem 0 .7rem}h2{font-size:1.55rem;line-height:1.25;letter-spacing:-.02em;margin:0 0 1rem}h3{font-size:1.08rem;line-height:1.35;margin:1.5rem 0 .5rem}p,ol,ul{margin:.7rem 0 1rem}li+li{margin-top:.4rem}.lead{font-size:1.1rem;color:var(--muted);max-width:65ch}.eyebrow{font-size:.77rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:700}section{margin-top:2.6rem;padding-top:1.5rem;border-top:1px solid var(--line)}code{font: .88em/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}p code,td code{background:var(--code);padding:.12em .27em;border-radius:4px}pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:14px;overflow:auto;white-space:pre;tab-size:2}pre code{overflow-wrap:normal}table{border-collapse:collapse;width:100%;margin:1rem 0;table-layout:fixed}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:var(--code);font-size:.9rem}th:first-child{width:30%}td{font-size:.94rem}.note{background:var(--note);border-left:3px solid var(--accent);padding:12px 16px;border-radius:4px}.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.cards article{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px}.cards h3{margin:0}.cards p{font-size:.93rem;margin:.5rem 0 0}figure{margin:1.2rem 0;padding:16px;background:var(--surface);border:1px solid var(--line);border-radius:8px}figure svg{width:100%;height:auto;display:block;margin:auto}figcaption{font-size:.85rem;color:var(--muted);margin-top:12px}.back{font-weight:600}.section-top{font-size:.8rem;color:var(--muted);text-align:right}.skip{position:absolute;left:-999px}.skip:focus{left:12px;top:12px;background:var(--surface);z-index:10;padding:10px}
-@media(max-width:760px){.layout{display:block;padding-top:16px}nav{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--line);padding:0 0 14px;margin-bottom:24px}nav a{display:inline-block;margin-right:12px;padding:6px 0}.cards{grid-template-columns:1fr}th,td{padding:8px;font-size:.88rem}th:first-child{width:34%}ol{padding-left:1.35em}section{margin-top:2rem}h2{font-size:1.35rem}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media print{nav,.back,.section-top,.skip{display:none}.layout{display:block}body{background:#fff;color:#111}pre{white-space:pre-wrap}section{break-inside:auto}tr,figure{break-inside:avoid}}
-</style></head><body><a class="skip" href="#main">Skip to manual</a><header id="top"><div class="top"><div class="brand"><img src="./icon.svg" alt="">Radiators · Help</div><a class="back" href="./">← Open CSXCAD editor</a></div></header><div class="layout"><nav aria-label="Table of contents"><strong>Contents</strong><a href="#quick-start">Quick start</a><a href="#workspace">Workspace and viewport</a><a href="#geometry">Geometry, transforms and materials</a><a href="#feeds">Ports and electrical connectivity</a><a href="#parameters">Parameters, expressions and sweeps</a><a href="#scripts">Scripted geometry</a><a href="#mesh">Simulation domain and mesh</a><a href="#solver">Excitation, solver and outputs</a><a href="#runners">Browser, remote and native runners</a><a href="#results">Interpret simulation results</a><a href="#diagnostics">Diagnostic probes and field playback</a><a href="#files">JSON, local projects and result archives</a><a href="#schema">Schema-v2 reference and example</a><a href="#troubleshooting">Troubleshooting and engineering checklist</a><a href="#resources">Installation and further reading</a><p>Use your browser's Find in page to search this manual.</p></nav><main id="main"><div class="eyebrow">User manual · Schema v2</div><h1>CSXCAD editor &amp; openEMS simulator</h1><p class="lead">From parametric antenna design and mesh inspection to solver execution, radiation analysis and reproducible sweep results.</p><section id="quick-start"><h2>Quick start</h2><p>Radiators combines a parametric CSXCAD geometry editor with the openEMS finite-difference time-domain (FDTD) solver. CSXCAD describes geometry, materials, feeds and the computational grid; openEMS solves the electromagnetic fields. You can design, inspect, simulate and compare antennas without installing desktop CAD software.</p>
-<ol><li>Open the <a href="./">CSXCAD editor</a>. Choose <strong>More → Open example… → Half-wave dipole 2.45 GHz (fast)</strong>. Start with this known small example before building your own model.</li><li>Inspect the two dipole arms, feed, materials and domain in Model. Turn on Ports and Mesh in the viewport; check the feed gap.</li><li>Open Checks. Resolve errors and evaluate warnings. Open Simulation, choose Browser, and start with a small CPU allocation, such as two threads.</li><li>Choose Run in browser. Watch the progress and solver log. When complete, open Results and inspect S11, input impedance and radiation.</li><li>Save the antenna JSON and Download result.json. Change one dimension, rerun, and compare; do not assume a pretty radiation plot proves a good match.</li></ol>
-<p class="note"><strong>First run:</strong> Browser mode needs a compatible browser and cross-origin isolation. The app may reload once to activate its service worker. Use Chrome on HTTPS or localhost if an embedded browser cannot run the solver. Remote mode is useful on mobile or for larger jobs.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="workspace"><h2>Workspace and viewport</h2><div class="cards"><article><h3>Model / Inspector</h3><p>The Model tree lists geometry, materials, ports and diagnostic objects. Select an item in the tree or viewport to inspect its fields. Use the add controls to create new items. A scripted instance selects as one object, even if it generates multiple pieces.</p></article><article><h3>Params / Scripts / JSON</h3><p>Define reusable numeric parameters, create scripted geometry, preview sweep cases, or edit the complete schema-v2 source.</p></article><article><h3>Checks / Simulation / Results</h3><p>Validate the current design and all sweep cases, configure the mesh and solver, monitor jobs, and review computed or imported results.</p></article></div>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Radiators CSXCAD editor and openEMS simulator user manual">
+  <title>Help · Radiators CSXCAD</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <style>
+:root {
+  color-scheme: light dark;
+  --bg:#f3f5f8; --panel:#fff; --panel-soft:#f7f9fc; --text:#172334;
+  --muted:#536477; --line:#dbe2eb; --accent:#205bb8; --accent-bg:#eaf2ff;
+  --code:#f1f4f8; --code-text:#233954; --shadow:0 2px 8px rgb(18 38 64 / .05);
+  --warning:#a36212; --warning-bg:#fff8eb; --header-height:68px;
+  --mono:ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+@media(prefers-color-scheme:dark) {
+  :root {
+    --bg:#090b0f; --panel:#12151b; --panel-soft:#191d25; --text:#e7eaf0;
+    --muted:#a0abbd; --line:#2b3340; --accent:#83baff; --accent-bg:#182c46;
+    --code:#0d1119; --code-text:#d0def3; --shadow:none;
+    --warning:#f2bd5c; --warning-bg:#282217;
+  }
+}
+* {box-sizing:border-box}
+html {scroll-behavior:smooth;scroll-padding-top:calc(var(--header-height) + 24px)}
+body {margin:0;background:var(--bg);color:var(--text);font:16px/1.75 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+a {color:var(--accent);text-underline-offset:3px}
+a:focus-visible,button:focus-visible,summary:focus-visible {outline:2px solid var(--accent);outline-offset:3px}
+button {font:inherit;color:inherit}
+.skip {position:absolute;left:-9999px}
+.skip:focus {left:12px;top:12px;padding:10px;background:var(--panel);z-index:100}
+.site-header {position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.top {max-width:1440px;margin:auto;min-height:var(--header-height);padding:10px clamp(16px,3vw,40px);display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand {display:flex;gap:12px;align-items:center;min-width:0;line-height:1.25}
+.brand img {width:36px;height:36px;flex:none}
+.brand strong {display:block;font-size:16px;letter-spacing:-.02em}
+.brand small {display:block;font-size:12px;color:var(--muted);margin-top:3px}
+.back {display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;text-decoration:none;font-size:13px;font-weight:650;white-space:nowrap}
+.back:hover {background:var(--accent-bg);border-color:var(--accent)}
+.layout {max-width:1440px;margin:auto;display:grid;grid-template-columns:270px minmax(0,1fr);align-items:start;gap:clamp(24px,4vw,60px);padding:28px clamp(16px,3vw,40px) 80px}
+.contents {position:sticky;top:calc(var(--header-height) + 22px);max-height:calc(100dvh - var(--header-height) - 44px);overflow:auto;scrollbar-width:thin;padding-right:12px}
+.contents summary {font-weight:700;font-size:14px;cursor:pointer;padding:10px 10px;line-height:1.4}
+.contents nav {padding:0 0 8px}
+.nav-group {margin-top:14px}
+.nav-label {font-size:10px;color:var(--muted);font-weight:750;text-transform:uppercase;letter-spacing:.09em;padding:5px 10px}
+.nav-group a {display:flex;gap:10px;align-items:baseline;padding:7px 10px;border-radius:6px;font-size:13px;line-height:1.45;text-decoration:none;color:var(--muted)}
+.nav-group a:hover,.nav-group a[aria-current="location"] {background:var(--accent-bg);color:var(--accent)}
+.nav-group a[aria-current="location"] {font-weight:650}
+.nav-no {font:11px/1.4 var(--mono);opacity:.8}
+.nav-hint {padding:6px 10px;font-size:12px;color:var(--muted);margin:10px 0 0}
+main {min-width:0;width:100%;max-width:960px}
+.hero {position:relative;overflow:hidden;padding:clamp(22px,4vw,42px);background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
+.hero::before {content:"";position:absolute;top:0;left:0;right:0;height:4px;background:var(--accent)}
+.eyebrow {font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--accent);font-weight:750}
+h1 {font-size:clamp(2rem,4vw,3.15rem);letter-spacing:-.042em;line-height:1.12;margin:12px 0 14px;max-width:20ch}
+.lead {color:var(--muted);font-size:clamp(16px,2vw,18px);line-height:1.65;max-width:65ch;margin:0 0 22px}
+.hero-links {display:flex;flex-wrap:wrap;gap:8px}
+.hero-links a {display:inline-flex;align-items:center;min-height:40px;padding:8px 13px;font-size:13px;font-weight:650;border:1px solid var(--line);border-radius:7px;text-decoration:none}
+.hero-links a:first-child {background:var(--accent-bg);color:var(--accent);border-color:transparent}
+.hero-links a:hover {border-color:var(--accent)}
+.section {margin-top:20px;padding:clamp(20px,3.4vw,36px);background:var(--panel);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);min-width:0}
+.section-head {display:flex;align-items:baseline;gap:12px;margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.section-no {font:600 12px/1.5 var(--mono);color:var(--accent);flex:none}
+h2 {font-size:clamp(1.3rem,2.4vw,1.65rem);line-height:1.3;letter-spacing:-.026em;margin:0}
+h3 {font-size:1.08rem;line-height:1.4;letter-spacing:-.01em;margin:28px 0 8px;font-weight:700}
+p,ol,ul {margin:0 0 16px}
+p:last-child {margin-bottom:0}
+ol,ul {padding-left:1.45rem}
+li {padding-left:3px}
+li+li {margin-top:8px}
+#quick-start ol,#troubleshooting ol {list-style:none;counter-reset:step;padding:0}
+#quick-start ol li,#troubleshooting ol li {counter-increment:step;position:relative;padding:10px 12px 10px 48px;border-bottom:1px solid var(--line);margin:0}
+#quick-start ol li:last-child,#troubleshooting ol li:last-child {border:0}
+#quick-start ol li::before,#troubleshooting ol li::before {content:counter(step);position:absolute;left:8px;top:11px;width:27px;height:27px;display:grid;place-items:center;background:var(--accent-bg);color:var(--accent);font-size:13px;font-weight:700;border-radius:8px}
+code {font-family:var(--mono);font-size:.86em}
+p code,td code,li code {background:var(--code);color:var(--code-text);padding:.1em .3em;border-radius:4px;overflow-wrap:anywhere}
+.code-block {margin:18px 0 22px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--code)}
+.code-bar {display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:40px;padding:6px 12px;border-bottom:1px solid var(--line);background:var(--panel-soft);color:var(--muted);font-size:12px;font-weight:650}
+.copy-code {display:none;min-height:30px;padding:4px 9px;border:1px solid var(--line);border-radius:5px;background:var(--panel);font-size:12px;cursor:pointer}
+.copy-code.ready {display:inline-flex;align-items:center;justify-content:center}
+.copy-code:hover {color:var(--accent);border-color:var(--accent)}
+pre {margin:0;padding:14px 16px;overflow:auto;white-space:pre;tab-size:2;line-height:1.65;color:var(--code-text);font-size:13px}
+pre code {font-size:inherit}
+.table-wrap {margin:18px 0 22px;border:1px solid var(--line);border-radius:9px;overflow:auto}
+table {border-collapse:collapse;width:100%;table-layout:fixed;text-align:left;line-height:1.6}
+th,td {padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere;font-size:14px}
+th {font-size:12px;color:var(--muted);font-weight:750;background:var(--panel-soft)}
+th:first-child {width:32%}
+td:first-child {font-weight:650}
+tbody tr:last-child td {border-bottom:0}
+tbody tr:nth-child(even) {background:var(--panel-soft)}
+.note {margin:20px 0;padding:13px 16px;border:1px solid var(--line);border-left:3px solid var(--warning);border-radius:7px;background:var(--warning-bg)}
+.note strong {color:var(--warning)}
+.cards {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0 0 20px}
+.cards article {border:1px solid var(--line);border-radius:9px;background:var(--panel-soft);padding:16px}
+.cards h3 {margin:0 0 8px;color:var(--accent);font-size:14px}
+.cards p {font-size:14px;line-height:1.65}
+figure {margin:20px 0;padding:18px;background:var(--panel-soft);border:1px solid var(--line);border-radius:9px}
+figure svg {width:100%;height:auto;display:block;margin:auto}
+figcaption {font-size:13px;color:var(--muted);line-height:1.6;border-top:1px solid var(--line);padding-top:12px;margin-top:14px}
+.section-top {display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:24px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.section-top a {text-decoration:none;font-weight:600}
+.footer {padding:24px 4px 0;color:var(--muted);font-size:13px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+@media(max-width:900px) {
+  .layout {grid-template-columns:220px minmax(0,1fr);gap:22px}
+  .cards {grid-template-columns:1fr}
+}
+@media(max-width:760px) {
+  :root {--header-height:58px}
+  body {font-size:15px;line-height:1.7}
+  .top {padding:8px 12px;gap:8px}
+  .brand img {width:30px;height:30px}
+  .brand {gap:8px}
+  .brand strong {font-size:14px}
+  .brand small {font-size:11px}
+  .back {padding:6px 9px;font-size:12px;min-height:38px}
+  .layout {display:block;padding:14px 12px 36px}
+  .contents {position:static;max-height:none;background:var(--panel);border:1px solid var(--line);border-radius:9px;margin-bottom:14px;padding:0 8px}
+  .contents summary {padding:11px 8px}
+  .contents nav {padding:0 2px 8px}
+  .nav-group {margin-top:8px}
+  .nav-group a {padding:9px 8px;font-size:14px;min-height:40px}
+  .hero {padding:23px 18px;border-radius:11px}
+  h1 {font-size:clamp(1.8rem,7vw,2.4rem)}
+  .lead {font-size:15px;margin-bottom:17px}
+  .hero-links {gap:6px}
+  .hero-links a {font-size:12px;padding:7px 9px}
+  .section {margin-top:14px;padding:20px 16px;border-radius:10px}
+  .section-head {gap:9px;padding-bottom:12px;margin-bottom:16px}
+  h3 {margin-top:23px}
+  th,td {font-size:13px;padding:9px 10px}
+  th:first-child {width:35%}
+  pre {font-size:12px;padding:12px}
+  figure {padding:12px}
+  .note {padding:12px}
+}
+@media(max-width:380px) {
+  .brand small {display:none}
+  .section {padding:17px 12px}
+  .hero {padding:21px 15px}
+  th,td {padding:8px;font-size:12px}
+}
+@media(prefers-reduced-motion:reduce) {html {scroll-behavior:auto}}
+@media print {
+  :root {color-scheme:light;--bg:#fff;--panel:#fff;--panel-soft:#f7f7f7;--text:#111;--muted:#444;--line:#ccc;--accent:#164a8c;--accent-bg:#edf3fa;--code:#f5f5f5;--code-text:#111;--warning:#704700;--warning-bg:#fff8eb;--shadow:none}
+  body {background:#fff;font-size:10pt}
+  .contents,.back,.hero-links,.section-top,.skip,.copy-code,.footer {display:none!important}
+  .site-header {position:static}
+  .layout {display:block;padding:0}
+  main {max-width:none}
+  .hero,.section {border:0;box-shadow:none;padding:0;margin:24px 0}
+  .section-head,h3 {break-after:avoid}
+  pre {white-space:pre-wrap;overflow-wrap:anywhere}
+  .table-wrap {overflow:visible}
+  tr,figure {break-inside:avoid}
+}
+/* Mobile navigation stays reachable even when reading the last chapter. */
+.header-actions {display:flex;align-items:center;gap:8px;flex:none}
+.toc-toggle,.toc-dismiss,.toc-backdrop {display:none}
+@media(max-width:760px) {
+  /* Fixed rather than sticky: focusing the contents toggle must not scroll the
+     sticky header's original position into view on mobile Chromium. */
+  body.enhanced {padding-top:var(--header-height);overflow-anchor:none}
+  .enhanced .site-header {position:fixed;inset:0 0 auto;z-index:40;height:var(--header-height)}
+  .enhanced .site-header .top {height:100%;min-height:0}
+  .enhanced .toc-toggle {display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel-soft);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+  .enhanced .toc-toggle[aria-expanded="true"] {background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
+  .enhanced .toc-toggle svg {width:17px;height:17px;flex:none}
+  .enhanced .back {font-size:0;gap:0;min-width:40px;justify-content:center}
+  .enhanced .back::before {content:"←";font-size:20px;line-height:1}
+  .enhanced .brand > div {min-width:0}
+  .enhanced .brand small {white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .enhanced .contents {display:none;position:fixed;z-index:35;top:calc(var(--header-height) + 8px);right:8px;left:8px;max-height:calc(100dvh - var(--header-height) - 16px - env(safe-area-inset-bottom,0px));margin:0;padding:0 10px 8px;overflow:auto;overscroll-behavior:contain;box-shadow:0 12px 36px rgb(0 0 0 / .35);background:var(--panel)}
+  .enhanced .contents[open] {display:block}
+  .enhanced .contents summary {position:sticky;top:0;background:var(--panel);z-index:1;border-bottom:1px solid var(--line);padding:12px 8px}
+  .enhanced .contents nav a {min-height:44px}
+  .enhanced .toc-backdrop:not([hidden]) {display:block;position:fixed;inset:0;z-index:30;background:rgb(0 0 0 / .48)}
+  .enhanced.toc-open {overscroll-behavior:none}
+  .enhanced .toc-backdrop {touch-action:none}
+}
+@media(max-width:340px) {
+  .enhanced .brand small {display:none}
+  .header-actions {gap:5px}
+  .enhanced .toc-toggle {padding-inline:7px}
+}
+@media print {.toc-toggle,.toc-backdrop {display:none!important}}
+</style>
+</head>
+<body id="top">
+  <a class="skip" href="#main">Skip to manual</a>
+  <header class="site-header">
+    <div class="top">
+      <div class="brand"><img src="./icon.svg" alt=""><div><strong>Radiators</strong><small>CSXCAD documentation</small></div></div>
+      <div class="header-actions">
+        <button class="toc-toggle" id="tocToggle" type="button" aria-expanded="false" aria-controls="contents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/></svg> Contents</button>
+        <a class="back" href="./" aria-label="Back to editor" title="Back to editor">← Back to editor</a>
+      </div>
+    </div>
+  </header>
+  <div class="toc-backdrop" id="tocBackdrop" hidden aria-hidden="true"></div>
+  <div class="layout">
+    <details class="contents" id="contents" open>
+      <summary>Table of contents</summary>
+      <nav aria-label="Table of contents"><div class="nav-group"><div class="nav-label">Get started</div>
+<a href="#quick-start"><span class="nav-no">01</span><span>Quick start</span></a>
+<a href="#workspace"><span class="nav-no">02</span><span>Workspace and viewport</span></a>
+</div>
+<div class="nav-group"><div class="nav-label">Build an antenna</div>
+<a href="#geometry"><span class="nav-no">03</span><span>Geometry, transforms and materials</span></a>
+<a href="#feeds"><span class="nav-no">04</span><span>Ports and electrical connectivity</span></a>
+<a href="#parameters"><span class="nav-no">05</span><span>Parameters, expressions and sweeps</span></a>
+<a href="#scripts"><span class="nav-no">06</span><span>Scripted geometry</span></a>
+</div>
+<div class="nav-group"><div class="nav-label">Run simulations</div>
+<a href="#mesh"><span class="nav-no">07</span><span>Simulation domain and mesh</span></a>
+<a href="#solver"><span class="nav-no">08</span><span>Excitation, solver and outputs</span></a>
+<a href="#runners"><span class="nav-no">09</span><span>Browser, remote and native runners</span></a>
+</div>
+<div class="nav-group"><div class="nav-label">Analyze and save</div>
+<a href="#results"><span class="nav-no">10</span><span>Interpret simulation results</span></a>
+<a href="#diagnostics"><span class="nav-no">11</span><span>Diagnostic probes and field playback</span></a>
+<a href="#files"><span class="nav-no">12</span><span>JSON, local projects and result archives</span></a>
+</div>
+<div class="nav-group"><div class="nav-label">Reference and support</div>
+<a href="#schema"><span class="nav-no">13</span><span>Schema-v2 reference and example</span></a>
+<a href="#troubleshooting"><span class="nav-no">14</span><span>Troubleshooting and engineering checklist</span></a>
+<a href="#resources"><span class="nav-no">15</span><span>Installation and further reading</span></a>
+</div>
+        <p class="nav-hint">Use your browser’s Find in page to search the manual.</p>
+      </nav>
+    </details>
+    <main id="main">
+      <div class="hero">
+        <div class="eyebrow">User manual · Schema v2</div>
+        <h1>CSXCAD editor &amp; openEMS simulator</h1>
+        <p class="lead">From parametric antenna design and mesh inspection to solver execution, radiation analysis and reproducible sweep results.</p>
+        <div class="hero-links"><a href="#quick-start">Get started →</a><a href="#mesh">Mesh guide</a><a href="#schema">JSON reference</a><a href="#troubleshooting">Troubleshooting</a></div>
+      </div>
+      <section class="section" id="quick-start" aria-labelledby="quick-start-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">01</span><h2 id="quick-start-title">Quick start</h2></div>
+  <p>Radiators combines a parametric CSXCAD geometry editor with the openEMS finite-difference time-domain (FDTD) solver. CSXCAD describes geometry, materials, feeds and the computational grid; openEMS solves the electromagnetic fields. You can design, inspect, simulate and compare antennas without installing desktop CAD software.</p>
+<ol><li>Open the <a href="./">CSXCAD editor</a>. Choose <strong>More → Open example… → Parametric Yagi</strong>. Start with the single-case example before building your own model.</li><li>Inspect the split driven element, reflector, director, feed, current probes and domain in Model. Turn on Ports and Mesh in the viewport; check the feed gap.</li><li>Open Checks. Resolve errors and evaluate warnings. Open Simulation, choose Browser, and start with a small CPU allocation, such as two threads.</li><li>Choose Run in browser. Watch the progress and solver log. When complete, open Results and inspect S11, input impedance and radiation.</li><li>Save the antenna JSON and Download result.json. Change one dimension, rerun, and compare; do not assume a pretty radiation plot proves a good match.</li></ol>
+<p class="note"><strong>First run:</strong> Browser mode needs a compatible browser and cross-origin isolation. The app may reload once to activate its service worker. Use Chrome on HTTPS or localhost if an embedded browser cannot run the solver. Remote mode is useful on mobile or for larger jobs.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#workspace">Next: Workspace and viewport →</a></div>
+</section>
+
+<section class="section" id="workspace" aria-labelledby="workspace-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">02</span><h2 id="workspace-title">Workspace and viewport</h2></div>
+  <div class="cards"><article><h3>Model / Inspector</h3>
+<p>The Model tree lists geometry, materials, ports and diagnostic objects. Select an item in the tree or viewport to inspect its fields. Use the add controls to create new items. A scripted instance selects as one object, even if it generates multiple pieces.</p></article>
+<article><h3>Params / Scripts / JSON</h3>
+<p>Define reusable numeric parameters, create scripted geometry, preview sweep cases, or edit the complete schema-v2 source.</p></article>
+<article><h3>Checks / Simulation / Results</h3>
+<p>Validate the current design and all sweep cases, configure the mesh and solver, monitor jobs, and review computed or imported results.</p></article></div>
 <p>Desktop uses a model tree, 3D viewport, inspector and resizable lower dock. Drag the dock grip to resize; double-click to reset. On phones the viewport is full screen and panels open as bottom sheets; drag the handle up for more space, down to close. Android Back closes a sheet.</p>
-<table><thead><tr><th>Control</th><th>Purpose</th></tr></thead><tbody><tr><td>Persp / Iso / Top / Front / Right</td><td>Perspective, orthographic isometric and axis-aligned views. Geometry uses a right-handed XYZ coordinate system, Z up.</td></tr><tr><td>Domain / Ports / Grid / X-ray</td><td>Show the domain and refinement boxes, feed objects, construction grid at global Z=0, or transparent solids.</td></tr><tr><td>Mesh</td><td>Inspect computed rectilinear grid in XY, XZ, YZ or 3D. Slice, opacity, Min cell and PML controls reveal local spacing.</td></tr><tr><td>Object selection / XYZ gizmo</td><td>Pick a primitive or point, then manipulate its position or editable coordinate handles. Check the inspector afterward.</td></tr><tr><td>Touch</td><td>One finger orbits, two fingers zoom/pan, tap selects.</td></tr><tr><td>Undo / Redo</td><td>Undo or redo model edits; Ctrl+Z / Ctrl+Shift+Z on desktop. Ctrl+S saves antenna JSON.</td></tr></tbody></table>
-<p>The eye icon changes preview visibility only. The geometry enable checkbox (or Simulation control in Inspector) changes the actual model: <code>"enabled": false</code> excludes the object from simulation, script expansion, validation and meshing while preserving its source. A hidden reflector still affects the antenna if it is enabled.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="geometry"><h2>Geometry, transforms and materials</h2><p>Add a named material, then assign it to each geometry object. Dimensions are in millimetres in the saved configuration. Object priority controls which property wins when geometries overlap; inspect overlaps deliberately rather than using priority to conceal a broken feed.</p>
-<table><thead><tr><th>Primitive</th><th>Required geometry fields / meaning</th></tr></thead><tbody><tr><td>box / sheet</td><td>start, stop (XYZ corners). One zero-thickness axis gives a sheet.</td></tr><tr><td>cylinder</td><td>start, stop (axis endpoints), radius.</td></tr><tr><td>cylindrical_shell</td><td>start, stop, centerline radius, thickness.</td></tr><tr><td>sphere / spherical_shell</td><td>center, radius; shell additionally takes thickness.</td></tr><tr><td>wire</td><td>points (XYZ polyline), wire_diameter. Continuous finite-radius CSXCAD wire, not disconnected rods.</td></tr><tr><td>polyhedron</td><td>vertices and faces (zero-based vertex indices); edit in JSON or generate by script. Use closed, consistently wound surfaces for solids.</td></tr><tr><td>Built-in scripts</td><td>helix (continuous wire), hemisphere (dome/shell), tapered_cylinder (cone/frustum, optionally hollow). Legacy helix and hemispherical shapes can be opened and converted.</td></tr></tbody></table>
-<h3>Transforms</h3><p>Rotation is applied around the local origin in X → Y → Z order, followed by translation. Angles are degrees. Design around a meaningful origin before rotating; translation is not a change of rotation pivot. For example:</p>
+<div class="table-wrap"><table><thead><tr><th>Control</th><th>Purpose</th></tr></thead><tbody><tr><td>Persp / Iso / Top / Front / Right</td><td>Perspective, orthographic isometric and axis-aligned views. Geometry uses a right-handed XYZ coordinate system, Z up.</td></tr><tr><td>Domain / Ports / Grid / X-ray</td><td>Show the domain and refinement boxes, feed objects, construction grid at global Z=0, or transparent solids.</td></tr><tr><td>Mesh</td><td>Inspect computed rectilinear grid in XY, XZ, YZ or 3D. Slice, opacity, Min cell and PML controls reveal local spacing.</td></tr><tr><td>Object selection / XYZ gizmo</td><td>Pick a primitive or point, then manipulate its position or editable coordinate handles. Check the inspector afterward.</td></tr><tr><td>Touch</td><td>One finger orbits, two fingers zoom/pan, tap selects.</td></tr><tr><td>Undo / Redo</td><td>Undo or redo model edits; Ctrl+Z / Ctrl+Shift+Z on desktop. Ctrl+S saves antenna JSON.</td></tr></tbody></table></div>
+<p>The eye icon changes preview visibility only. The geometry enable checkbox (or Simulation control in Inspector) changes the actual model: <code>"enabled": false</code> excludes the object from simulation, script expansion, validation and meshing while preserving its source. A hidden reflector still affects the antenna if it is enabled.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#geometry">Next: Geometry, transforms and materials →</a></div>
+</section>
+
+<section class="section" id="geometry" aria-labelledby="geometry-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">03</span><h2 id="geometry-title">Geometry, transforms and materials</h2></div>
+  <p>Add a named material, then assign it to each geometry object. Dimensions are in millimetres in the saved configuration. Object priority controls which property wins when geometries overlap; inspect overlaps deliberately rather than using priority to conceal a broken feed.</p>
+<div class="table-wrap"><table><thead><tr><th>Primitive</th><th>Required geometry fields / meaning</th></tr></thead><tbody><tr><td>box / sheet</td><td>start, stop (XYZ corners). One zero-thickness axis gives a sheet.</td></tr><tr><td>cylinder</td><td>start, stop (axis endpoints), radius.</td></tr><tr><td>cylindrical_shell</td><td>start, stop, centerline radius, thickness.</td></tr><tr><td>sphere / spherical_shell</td><td>center, radius; shell additionally takes thickness.</td></tr><tr><td>wire</td><td>points (XYZ polyline), wire_diameter. Continuous finite-radius CSXCAD wire, not disconnected rods.</td></tr><tr><td>polyhedron</td><td>vertices and faces (zero-based vertex indices); edit in JSON or generate by script. Use closed, consistently wound surfaces for solids.</td></tr><tr><td>Built-in scripts</td><td>helix (continuous wire), hemisphere (dome/shell), tapered_cylinder (cone/frustum, optionally hollow). Legacy helix and hemispherical shapes can be opened and converted.</td></tr></tbody></table></div>
+<h3>Transforms</h3>
+<p>Rotation is applied around the local origin in X → Y → Z order, followed by translation. Angles are degrees. Design around a meaningful origin before rotating; translation is not a change of rotation pivot. For example:</p>
+<div class="code-block">
+<div class="code-bar"><span>JSON · Transform</span><button class="copy-code" type="button" aria-label="Copy JSON · Transform">Copy</button></div>
 <pre><code>"transform": {
   "rotate_deg": [0, 90, 0],
   "translate": [0, 25, 0]
 }</code></pre>
-<table><thead><tr><th>Material type</th><th>Fields and use</th></tr></thead><tbody><tr><td>pec</td><td>Perfect electric conductor. Ideal reference for metal geometry; no ohmic loss.</td></tr><tr><td>dielectric</td><td>epsilon (relative permittivity), optional kappa_s_per_m (conductivity). Use measured substrate properties at the working frequency.</td></tr><tr><td>conductive</td><td>conductivity_s_per_m. Bulk lossy conductor; GHz skin depth may be far smaller than the grid.</td></tr><tr><td>conducting_sheet</td><td>conductivity_s_per_m, thickness_m (metres, not mm). Use a zero-thickness box; e.g. 35 µm = 0.000035 m.</td></tr></tbody></table>
-<p class="note">PEC is useful for early antenna comparisons. A copper conductivity value alone does not guarantee accurate conductor loss; validate skin-depth treatment, thickness and mesh convergence. A visual joint is not necessarily an electrical joint after discretization.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="feeds"><h2>Ports and electrical connectivity</h2><p>Every simulation must have exactly one excited port. Additional passive ports can represent loads where supported, but a run does not produce a full multiport S matrix. Each port needs a unique ID and must lie inside the computational domain.</p>
-<table><thead><tr><th>Type</th><th>Configuration</th></tr></thead><tbody><tr><td>lumped</td><td>start, stop, direction (x/y/z), impedance_ohm (typically 50), excite. Model a gap between the two terminals, with the axis aligned to the applied electric field.</td></tr><tr><td>coaxial</td><td>start/stop, propagation_direction, PEC metal_material, optional dielectric_material, inner_radius, outer_inner_radius, outer_radius. Radii must be strictly increasing.</td></tr><tr><td>msl</td><td>start/stop, PEC metal_material, propagation_direction and excitation_direction. Model the strip, dielectric and reference ground correctly.</td></tr></tbody></table>
+</div>
+<div class="table-wrap"><table><thead><tr><th>Material type</th><th>Fields and use</th></tr></thead><tbody><tr><td>pec</td><td>Perfect electric conductor. Ideal reference for metal geometry; no ohmic loss.</td></tr><tr><td>dielectric</td><td>epsilon (relative permittivity), optional kappa_s_per_m (conductivity). Use measured substrate properties at the working frequency.</td></tr><tr><td>conductive</td><td>conductivity_s_per_m. Bulk lossy conductor; GHz skin depth may be far smaller than the grid.</td></tr><tr><td>conducting_sheet</td><td>conductivity_s_per_m, thickness_m (metres, not mm). Use a zero-thickness box; e.g. 35 µm = 0.000035 m.</td></tr></tbody></table></div>
+<p class="note">PEC is useful for early antenna comparisons. A copper conductivity value alone does not guarantee accurate conductor loss; validate skin-depth treatment, thickness and mesh convergence. A visual joint is not necessarily an electrical joint after discretization.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#feeds">Next: Ports and electrical connectivity →</a></div>
+</section>
+
+<section class="section" id="feeds" aria-labelledby="feeds-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">04</span><h2 id="feeds-title">Ports and electrical connectivity</h2></div>
+  <p>Every simulation must have exactly one excited port. Additional passive ports can represent loads where supported, but a run does not produce a full multiport S matrix. Each port needs a unique ID and must lie inside the computational domain.</p>
+<div class="table-wrap"><table><thead><tr><th>Type</th><th>Configuration</th></tr></thead><tbody><tr><td>lumped</td><td>start, stop, direction (x/y/z), impedance_ohm (typically 50), excite. Model a gap between the two terminals, with the axis aligned to the applied electric field.</td></tr><tr><td>coaxial</td><td>start/stop, propagation_direction, PEC metal_material, optional dielectric_material, inner_radius, outer_inner_radius, outer_radius. Radii must be strictly increasing.</td></tr><tr><td>msl</td><td>start/stop, PEC metal_material, propagation_direction and excitation_direction. Model the strip, dielectric and reference ground correctly.</td></tr></tbody></table></div>
 <p>Browser/WASM currently supports lumped ports. Use the native simulation path for coaxial or MSL configurations; the remote API receives resolved configurations, not generator or script source.</p>
 <figure><svg viewBox="0 0 560 190" role="img" aria-label="Dipole with two conducting arms and an axial lumped port crossing the insulating gap" style="max-width:560px"><rect x="252" y="10" width="56" height="65" rx="3" fill="#0d9488"/><rect x="252" y="115" width="56" height="65" rx="3" fill="#0d9488"/><path d="M280 75V115" stroke="#f59e0b" stroke-width="5"/><path d="M275 83L280 75L285 83" fill="none" stroke="#f59e0b" stroke-width="2"/><path d="M310 75H355M310 115H355" stroke="currentColor" stroke-dasharray="4 3"/><text x="362" y="80" fill="currentColor" font-size="13">Terminal +</text><text x="362" y="120" fill="currentColor" font-size="13">Terminal −</text><text x="15" y="100" fill="currentColor" font-size="13">Lumped port across gap</text><path d="M170 95H268" stroke="currentColor"/><text x="318" y="35" fill="currentColor" font-size="13">PEC arm</text><text x="318" y="165" fill="currentColor" font-size="13">PEC arm</text></svg><figcaption>Example dipole: port terminals touch opposite conductors without a metal bridge across the gap. The arrow represents the chosen axis, not a universal polarity convention.</figcaption></figure>
-<p>For a 2 mm feed gap along Z, a centered port may run from [0,0,-1] to [0,0,1]. Both arms should meet their respective end faces. Confirm the actual mesh samples both terminals; avoid relying on tangent point contacts of curved conductors. An intentional capacitive coupling design is different from a missing galvanic contact and needs independent validation.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="parameters"><h2>Parameters, expressions and sweeps</h2><p>Numeric fields accept literals, parameter names and numeric expressions. A parameter is a scalar. Define it once, reuse it in geometry, ports, mesh or other numeric fields, then adjust it with Params. Parameter renames update references. The resolved case substitutes numbers without destroying the editable source.</p>
+<p>For a 2 mm feed gap along Z, a centered port may run from [0,0,-1] to [0,0,1]. Both arms should meet their respective end faces. Confirm the actual mesh samples both terminals; avoid relying on tangent point contacts of curved conductors. An intentional capacitive coupling design is different from a missing galvanic contact and needs independent validation.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#parameters">Next: Parameters, expressions and sweeps →</a></div>
+</section>
+
+<section class="section" id="parameters" aria-labelledby="parameters-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">05</span><h2 id="parameters-title">Parameters, expressions and sweeps</h2></div>
+  <p>Numeric fields accept literals, parameter names and numeric expressions. A parameter is a scalar. Define it once, reuse it in geometry, ports, mesh or other numeric fields, then adjust it with Params. Parameter renames update references. The resolved case substitutes numbers without destroying the editable source.</p>
+<div class="code-block">
+<div class="code-bar"><span>JSON · Parameters and geometry</span><button class="copy-code" type="button" aria-label="Copy JSON · Parameters and geometry">Copy</button></div>
 <pre><code>"parameters": {"L": 58, "gap": 2, "spacing": 0.2},
 "geometry": [
   {"name": "director", "material": "pec", "shape": "cylinder",
@@ -28,16 +301,30 @@
    "stop": [0, {"$expr": "spacing*L"}, {"$expr": "0.94*L/2"}],
    "radius": 2}
 ]</code></pre>
+</div>
 <p>This fragment uses driven-element length L as a reference. <code>{"$param":"L"}</code> references a single parameter; <code>{"$expr":"0.94*L"}</code> computes a numeric expression. Grammar: numeric literals, named parameters, + − * / % **, parentheses, min/max/abs/sqrt/sin/cos/tan/floor/ceil, pi/e. Trigonometric functions use radians. No arbitrary JavaScript or Python in expressions.</p>
-<h3>Workspace units</h3><p>More → Workspace units sets display/input units per document. Example inputs: <code>2.45 GHz</code>, <code>2450 MHz</code>, <code>{f_ghz*1000} MHz</code>. A trailing unit applies to the entire expression; mixed-unit arithmetic within expressions is unsupported. Saved values use schema units: mm, Hz, degrees, Ω, S/m, GiB and metres for sheet thickness. Parameters and sweep axes remain scalars.</p>
-<h3>Sweep workflow</h3><pre><code>"sweep": {
+<h3>Workspace units</h3>
+<p>More → Workspace units sets display/input units per document. Example inputs: <code>2.45 GHz</code>, <code>2450 MHz</code>, <code>{f_ghz*1000} MHz</code>. A trailing unit applies to the entire expression; mixed-unit arithmetic within expressions is unsupported. Saved values use schema units: mm, Hz, degrees, Ω, S/m, GiB and metres for sheet thickness. Parameters and sweep axes remain scalars.</p>
+<h3>Sweep workflow</h3>
+<div class="code-block">
+<div class="code-bar"><span>JSON · Sweep</span><button class="copy-code" type="button" aria-label="Copy JSON · Sweep">Copy</button></div>
+<pre><code>"sweep": {
   "mode": "product",
   "parameters": {
     "L": {"values": [56, 58, 60]},
     "spacing": {"range": {"start": 0.15, "stop": 0.25, "step": 0.05}}
   }
-}</code></pre><p>Product produces all combinations: this example yields 3 × 3 = 9 cases. Zip pairs equal-length axes by index. Ranges include the stop only if a step reaches it. The schema permits up to 128 cases, but a coarse 9–16-case sweep is a sensible first pass. Use the case selector to inspect resolved geometry, then Run case, per-row Start, or Run all. Refine the best area with a narrower second sweep. Use Array… to repeat an object at an expression-defined step when topology is fixed.</p>
-<p>Rank cases against a consistent frequency band and objective: match, realized gain, efficiency, front-to-back ratio, size or another engineering constraint. Do not select on peak directivity alone.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="scripts"><h2>Scripted geometry</h2><p>Use Scripts for repeated or variable-topology geometry such as Yagi directors, radial wires, arrays, meanders or coils. A script declares typed arguments and a generate function that returns CSXCAD primitives. Create an instance through the Model add controls; its inspector is generated from the declaration.</p>
+}</code></pre>
+</div><p>Product produces all combinations: this example yields 3 × 3 = 9 cases. Zip pairs equal-length axes by index. Ranges include the stop only if a step reaches it. The schema permits up to 128 cases, but a coarse 9–16-case sweep is a sensible first pass. Use the case selector to inspect resolved geometry, then Run case, per-row Start, or Run all. Refine the best area with a narrower second sweep. Use Array… to repeat an object at an expression-defined step when topology is fixed.</p>
+<p>Rank cases against a consistent frequency band and objective: match, realized gain, efficiency, front-to-back ratio, size or another engineering constraint. Do not select on peak directivity alone.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#scripts">Next: Scripted geometry →</a></div>
+</section>
+
+<section class="section" id="scripts" aria-labelledby="scripts-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">06</span><h2 id="scripts-title">Scripted geometry</h2></div>
+  <p>Use Scripts for repeated or variable-topology geometry such as Yagi directors, radial wires, arrays, meanders or coils. A script declares typed arguments and a generate function that returns CSXCAD primitives. Create an instance through the Model add controls; its inspector is generated from the declaration.</p>
+<div class="code-block">
+<div class="code-bar"><span>JavaScript · Geometry script</span><button class="copy-code" type="button" aria-label="Copy JavaScript · Geometry script">Copy</button></div>
 <pre><code>const args = {
   center: {type: "point", default: [0, 0, 0]},
   count: {type: "int", default: 3, min: 1, max: 20},
@@ -57,11 +344,22 @@ function generate(a) {
     radius: a.radius
   }));
 }</code></pre>
+</div>
 <p>Argument types: point, vector, length, number, int, angle, material, choice, bool. Optional declaration keys include default, label, hint, more, step, min, max, options (choice) and handle (length/number gizmo). A point can be manipulated by the XYZ gizmo. A handle can specify <code>{from:"center", dir:[0,1,0], scale:1}</code>. Use Copy as new script to customize a built-in; built-in names are reserved.</p>
-<p>Scripts are stored under <code>scripts.&lt;name&gt;.source</code>. Instances use name, script and args; generated primitives receive instance-prefixed names. The editor uses a worker with a two-second script limit; the native pipeline uses the shared JavaScript expansion code and Node.js. Remote jobs receive already-expanded primitives. Use only trusted code. The Python generator option is for native repository runs: generated geometry is not available for editing/simulating directly in the browser.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="mesh"><h2>Simulation domain and mesh</h2><p>FDTD divides the domain into a rectilinear grid. Field updates occur in every cell, so a finer mesh can increase both cell count and the number of timesteps. Domain bounds, local feed features and material wavelengths all matter.</p>
-<h3>Domain and boundaries</h3><p>Set Start and Stop XYZ to enclose all geometry, sources and the required free-space margin. Boundary order is X−, X+, Y−, Y+, Z−, Z+. PML_8 (eight absorbing layers) is a reasonable open-space default; PML_6/PML_4 use fewer layers. MUR is an alternative absorbing boundary. PEC and PMC are ideal electric/magnetic walls; use symmetry only when excitation and geometry justify it. Keep structures and the NF2FF surface away from absorbing cells. At 2.45 GHz free-space λ is about 122 mm; roughly λ/4 clear space is a useful initial margin, not a universal requirement or substitute for checking PML clearance.</p>
-<table><thead><tr><th>Mesh setting</th><th>Effect</th></tr></thead><tbody><tr><td>Max cell / max_cell_mm</td><td>Maximum target global cell width; begin around λmin/10 to λmin/20 in the highest-permittivity region, then verify convergence. Features can be smaller.</td></tr><tr><td>Growth ratio / growth_ratio</td><td>Limits grading between neighbouring cells; valid range 1.01–2. Smaller ratios grade more gently, potentially adding cells.</td></tr><tr><td>Max cells / max_cells</td><td>Safety budget for total cells, not a target. Nx × Ny × Nz gives the cell count.</td></tr><tr><td>Local min cell / local_min_cell_mm</td><td>Optional automatic fine target near small features. auto_refine_max_span_mm limits which features qualify.</td></tr><tr><td>Grid mode / grid_mode</td><td>Feature: geometry/port planes plus graded refinements. Uniform: equal spacing per axis chosen from uniform_step_mm (or global max); ignores local refinement boxes.</td></tr></tbody></table>
-<h3>Refinement boxes</h3><p>Simulation → Refinements → + Box or + Around feed. Around feed uses the current case, 5 mm padding and 0.25 mm resolution as a starting point. Set Start/Stop, Resolution and optionally Edit in 3D. The purple box can be manipulated using its corners. An enabled refinement needs Stop &gt; Start on every axis.</p>
+<p>Scripts are stored under <code>scripts.&lt;name&gt;.source</code>. Instances use name, script and args; generated primitives receive instance-prefixed names. The editor uses a worker with a two-second script limit; the native pipeline uses the shared JavaScript expansion code and Node.js. Remote jobs receive already-expanded primitives. Use only trusted code. The Python generator option is for native repository runs: generated geometry is not available for editing/simulating directly in the browser.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#mesh">Next: Simulation domain and mesh →</a></div>
+</section>
+
+<section class="section" id="mesh" aria-labelledby="mesh-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">07</span><h2 id="mesh-title">Simulation domain and mesh</h2></div>
+  <p>FDTD divides the domain into a rectilinear grid. Field updates occur in every cell, so a finer mesh can increase both cell count and the number of timesteps. Domain bounds, local feed features and material wavelengths all matter.</p>
+<h3>Domain and boundaries</h3>
+<p>Set Start and Stop XYZ to enclose all geometry, sources and the required free-space margin. Boundary order is X−, X+, Y−, Y+, Z−, Z+. PML_8 (eight absorbing layers) is a reasonable open-space default; PML_6/PML_4 use fewer layers. MUR is an alternative absorbing boundary. PEC and PMC are ideal electric/magnetic walls; use symmetry only when excitation and geometry justify it. Keep structures and the NF2FF surface away from absorbing cells. At 2.45 GHz free-space λ is about 122 mm; roughly λ/4 clear space is a useful initial margin, not a universal requirement or substitute for checking PML clearance.</p>
+<div class="table-wrap"><table><thead><tr><th>Mesh setting</th><th>Effect</th></tr></thead><tbody><tr><td>Max cell / max_cell_mm</td><td>Maximum target global cell width; begin around λmin/10 to λmin/20 in the highest-permittivity region, then verify convergence. Features can be smaller.</td></tr><tr><td>Growth ratio / growth_ratio</td><td>Limits grading between neighbouring cells; valid range 1.01–2. Smaller ratios grade more gently, potentially adding cells.</td></tr><tr><td>Max cells / max_cells</td><td>Safety budget for total cells, not a target. Nx × Ny × Nz gives the cell count.</td></tr><tr><td>Local min cell / local_min_cell_mm</td><td>Optional automatic fine target near small features. auto_refine_max_span_mm limits which features qualify.</td></tr><tr><td>Grid mode / grid_mode</td><td>Feature: geometry/port planes plus graded refinements. Uniform: equal spacing per axis chosen from uniform_step_mm (or global max); ignores local refinement boxes.</td></tr></tbody></table></div>
+<h3>Refinement boxes</h3>
+<p>Simulation → Refinements → + Box or + Around feed. Around feed uses the current case, 5 mm padding and 0.25 mm resolution as a starting point. Set Start/Stop, Resolution and optionally Edit in 3D. The purple box can be manipulated using its corners. An enabled refinement needs Stop &gt; Start on every axis.</p>
+<div class="code-block">
+<div class="code-bar"><span>JSON · Mesh settings</span><button class="copy-code" type="button" aria-label="Copy JSON · Mesh settings">Copy</button></div>
 <pre><code>"mesh": {
   "max_cell_mm": 5, "growth_ratio": 1.4,
   "max_cells": 5000000,
@@ -70,39 +368,80 @@ function generate(a) {
     {"start": [-2,-2,-2], "stop": [2,2,2], "resolution_mm": 0.25}
   ]
 }</code></pre>
+</div>
 <figure><svg viewBox="0 0 560 220" role="img" aria-label="Rectilinear mesh with vertical and horizontal fine grid lines extending beyond a highlighted local refinement box" style="max-width:560px"><defs><pattern id="coarse" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="currentColor" opacity=".3"/></pattern></defs><rect x="20" y="20" width="520" height="180" fill="url(#coarse)" stroke="currentColor" opacity=".85"/><rect x="220" y="80" width="120" height="60" fill="#8b5cf6" fill-opacity=".18" stroke="#8b5cf6" stroke-width="2" stroke-dasharray="5 3"/><g stroke="#8b5cf6" opacity=".65"><path d="M230 20V200 M240 20V200 M250 20V200 M260 20V200 M270 20V200 M280 20V200 M290 20V200 M300 20V200 M310 20V200 M320 20V200 M330 20V200 M20 90H540 M20 100H540 M20 110H540 M20 120H540 M20 130H540"/></g></svg><figcaption>Conceptual XY slice, not solver output: the fine grid lines pass through the entire axis. The box selects axis intervals; it does not create an independent 3D subgrid.</figcaption></figure>
 <p>In feature mode, regions with a spacing equal to or larger than the global target are ignored. Where regions overlap an axis interval, the finest requested spacing wins; protected geometry/port planes are retained and transitions are smoothed. Refinements are not layered duplicate grids. Close protected planes can still force extremely small intervals. The fine X, Y and Z lines extend across their full axes because openEMS uses a rectilinear grid.</p>
-<h3>Inspect the actual grid</h3><p>Enable Mesh in the viewport, pick a plane, move Slice to the feed, and use Min cell to locate the smallest interval. Inspect grid spacing, contacts and PML. Browser mode offers <strong>Validate mesh / export PEC</strong> to perform operator setup without full FDTD and download discretized PEC edges as VTP. Inspect the actual metal representation rather than only the smooth CAD preview.</p>
-<p class="note"><strong>Smallest cell controls timestep:</strong> the Courant stability condition depends on the smallest spacings. A single sliver may force many updates for the same physical time. If a timestep warning appears, inspect the minimum cell, near-coincident planes and overly aggressive refinements. Do not simply increase max timesteps or remove all local feed resolution.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="solver"><h2>Excitation, solver and outputs</h2><p>The Gaussian excitation supplies a frequency band around center_hz. bandwidth_hz is the half-width (fc), so the nominal band is center ± bandwidth. Put requested S11 frequencies inside this band and ensure useful incident energy at radiation frequencies. An S11 frequency grid is post-processing of a broadband time-domain run, not a separate FDTD run for every sample.</p>
-<table><thead><tr><th>Setting</th><th>Meaning</th></tr></thead><tbody><tr><td>max_timesteps</td><td>Hard limit on updates. Larger values allow more simulated time but may cost more CPU.</td></tr><tr><td>end_criteria</td><td>Energy-decay stopping threshold; 0.0001 is a useful starting point. Smaller is stricter; resonant models may need longer.</td></tr><tr><td>outputs.s11</td><td>One or more inclusive start/step/end sweeps in Hz.</td></tr><tr><td>radiation_frequencies_hz</td><td>Frequencies at which NF2FF (near-to-far-field transformation) is requested.</td></tr><tr><td>radiation_grid</td><td>theta_step_deg and phi_step_deg. Smaller angle steps increase far-field sampling and output size; not FDTD mesh resolution.</td></tr><tr><td>include_impedance / include_realized_gain / include_polarization</td><td>Optional output quantities, when supported by the chosen solver path.</td></tr></tbody></table>
+<h3>Inspect the actual grid</h3>
+<p>Enable Mesh in the viewport, pick a plane, move Slice to the feed, and use Min cell to locate the smallest interval. Inspect grid spacing, contacts and PML. Browser mode offers <strong>Validate mesh / export PEC</strong> to perform operator setup without full FDTD and download discretized PEC edges as VTP. Inspect the actual metal representation rather than only the smooth CAD preview.</p>
+<p class="note"><strong>Smallest cell controls timestep:</strong> the Courant stability condition depends on the smallest spacings. A single sliver may force many updates for the same physical time. If a timestep warning appears, inspect the minimum cell, near-coincident planes and overly aggressive refinements. Do not simply increase max timesteps or remove all local feed resolution.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#solver">Next: Excitation, solver and outputs →</a></div>
+</section>
+
+<section class="section" id="solver" aria-labelledby="solver-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">08</span><h2 id="solver-title">Excitation, solver and outputs</h2></div>
+  <p>The Gaussian excitation supplies a frequency band around center_hz. bandwidth_hz is the half-width (fc), so the nominal band is center ± bandwidth. Put requested S11 frequencies inside this band and ensure useful incident energy at radiation frequencies. An S11 frequency grid is post-processing of a broadband time-domain run, not a separate FDTD run for every sample.</p>
+<div class="table-wrap"><table><thead><tr><th>Setting</th><th>Meaning</th></tr></thead><tbody><tr><td>max_timesteps</td><td>Hard limit on updates. Larger values allow more simulated time but may cost more CPU.</td></tr><tr><td>end_criteria</td><td>Energy-decay stopping threshold; 0.0001 (−40 dB relative energy) is the supplied Yagi criterion; 0.000001 (−60 dB) is a stricter alternative. Smaller is stricter; resonant models may need longer. The single End criteria field accepts a bare linear ratio (0.0001) or a number with an explicit dB suffix (-40 dB or -40dB). JSON stores the linear ratio, not mW or dBm. If convergence occurs before excitation finishes, tighten to −60 dB (or 10 dB below an already stricter threshold), rerun and verify excitation completion and energy convergence. If the timestep limit is reached instead, increase max_timesteps.</td></tr><tr><td>outputs.s11</td><td>One or more inclusive start/step/end sweeps in Hz.</td></tr><tr><td>radiation_frequencies_hz</td><td>Frequencies at which NF2FF (near-to-far-field transformation) is requested.</td></tr><tr><td>radiation_grid</td><td>theta_step_deg and phi_step_deg. Smaller angle steps increase far-field sampling and output size; not FDTD mesh resolution.</td></tr><tr><td>include_impedance / include_realized_gain / include_polarization</td><td>Optional output quantities, when supported by the chosen solver path.</td></tr></tbody></table></div>
+<div class="code-block">
+<div class="code-bar"><span>JSON · Solver and outputs</span><button class="copy-code" type="button" aria-label="Copy JSON · Solver and outputs">Copy</button></div>
 <pre><code>"excitation": {"center_hz": 2450000000, "bandwidth_hz": 350000000},
-"solver": {"max_timesteps": 20000, "end_criteria": 0.0001},
+"solver": {"max_timesteps": 100000, "end_criteria": 0.000001},
 "outputs": {
   "s11": [{"start": 2300000000, "step": 10000000, "end": 2600000000}],
   "radiation_frequencies_hz": [2450000000],
   "radiation_grid": {"theta_step_deg": 5, "phi_step_deg": 5},
   "include_impedance": true, "include_realized_gain": true
 }</code></pre>
-<p>Reaching the timestep cap is not proof of convergence. Inspect residual energy, waveforms and incident spectrum; repeat with finer mesh, adequate domain and a stricter/longer run until the quantities of interest stabilize.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="runners"><h2>Browser, remote and native runners</h2><table><thead><tr><th>Runner</th><th>When to use</th></tr></thead><tbody><tr><td>Browser</td><td>Local WASM openEMS, lumped-port cases. No model upload. CPU engine (experimental) is default; Basic remains selectable. Requires isolation and SharedArrayBuffer.</td></tr><tr><td>Remote</td><td>Native openEMS on your Linux/WSL2 Docker host. Sends resolved input, polls logs/results and displays them in the same editor. Useful for mobile and large sweeps.</td></tr><tr><td>Native CLI / CI</td><td>Repository scripts, trusted Python generators, native ports and batch execution. CI CPU/memory metadata is separate from the remote CPU-only budget.</td></tr></tbody></table>
-<h3>Remote installation</h3><pre><code>git clone https://github.com/winject-wireless/radiators.git
+</div>
+<p>Reaching the timestep cap is not proof of convergence. If the run ends before excitation completes, tighten the energy criterion (for example, from 1e-4 to 1e-6) and rerun; increasing the cap alone does not prevent premature convergence. Inspect residual energy, waveforms and incident spectrum; repeat with finer mesh, adequate domain and a stricter/longer run until the quantities of interest stabilize.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#runners">Next: Browser, remote and native runners →</a></div>
+</section>
+
+<section class="section" id="runners" aria-labelledby="runners-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">09</span><h2 id="runners-title">Browser, remote and native runners</h2></div>
+  <div class="table-wrap"><table><thead><tr><th>Runner</th><th>When to use</th></tr></thead><tbody><tr><td>Browser</td><td>Local WASM openEMS, lumped-port cases. No model upload. CPU engine (experimental) is default; Basic remains selectable. Requires isolation and SharedArrayBuffer.</td></tr><tr><td>Remote</td><td>Native openEMS on your Linux/WSL2 Docker host. Sends resolved input, polls logs/results and displays them in the same editor. Useful for mobile and large sweeps.</td></tr><tr><td>Native CLI / CI</td><td>Repository scripts, trusted Python generators, native ports and batch execution. CI CPU/memory metadata is separate from the remote CPU-only budget.</td></tr></tbody></table></div>
+<h3>Remote installation</h3>
+<div class="code-block">
+<div class="code-bar"><span>Shell · Start remote runner</span><button class="copy-code" type="button" aria-label="Copy Shell · Start remote runner">Copy</button></div>
+<pre><code>git clone https://github.com/winject-wireless/radiators.git
 cd radiators
 ./run-remote.sh
 # In another terminal:
 ./run-remote.sh --print-token</code></pre>
+</div>
 <p>Requires Linux or WSL2, Bash, Python 3.10+ and Docker. The launcher builds/reuses the native solver image and creates private configuration at ~/.config/radiators-runner/config.json (or XDG_CONFIG_HOME). In Simulation select Remote, enter http://localhost:8765 for the same host or your trusted HTTPS hostname for another device, paste the access token and Test connection.</p>
 <p>For Android or another machine use a trusted HTTPS endpoint, e.g. a reverse proxy forwarding to 127.0.0.1:8765. Set allowed origins to the exact editor origin (the hosted app is https://winject-wireless.github.io). Plain HTTP LAN access is not supported. Keep the token private; it authorizes all jobs and stays in editor memory until reload. See <a href="https://github.com/winject-wireless/radiators/blob/main/docs/remote-runner.md">remote runner deployment guide</a> for TLS, configuration and systemd startup.</p>
-<h3>CPU allocation</h3><p>ncpu_pool is the total CPU budget; ncpu_per_job is each job's CPU request. Maximum concurrent cases is floor(pool / per job), limited by available cases and runner capacity. For example, 16 / 2 = 8 concurrent cases. Remote max_cpus is the aggregate server cap; Docker enforces per-job CPU quotas, not a RAM or swap quota. Host RAM can still run out. Native CI resource requests under solver.resources are not browser or remote RAM limits.</p>
+<h3>CPU allocation</h3>
+<p>ncpu_pool is the total CPU budget; ncpu_per_job is each job's CPU request. Maximum concurrent cases is floor(pool / per job), limited by available cases and runner capacity. For example, 16 / 2 = 8 concurrent cases. Remote max_cpus is the aggregate server cap; Docker enforces per-job CPU quotas, not a RAM or swap quota. Host RAM can still run out. Native CI resource requests under solver.resources are not browser or remote RAM limits.</p>
 <p>Run case executes the selected case; Start on a case row starts it if resources allow; Run all queues the snapshot of resolved sweep cases. Completed cases appear independently in Results. A failed case does not block the rest. Stop cancels remaining work and retains completed results; an early-stopped browser run can produce partial output. Inspect status and logs before treating any result as valid.</p>
 <p>Remote jobs require status polling. The default job lease is 300 seconds; backgrounding or closing the editor can suspend polling, leading to cancellation. The server's temporary result retention is not durable across restart or eviction. Download finished results; update the runner checkout if newer diagnostic results are missing.</p>
-<h3>Native CLI example</h3><pre><code>docker build -t radiators-openems:ci -f docker/openems/Dockerfile .
+<h3>Native CLI example</h3>
+<div class="code-block">
+<div class="code-bar"><span>Shell · Native simulation</span><button class="copy-code" type="button" aria-label="Copy Shell · Native simulation">Copy</button></div>
+<pre><code>docker build -t radiators-openems:ci -f docker/openems/Dockerfile .
 docker run --rm -v "$PWD:/work" radiators-openems:ci \
-  python antennas/simulate.py examples/dipole_2450.json \
-  --output results/dipole_2450</code></pre><p>To list expanded cases without solving: <code>python3 scripts/sweep.py examples/helix_sweep.json</code>. See the <a href="https://github.com/winject-wireless/radiators/blob/main/antennas/README.md">native schema and simulation guide</a> for CI and generators.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="results"><h2>Interpret simulation results</h2><p>Results lists the selected case's available frequency-response charts, far-field patterns and diagnostics. For a sweep, the fixed case selector and mobile left/right swipe change results without changing the source geometry definition. Select a frequency in the viewport for the radiation surface.</p>
-<table><thead><tr><th>Metric</th><th>Interpretation</th></tr></thead><tbody><tr><td>S11 (dB)</td><td>20 log10 |Γ|. More negative means less reflected power at the reference impedance; −10 dB is a common matching threshold (10% reflected power).</td></tr><tr><td>VSWR</td><td>(1+|Γ|)/(1−|Γ|). 1:1 is ideal; −10 dB corresponds to about 1.92:1. Very large values indicate near-total reflection.</td></tr><tr><td>Zin = R + jX</td><td>Input impedance in ohms. R is resistance; X is reactance. X≈0 is resonance, not necessarily a good match. For a 50 Ω port, aim for R≈50 Ω and X≈0.</td></tr><tr><td>Directivity (dBi)</td><td>Angular concentration of radiated power relative to an isotropic radiator; excludes conductor/dielectric loss and mismatch.</td></tr><tr><td>Radiation efficiency ηrad</td><td>Radiated power / accepted power. Ideal PEC often approaches unity; nonphysical values warrant checking convergence and normalization.</td></tr><tr><td>Mismatch efficiency ηm</td><td>1−|Γ|² for the active port, under the usual real reference impedance.</td></tr><tr><td>Gain / realized gain (dBi)</td><td>Gain = directivity × ηrad; realized gain = gain × ηm (linear factors). In dB add 10 log10 of each efficiency.</td></tr><tr><td>Normalized E-field</td><td>Relative field magnitude by direction, not absolute received strength at a physical distance.</td></tr></tbody></table>
+  python antennas/simulate.py examples/parametric_yagi.json \
+  --output results/parametric_yagi</code></pre>
+</div><p>To list expanded cases without solving: <code>python3 scripts/sweep.py tests/fixtures/helix_sweep.json</code>. See the <a href="https://github.com/winject-wireless/radiators/blob/main/antennas/README.md">native schema and simulation guide</a> for CI and generators.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#results">Next: Interpret simulation results →</a></div>
+</section>
+
+<section class="section" id="results" aria-labelledby="results-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">10</span><h2 id="results-title">Interpret simulation results</h2></div>
+  <p>Results lists the selected case's available frequency-response charts, far-field patterns and diagnostics. For a sweep, the fixed case selector and mobile left/right swipe change results without changing the source geometry definition. Select a frequency in the viewport for the radiation surface.</p>
+<div class="table-wrap"><table><thead><tr><th>Metric</th><th>Interpretation</th></tr></thead><tbody><tr><td>S11 (dB)</td><td>20 log10 |Γ|. More negative means less reflected power at the reference impedance; −10 dB is a common matching threshold (10% reflected power).</td></tr><tr><td>VSWR</td><td>(1+|Γ|)/(1−|Γ|). 1:1 is ideal; −10 dB corresponds to about 1.92:1. Very large values indicate near-total reflection.</td></tr><tr><td>Zin = R + jX</td><td>Input impedance in ohms. R is resistance; X is reactance. X≈0 is resonance, not necessarily a good match. For a 50 Ω port, aim for R≈50 Ω and X≈0.</td></tr><tr><td>Directivity (dBi)</td><td>Angular concentration of radiated power relative to an isotropic radiator; excludes conductor/dielectric loss and mismatch.</td></tr><tr><td>Radiation efficiency ηrad</td><td>Radiated power / accepted power. Ideal PEC often approaches unity; nonphysical values warrant checking convergence and normalization.</td></tr><tr><td>Mismatch efficiency ηm</td><td>1−|Γ|² for the active port, under the usual real reference impedance.</td></tr><tr><td>Gain / realized gain (dBi)</td><td>Gain = directivity × ηrad; realized gain = gain × ηm (linear factors). In dB add 10 log10 of each efficiency.</td></tr><tr><td>Normalized E-field</td><td>Relative field magnitude by direction, not absolute received strength at a physical distance.</td></tr></tbody></table></div>
 <p>Example: 10 dBi directivity, 80% radiation efficiency and −10 dB S11 give approximately 8.57 dBi realized gain. Compare designs at the same frequency and reference impedance.</p>
-<h3>Radiation view</h3><p>Toggle XY/YZ/XZ intersections independently. Follow point moves the enabled planes through the yellow sampling point; hiding it resets the planes to the origin. Select Sampling point or click its marker to use the translation gizmo. Reset returns to the peak direction. Point details reports angles, directional directivity/gain/realized gain and normalized E magnitude. The plot is angular far field: displayed millimetre radius is illustrative, not propagation distance or a near-field map. Theta is measured from +Z; phi is the azimuth in the XY plane.</p>
-<p>For a free-space dipole, expect a broadside maximum and nulls along its axis. For a Yagi, compare forward and backward gain and the principal cuts, not just the lobe appearance. A good pattern with very low R can still have poor realized gain into a 50 Ω system.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="diagnostics"><h2>Diagnostic probes and field playback</h2><p>Add passive diagnostics in Model → Diagnostics to investigate current distribution, feed behaviour or local fields. These are different from ports and far-field sampling.</p>
-<table><thead><tr><th>Probe</th><th>Purpose</th></tr></thead><tbody><tr><td>Current</td><td>Planar cross-section with chosen positive normal; use same reference direction and comparable area when comparing parasitic currents. Flatten to plane repairs a thick box.</td></tr><tr><td>Voltage</td><td>Axis-aligned line with direction as reference.</td></tr><tr><td>E/H point</td><td>Three vector components at a single XYZ location.</td></tr><tr><td>Field dump</td><td>Plane/volume for E, H, J, J_total, D or B. J_total includes displacement current (curl H), not surface current.</td></tr></tbody></table>
+<h3>Radiation view</h3>
+<p>Toggle XY/YZ/XZ intersections independently. Follow point moves the enabled planes through the yellow sampling point; hiding it resets the planes to the origin. Select Sampling point or click its marker to use the translation gizmo. Reset returns to the peak direction. Point details reports angles, directional directivity/gain/realized gain and normalized E magnitude. The plot is angular far field: displayed millimetre radius is illustrative, not propagation distance or a near-field map. Theta is measured from +Z; phi is the azimuth in the XY plane.</p>
+<p>For a free-space dipole, expect a broadside maximum and nulls along its axis. For a Yagi, compare forward and backward gain and the principal cuts, not just the lobe appearance. A good pattern with very low R can still have poor realized gain into a 50 Ω system.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#diagnostics">Next: Diagnostic probes and field playback →</a></div>
+</section>
+
+<section class="section" id="diagnostics" aria-labelledby="diagnostics-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">11</span><h2 id="diagnostics-title">Diagnostic probes and field playback</h2></div>
+  <p>Add passive diagnostics in Model → Diagnostics to investigate current distribution, feed behaviour or local fields. These are different from ports and far-field sampling.</p>
+<div class="table-wrap"><table><thead><tr><th>Probe</th><th>Purpose</th></tr></thead><tbody><tr><td>Current</td><td>Planar cross-section with chosen positive normal; use same reference direction and comparable area when comparing parasitic currents. Flatten to plane repairs a thick box.</td></tr><tr><td>Voltage</td><td>Axis-aligned line with direction as reference.</td></tr><tr><td>E/H point</td><td>Three vector components at a single XYZ location.</td></tr><tr><td>Field dump</td><td>Plane/volume for E, H, J, J_total, D or B. J_total includes displacement current (curl H), not surface current.</td></tr></tbody></table></div>
+<div class="code-block">
+<div class="code-bar"><span>JSON · Diagnostic probes</span><button class="copy-code" type="button" aria-label="Copy JSON · Diagnostic probes">Copy</button></div>
 <pre><code>"probes": [
   {"name":"I_driven","type":"current",
    "start":[-5,-5,3],"stop":[5,5,3],"direction":"z"},
@@ -112,28 +451,51 @@ docker run --rm -v "$PWD:/work" radiators-openems:ci \
    "time_domain":{"enabled":true},
    "frequency_domain":{"enabled":true,"frequencies_hz":[2450000000]}}
 ]</code></pre>
+</div>
 <p>Use Results → Diagnostic probes and fields. Play/pause, seek, speed, spatial stride and arrow scale affect visualization only. Recorded time uses actual captured frames; frequency-domain phase animates complex phasors and is not recorded time. Negative scalar values reverse arrows; same-unit arrows use a shared scale. Mesh-snapped probe coordinates may differ from the requested geometry.</p>
-<p>Capture small planes with subsampling before volumes. The diagnostic transport limits dumps to 4096 points each and four million aggregate sample values; native raw files can be much larger. Time capture defaults on; frequency capture is opt-in. Updated native remote runners support diagnostic probe result transport; browser-only mesh validation/PEC export and some solver diagnostic plots are not guaranteed remotely. See <a href="https://github.com/winject-wireless/radiators/blob/main/docs/diagnostic-probes.md">diagnostic schema and examples</a>.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="files"><h2>JSON, local projects and result archives</h2><table><thead><tr><th>Action</th><th>What it does</th></tr></thead><tbody><tr><td>Save JSON</td><td>Download the editable schema-v2 source with parameters, sweep and scripts. This does not include the computed result.</td></tr><tr><td>More → JSON source…</td><td>Source is editable; Format prettifies valid JSON, Apply commits changes, Discard edits abandons pending changes. Resolved is read-only for the current case. Ctrl+Enter applies source edits.</td></tr><tr><td>More → Export resolved case JSON</td><td>Export the numerical case, useful for native reproduction or debugging.</td></tr><tr><td>Save locally / Open local projects…</td><td>Store and reopen named project snapshots on this device. Draft autosave also restores the current workspace; each browser tab keeps its own draft, so two tabs no longer overwrite each other, and the status line says so if a model is too large for the browser's draft quota. Opening an <code>?example=</code> link keeps the draft it replaces as a local project revision.</td></tr>
-<tr><td>More → Clear cached results…</td><td>Delete every cached simulation result on this device (after showing how many and how much space). Saved local projects are kept. Cached results are also evicted automatically, least-recently-used first, so sweeps cannot fill the origin's storage quota.</td></tr><tr><td>Open</td><td>Accepts antenna JSON, result JSON or sweep ZIP. Use the import choice to retain existing results or explicitly replace matching entries.</td></tr><tr><td>Download result.json</td><td>Save the selected available result, including embedded input and radiation records when provided.</td></tr><tr><td>Download sweep ZIP</td><td>Package available case results and sweep metadata/project for later review; incomplete/failed cases may have no result file. Import via Open.</td></tr></tbody></table>
+<p>Capture small planes with subsampling before volumes. The diagnostic transport limits dumps to 4096 points each and four million aggregate sample values; native raw files can be much larger. Time capture defaults on; frequency capture is opt-in. Updated native remote runners support diagnostic probe result transport; browser-only mesh validation/PEC export and some solver diagnostic plots are not guaranteed remotely. See <a href="https://github.com/winject-wireless/radiators/blob/main/docs/diagnostic-probes.md">diagnostic schema and examples</a>.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#files">Next: JSON, local projects and result archives →</a></div>
+</section>
+
+<section class="section" id="files" aria-labelledby="files-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">12</span><h2 id="files-title">JSON, local projects and result archives</h2></div>
+  <div class="table-wrap"><table><thead><tr><th>Action</th><th>What it does</th></tr></thead><tbody><tr><td>Save JSON</td><td>Download the editable schema-v2 source with parameters, sweep and scripts. This does not include the computed result.</td></tr><tr><td>More → JSON source…</td><td>Source is editable; Format prettifies valid JSON, Apply commits changes, Discard edits abandons pending changes. Resolved is read-only for the current case. Ctrl+Enter applies source edits.</td></tr><tr><td>More → Export resolved case JSON</td><td>Export the numerical case, useful for native reproduction or debugging.</td></tr><tr><td>Save locally / Open local projects…</td><td>Store and reopen named project snapshots on this device. Use the trash icon beside a saved revision and confirm to delete it; the open draft and shared result cache are retained. Explicit Save locally can restore a deleted revision. Draft autosave also restores the current workspace; each browser tab keeps its own draft, so two tabs no longer overwrite each other, and the status line says so if a model is too large for the browser's draft quota. Opening an <code>?example=</code> link keeps the draft it replaces as a local project revision.</td></tr><tr><td>More → Clear cached results…</td><td>Delete every cached simulation result on this device (after showing how many and how much space). Saved local projects are kept. Cached results are also evicted automatically, least-recently-used first, so sweeps cannot fill the origin's storage quota.</td></tr><tr><td>Open</td><td>Accepts antenna JSON, result JSON or sweep ZIP. Use the import choice to retain existing results or explicitly replace matching entries.</td></tr><tr><td>Download result.json</td><td>Save the selected available result, including embedded input and radiation records when provided.</td></tr><tr><td>Download sweep ZIP</td><td>Package available case results and sweep metadata/project for later review; incomplete/failed cases may have no result file. Import via Open.</td></tr></tbody></table></div>
 <p>Successful results are cached in IndexedDB by a hash of the exact resolved input together with a model version and the openEMS wasm build, so a new mesher, model builder or solver never returns an older build's result as valid. Changing an electrical input creates a different case identity; editing does not make an old result valid for the new case. Reopening the same exact resolved case can restore the cached result. A failed, aborted or incomplete rerun should not replace a valid retained result. Workspace display units do not change the electrical cache key.</p>
-<p class="note">Local storage is per browser/profile/origin, not cloud sync or a permanent backup. Private browsing, clearing site data, storage quotas or browser eviction may remove local files. Keep JSON and ZIP backups. Avoid leaving unapplied JSON edits when navigating away; a local draft is not a substitute for a saved file.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="schema"><h2>Schema-v2 reference and example</h2><p>JSON is strict: double-quoted keys and strings, no comments or trailing commas. The source is the editable antenna definition; the resolved config is numerical input for one case. Use <code>schema_version: 2</code>.</p>
-<table><thead><tr><th>Top-level key</th><th>Role</th></tr></thead><tbody><tr><td><code>schema_version / name / description / units</code></td><td>Version 2, project identity, notes and mm coordinate units.</td></tr><tr><td><code>parameters / sweep</code></td><td>Named scalars and case expansion.</td></tr><tr><td><code>domain / mesh</code></td><td>Start/stop, six boundaries, grid and refinements.</td></tr><tr><td><code>materials / geometry</code></td><td>Electrical property definitions, named primitives or script instances.</td></tr><tr><td><code>ports / probes</code></td><td>Active excitation, passive ports and optional diagnostics.</td></tr><tr><td><code>excitation / solver</code></td><td>Gaussian frequency band, stopping criteria and native resources.</td></tr><tr><td><code>outputs</code></td><td>S11 sampling, far-field frequencies, angular grid and optional quantities.</td></tr><tr><td><code>scripts / generator</code></td><td>JavaScript geometry definitions; native-only trusted Python generator.</td></tr><tr><td><code>workspace_units</code></td><td>Display preferences, not physical solver inputs.</td></tr></tbody></table>
-<p>The following is a complete, compact configuration based on the bundled dipole example. It intentionally uses a 73 Ω reference, not 50 Ω; change impedance_ohm if evaluating a 50 Ω system.</p>
-<pre><code id="dipole-example">{
+<p class="note">Local storage is per browser/profile/origin, not cloud sync or a permanent backup. Private browsing, clearing site data, storage quotas or browser eviction may remove local files. Keep JSON and ZIP backups. Avoid leaving unapplied JSON edits when navigating away; a local draft is not a substitute for a saved file.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#schema">Next: Schema-v2 reference and example →</a></div>
+</section>
+
+<section class="section" id="schema" aria-labelledby="schema-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">13</span><h2 id="schema-title">Schema-v2 reference and example</h2></div>
+  <p>JSON is strict: double-quoted keys and strings, no comments or trailing commas. The source is the editable antenna definition; the resolved config is numerical input for one case. Use <code>schema_version: 2</code>.</p>
+<div class="table-wrap"><table><thead><tr><th>Top-level key</th><th>Role</th></tr></thead><tbody><tr><td><code>schema_version / name / description / units</code></td><td>Version 2, project identity, notes and mm coordinate units.</td></tr><tr><td><code>parameters / sweep</code></td><td>Named scalars and case expansion.</td></tr><tr><td><code>domain / mesh</code></td><td>Start/stop, six boundaries, grid and refinements.</td></tr><tr><td><code>materials / geometry</code></td><td>Electrical property definitions, named primitives or script instances.</td></tr><tr><td><code>ports / probes</code></td><td>Active excitation, passive ports and optional diagnostics.</td></tr><tr><td><code>excitation / solver</code></td><td>Gaussian frequency band, stopping criteria and native resources.</td></tr><tr><td><code>outputs</code></td><td>S11 sampling, far-field frequencies, angular grid and optional quantities.</td></tr><tr><td><code>scripts / generator</code></td><td>JavaScript geometry definitions; native-only trusted Python generator.</td></tr><tr><td><code>workspace_units</code></td><td>Display preferences, not physical solver inputs.</td></tr></tbody></table></div>
+<p>The following is the complete bundled Parametric Yagi. It uses a 50 Ω reference and three current probes. The parameters are editable, but no sweep is enabled by default. The geometry uses case 5 of the 16-case tuning sweep: simulated VSWR 1.167:1 and realized gain 6.26 dBi at 2.45 GHz; worst VSWR 1.306:1 from 2.4 to 2.5 GHz.</p>
+<div class="code-block">
+<div class="code-bar"><span>JSON · Complete Parametric Yagi configuration</span><button class="copy-code" type="button" aria-label="Copy JSON · Complete Parametric Yagi configuration">Copy</button></div>
+<pre><code id="yagi-example">{
   "schema_version": 2,
-  "name": "Half-wave dipole 2.45 GHz (fast)",
-  "description": "Small half-wave dipole (~130k cells): runs in about 10-30 s, a quick test of in-browser simulation.",
+  "name": "Parametric Yagi",
+  "description": "Three-element parametric Yagi-Uda with a split driven element, reflector, director and current probes. Single simulation; edit parameters or add a sweep as needed.",
   "units": "mm",
+  "parameters": {
+    "gap": 2,
+    "len": 50,
+    "dist_ref": 0.95,
+    "dist_dir": 0.36,
+    "el_rad": 2,
+    "len_ref": 1.06,
+    "len_dir": 0.84
+  },
   "domain": {
     "start": [
-      -90,
-      -90,
-      -110
+      -200,
+      -200,
+      -100
     ],
     "stop": [
-      90,
-      90,
-      110
+      200,
+      200,
+      100
     ],
     "boundary": [
       "PML_8",
@@ -145,56 +507,177 @@ docker run --rm -v "$PWD:/work" radiators-openems:ci \
     ]
   },
   "mesh": {
-    "max_cell_mm": 6,
-    "local_min_cell_mm": 1,
-    "auto_refine_max_span_mm": 40,
+    "max_cell_mm": 8,
     "growth_ratio": 1.4,
-    "max_cells": 2000000
+    "max_cells": 5000000,
+    "refinements": [
+      {
+        "start": [
+          -10,
+          -55,
+          -32.5
+        ],
+        "stop": [
+          10,
+          35,
+          32.5
+        ],
+        "resolution_mm": 1
+      },
+      {
+        "start": [
+          -3,
+          -3,
+          -3
+        ],
+        "stop": [
+          3,
+          3,
+          3
+        ],
+        "resolution_mm": 0.5,
+        "enabled": true
+      }
+    ]
   },
   "solver": {
-    "max_timesteps": 20000,
-    "end_criteria": 0.0001
+    "max_timesteps": 50000,
+    "end_criteria": 0.0001,
+    "resources": {
+      "cpus": 12,
+      "memory_gib": 24
+    }
   },
   "excitation": {
-    "center_hz": 2450000000,
-    "bandwidth_hz": 750000000
+    "center_hz": 2500000000,
+    "bandwidth_hz": 500000000
   },
   "materials": [
     {
-      "name": "pec",
+      "name": "copper",
       "type": "pec"
     }
   ],
   "geometry": [
     {
-      "name": "arm-top",
-      "shape": "box",
-      "material": "pec",
+      "name": "driven",
+      "shape": "cylinder",
+      "material": "copper",
       "start": [
-        -1,
-        -1,
-        1
+        0,
+        0,
+        0
       ],
       "stop": [
-        1,
-        1,
-        28
-      ]
+        0,
+        0,
+        {
+          "$expr": "len/2-gap/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          0,
+          {
+            "$expr": "gap/2"
+          }
+        ]
+      }
     },
     {
-      "name": "arm-bottom",
-      "shape": "box",
-      "material": "pec",
+      "name": "gnd",
+      "shape": "cylinder",
+      "material": "copper",
       "start": [
-        -1,
-        -1,
-        -28
+        0,
+        0,
+        0
       ],
       "stop": [
-        1,
-        1,
-        -1
-      ]
+        0,
+        0,
+        {
+          "$expr": "-len/2+gap/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          0,
+          {
+            "$expr": "-gap/2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reflector",
+      "shape": "cylinder",
+      "material": "copper",
+      "start": [
+        0,
+        0,
+        {
+          "$expr": "-len*len_ref/2"
+        }
+      ],
+      "stop": [
+        0,
+        0,
+        {
+          "$expr": "len*len_ref/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "-dist_ref*len"
+          },
+          0
+        ]
+      }
+    },
+    {
+      "name": "director1",
+      "shape": "cylinder",
+      "material": "copper",
+      "start": [
+        0,
+        0,
+        {
+          "$expr": "-len*len_dir/2"
+        }
+      ],
+      "stop": [
+        0,
+        0,
+        {
+          "$expr": "len*len_dir/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "dist_dir*len"
+          },
+          0
+        ]
+      }
     }
   ],
   "ports": [
@@ -205,41 +688,269 @@ docker run --rm -v "$PWD:/work" radiators-openems:ci \
       "start": [
         0,
         0,
-        -1
+        {
+          "$expr": "-gap/2-0.5"
+        }
       ],
       "stop": [
         0,
         0,
-        1
+        {
+          "$expr": "gap/2+0.5"
+        }
       ],
       "direction": "z",
-      "impedance_ohm": 73,
+      "impedance_ohm": 50,
       "excite": true
     }
   ],
   "outputs": {
     "s11": [
       {
-        "start": 1900000000,
-        "step": 25000000,
+        "start": 2000000000,
+        "step": 10000000,
         "end": 3000000000
       }
     ],
     "radiation_frequencies_hz": [
       2450000000
     ],
-    "include_impedance": true,
     "radiation_grid": {
-      "theta_step_deg": 10,
-      "phi_step_deg": 15
+      "theta_step_deg": 5,
+      "phi_step_deg": 5
+    },
+    "include_realized_gain": true,
+    "include_polarization": true
+  },
+  "probes": [
+    {
+      "name": "current_driven",
+      "type": "current",
+      "enabled": true,
+      "start": [
+        -5,
+        -5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "stop": [
+        5,
+        5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "time_domain": {
+        "enabled": true
+      },
+      "frequency_domain": {
+        "enabled": false,
+        "frequencies_hz": [
+          2500000000
+        ]
+      }
+    },
+    {
+      "name": "current_dir1",
+      "type": "current",
+      "enabled": true,
+      "start": [
+        -5,
+        -5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "stop": [
+        5,
+        5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "time_domain": {
+        "enabled": true
+      },
+      "frequency_domain": {
+        "enabled": false,
+        "frequencies_hz": [
+          2500000000
+        ]
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "dist_dir*len"
+          },
+          0
+        ]
+      }
+    },
+    {
+      "name": "current_ref",
+      "type": "current",
+      "enabled": true,
+      "start": [
+        -5,
+        -5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "stop": [
+        5,
+        5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "time_domain": {
+        "enabled": true
+      },
+      "frequency_domain": {
+        "enabled": false,
+        "frequencies_hz": [
+          2500000000
+        ]
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "-dist_ref*len"
+          },
+          0
+        ]
+      }
     }
-  }
-}</code></pre><p>Copy the example into JSON Source and Apply, or open the bundled example from More. This is a starting model, not a guaranteed tuned antenna. See the <a href="https://github.com/winject-wireless/radiators/blob/main/examples/dipole_2450.json">original dipole</a>, <a href="https://github.com/winject-wireless/radiators/blob/main/examples/helix_sweep.json">helix sweep</a>, <a href="https://github.com/winject-wireless/radiators/blob/main/examples/script_radials_sweep.json">scripted radials</a> and <a href="https://github.com/winject-wireless/radiators/blob/main/antennas/README.md">native schema reference</a>.</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="troubleshooting"><h2>Troubleshooting and engineering checklist</h2><table><thead><tr><th>Symptom</th><th>Investigate / fix</th></tr></thead><tbody><tr><td>Run button disabled</td><td>Check model errors, pending script expansion, runner availability and CPU slots. For Browser, open the app directly on HTTPS or localhost, allow isolation, try Retry isolation. For Remote, Test connection.</td></tr><tr><td>Flat S11 / no impedance / no radiation</td><td>Inspect the active port, terminal contact, orientation, material priority and discretized PEC. Check excitation spectrum, output frequencies, solver log, energy decay and NF2FF setup. A process exit alone is not a successful EM result.</td></tr><tr><td>Pattern plausible, resistance too low</td><td>Check real and imaginary impedance, port reference, gap and mesh. Adjust driven element length, reflector/director spacing or matching geometry; use realized gain for comparison.</td></tr><tr><td>NF2FF box / domain error</td><td>Expand domain margins, inspect PML cells and ensure the NF2FF enclosure contains all radiating geometry and sources. Avoid placing metal in the absorbing region.</td></tr><tr><td>Tiny timestep / excessive mesh</td><td>Show Mesh → Min cell. Check near-coincident feature planes, fine local boxes and growth ratio. Increase spacing where physically acceptable or reduce domain/mesh extent; verify convergence after changes.</td></tr><tr><td>Uniform mesh ignores refinements</td><td>Switch to Feature mode. Uniform grid is intended for globally uniform spacing.</td></tr><tr><td>Remote connection fails</td><td>Check service, URL, HTTPS trust, CORS origin, access token and firewall. Do not use plain HTTP to a LAN IP from the hosted app. Check server logs and version.</td></tr><tr><td>Remote job stops when switching apps</td><td>A lost connection no longer cancels the job: the editor backs off, keeps polling and reports “Connection lost — retrying”, and only Stop cancels on the host. Polling can still be suspended by the system; review lease_timeout on the server and check server job/log status before resubmitting.</td></tr>
-<tr><td>Opening a file asks about geometry scripts</td><td>Geometry scripts in a document are code. The editor asks before running scripts from a file you open, paste or drop, and the script worker revokes network and storage access (fetch, XHR, WebSocket, IndexedDB, Cache Storage, navigator, nested workers) before any script runs, so a script can compute geometry and nothing else.</td></tr>
-<tr><td>“A new editor build is available”</td><td>A newer deploy is installed and waiting. The open session keeps its own build so modules cannot mix across versions; press Reload to switch.</td></tr><tr><td>Old / missing cached results</td><td>Open the exact saved source/case or import ZIP. Verify resolved config, site origin and storage access. Check build hash in More; refresh for current version. Avoid clearing data before backup.</td></tr><tr><td>Missing diagnostics / huge dump</td><td>Update runner, rerun older cache entries, shrink capture region or increase sub_sampling. Check diagnostic warnings.</td></tr><tr><td>Script error or unexpected shape</td><td>Validate argument types, references and finite coordinates; inspect resolved case and returned primitives. Reduce generated complexity and verify the two-second limit.</td></tr></tbody></table>
-<h3>Before trusting an antenna result</h3><ol><li>Check physical dimensions, units, material properties, connectivity and source orientation.</li><li>Inspect actual mesh around feeds, thin conductors, substrate and PML; run operator validation if available.</li><li>Ensure the excitation covers the requested frequencies, and inspect incident power and convergence.</li><li>Repeat with refined mesh, larger domain or longer solve as needed; compare resonance, impedance and realized gain quantitatively.</li><li>Save the source and result together. Measure the built antenna with a calibrated VNA and appropriate radiation setup; simulations do not replace physical verification or regulatory certification.</li></ol><div class="section-top"><a href="#top">Back to top ↑</a></div></section><section id="resources"><h2>Installation and further reading</h2><p>The editor is a static web app and can be installed as a PWA on compatible browsers. Use Chrome on Android and Install app if offered. Offline availability follows the cached app assets; remote execution requires a connection to the runner. The Capacitor APK is a separate packaging route; WebViews may lack SharedArrayBuffer.</p><pre><code>cd site/csxcad
+  ]
+}</code></pre>
+</div><p>Copy the example into JSON Source and Apply, or open the bundled example from More. This is a starting model, not a guaranteed tuned antenna. See the <a href="https://github.com/winject-wireless/radiators/blob/main/examples/parametric_yagi.json">Parametric Yagi</a>, <a href="https://github.com/winject-wireless/radiators/blob/main/tests/fixtures/helix_sweep.json">helix sweep</a>, <a href="https://github.com/winject-wireless/radiators/blob/main/tests/fixtures/script_radials_sweep.json">scripted radials</a> and <a href="https://github.com/winject-wireless/radiators/blob/main/antennas/README.md">native schema reference</a>.</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#troubleshooting">Next: Troubleshooting and engineering checklist →</a></div>
+</section>
+
+<section class="section" id="troubleshooting" aria-labelledby="troubleshooting-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">14</span><h2 id="troubleshooting-title">Troubleshooting and engineering checklist</h2></div>
+  <div class="table-wrap"><table><thead><tr><th>Symptom</th><th>Investigate / fix</th></tr></thead><tbody><tr><td>Run button disabled</td><td>Check model errors, pending script expansion, runner availability and CPU slots. For Browser, open the app directly on HTTPS or localhost, allow isolation, try Retry isolation. For Remote, Test connection.</td></tr><tr><td>Flat S11 / no impedance / no radiation</td><td>Inspect the active port, terminal contact, orientation, material priority and discretized PEC. Check excitation spectrum, output frequencies, solver log, energy decay and NF2FF setup. A process exit alone is not a successful EM result.</td></tr><tr><td>Pattern plausible, resistance too low</td><td>Check real and imaginary impedance, port reference, gap and mesh. Adjust driven element length, reflector/director spacing or matching geometry; use realized gain for comparison.</td></tr><tr><td>NF2FF box / domain error</td><td>Expand domain margins, inspect PML cells and ensure the NF2FF enclosure contains all radiating geometry and sources. Avoid placing metal in the absorbing region.</td></tr><tr><td>Tiny timestep / excessive mesh</td><td>Show Mesh → Min cell. Check near-coincident feature planes, fine local boxes and growth ratio. Increase spacing where physically acceptable or reduce domain/mesh extent; verify convergence after changes.</td></tr><tr><td>Uniform mesh ignores refinements</td><td>Switch to Feature mode. Uniform grid is intended for globally uniform spacing.</td></tr><tr><td>Remote connection fails</td><td>Check service, URL, HTTPS trust, CORS origin, access token and firewall. Do not use plain HTTP to a LAN IP from the hosted app. Check server logs and version.</td></tr><tr><td>Remote job stops when switching apps</td><td>A lost connection no longer cancels the job: the editor backs off, keeps polling and reports “Connection lost — retrying”, and only Stop cancels on the host. Polling can still be suspended by the system; review lease_timeout on the server and check server job/log status before resubmitting.</td></tr><tr><td>Opening a file asks about geometry scripts</td><td>Geometry scripts in a document are code. The editor asks before running scripts from a file you open, paste or drop, and the script worker revokes network and storage access (fetch, XHR, WebSocket, IndexedDB, Cache Storage, navigator, nested workers) before any script runs, so a script can compute geometry and nothing else.</td></tr><tr><td>“A new editor build is available”</td><td>A newer deploy is installed and waiting. The open session keeps its own build so modules cannot mix across versions; press Reload to switch.</td></tr><tr><td>Old / missing cached results</td><td>Open the exact saved source/case or import ZIP. Verify resolved config, site origin and storage access. Check build hash in More; refresh for current version. Avoid clearing data before backup.</td></tr><tr><td>Missing diagnostics / huge dump</td><td>Update runner, rerun older cache entries, shrink capture region or increase sub_sampling. Check diagnostic warnings.</td></tr><tr><td>Script error or unexpected shape</td><td>Validate argument types, references and finite coordinates; inspect resolved case and returned primitives. Reduce generated complexity and verify the two-second limit.</td></tr></tbody></table></div>
+<h3>Before trusting an antenna result</h3>
+<ol><li>Check physical dimensions, units, material properties, connectivity and source orientation.</li><li>Inspect actual mesh around feeds, thin conductors, substrate and PML; run operator validation if available.</li><li>Ensure the excitation covers the requested frequencies, and inspect incident power and convergence.</li><li>Repeat with refined mesh, larger domain or longer solve as needed; compare resonance, impedance and realized gain quantitatively.</li><li>Save the source and result together. Measure the built antenna with a calibrated VNA and appropriate radiation setup; simulations do not replace physical verification or regulatory certification.</li></ol>
+  <div class="section-top"><a href="#top">↑ Back to top</a><a href="#resources">Next: Installation and further reading →</a></div>
+</section>
+
+<section class="section" id="resources" aria-labelledby="resources-title">
+  <div class="section-head"><span class="section-no" aria-hidden="true">15</span><h2 id="resources-title">Installation and further reading</h2></div>
+  <p>The editor is a static web app and can be installed as a PWA on compatible browsers. Use Chrome on Android and Install app if offered. Offline availability follows the cached app assets; remote execution requires a connection to the runner. The Capacitor APK is a separate packaging route; WebViews may lack SharedArrayBuffer.</p>
+<div class="code-block">
+<div class="code-bar"><span>Shell · Local setup</span><button class="copy-code" type="button" aria-label="Copy Shell · Local setup">Copy</button></div>
+<pre><code>cd site/csxcad
 python3 prepare.py
 python3 -m http.server 8080 --directory www
 # Open http://localhost:8080/
 node check.mjs</code></pre>
-<p>For developers, the <a href="https://github.com/winject-wireless/radiators/blob/main/site/csxcad/README.md">editor implementation guide</a> covers the build, Android packaging and parity tests. <a href="https://docs.openems.de/">openEMS documentation</a> describes the underlying FDTD solver and CSXCAD. Report reproducible issues at <a href="https://github.com/winject-wireless/radiators/issues">Radiators issues</a> with build hash, source JSON, selected case, runner, relevant log and result (remove private tokens and confidential geometry before sharing).</p><div class="section-top"><a href="#top">Back to top ↑</a></div></section></main></div></body></html>
+</div>
+<p>For developers, the <a href="https://github.com/winject-wireless/radiators/blob/main/site/csxcad/README.md">editor implementation guide</a> covers the build, Android packaging and parity tests. <a href="https://docs.openems.de/">openEMS documentation</a> describes the underlying FDTD solver and CSXCAD. Report reproducible issues at <a href="https://github.com/winject-wireless/radiators/issues">Radiators issues</a> with build hash, source JSON, selected case, runner, relevant log and result (remove private tokens and confidential geometry before sharing).</p>
+  <div class="section-top"><a href="#top">↑ Back to top</a></div>
+</section>
+      <footer class="footer"><span>Radiators · CSXCAD editor and openEMS simulator</span><a href="https://github.com/winject-wireless/radiators">GitHub repository ↗</a></footer>
+    </main>
+  </div>
+  <script>
+(() => {
+  const contents=document.getElementById("contents");
+  const small=window.matchMedia("(max-width:760px)");
+
+  const toggle=document.getElementById("tocToggle");
+  const backdrop=document.getElementById("tocBackdrop");
+  const main=document.getElementById("main");
+  document.body.classList.add("enhanced");
+  function syncContents(){
+    const open=small.matches&&contents.open;
+    toggle.setAttribute("aria-expanded",String(open));
+    backdrop.hidden=!open;
+    document.body.classList.toggle("toc-open",open);
+    main.inert=open;
+  }
+  function setContents(open,{restoreFocus=false,focusCurrent=false}={}){
+    contents.open=small.matches?open:true;
+    syncContents();
+    if(restoreFocus&&small.matches)toggle.focus({preventScroll:true});
+    if(open&&small.matches&&focusCurrent){
+      const current=contents.querySelector('a[aria-current="location"]')||contents.querySelector("nav a");
+      current?.focus({preventScroll:true});
+      if(current){
+        const r=current.getBoundingClientRect(), box=contents.getBoundingClientRect();
+        if(r.top<box.top+48||r.bottom>box.bottom)contents.scrollTop+=r.top-box.top-56;
+      }
+    }
+  }
+  setContents(!small.matches);
+  small.addEventListener?.("change",()=>setContents(!small.matches));
+  toggle.addEventListener("click",()=>setContents(!contents.open,{focusCurrent:!contents.open}));
+  backdrop.addEventListener("click",()=>setContents(false,{restoreFocus:true}));
+  contents.addEventListener("toggle",()=>{
+    const wasOpen=toggle.getAttribute("aria-expanded")==="true";
+    syncContents();
+    if(wasOpen&&!contents.open&&small.matches)toggle.focus({preventScroll:true});
+  });
+  document.addEventListener("keydown",e=>{
+    if(e.key==="Escape"&&small.matches&&contents.open){
+      e.preventDefault();
+      setContents(false,{restoreFocus:true});
+    }
+  });
+  const links=[...contents.querySelectorAll("nav a")];
+  const sections=[...document.querySelectorAll("main .section")];
+  function markCurrent(){
+    const offset=document.querySelector(".site-header").getBoundingClientRect().height+34;
+    let current=null;
+    for(const section of sections){
+      if(section.getBoundingClientRect().top<=offset)current=section.id;
+      else break;
+    }
+    for(const link of links){
+      if(link.hash==="#"+current)link.setAttribute("aria-current","location");
+      else link.removeAttribute("aria-current");
+    }
+  }
+  let frame=0;
+  function update(){if(!frame)frame=requestAnimationFrame(()=>{frame=0;markCurrent();});}
+  window.addEventListener("scroll",update,{passive:true});
+  window.addEventListener("resize",update);
+  markCurrent();
+  for(const link of links){
+    link.addEventListener("click",()=>{
+      if(!small.matches)return;
+      setContents(false);
+      const target=document.getElementById(link.hash.slice(1));
+      if(target){
+        target.setAttribute("tabindex","-1");
+        target.focus({preventScroll:true});
+      }
+    });
+  }
+  for(const button of document.querySelectorAll(".copy-code")){
+    const code=button.closest(".code-block").querySelector("code");
+    button.classList.add("ready");
+    let timer;
+    button.addEventListener("click",async()=>{
+      clearTimeout(timer);
+      try{
+        if(!navigator.clipboard?.writeText)throw new Error("Clipboard unavailable");
+        await navigator.clipboard.writeText(code.textContent);
+        button.textContent="Copied";
+      }catch{
+        const range=document.createRange();
+        range.selectNodeContents(code);
+        const selection=window.getSelection();
+        if(selection){selection.removeAllRanges();selection.addRange(range);}
+        button.textContent="Selected · copy";
+      }
+      timer=setTimeout(()=>{button.textContent="Copy";},1800);
+    });
+  }
+})();
+</script>
+</body>
+</html>

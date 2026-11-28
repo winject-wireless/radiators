@@ -216,9 +216,27 @@ export async function saveLocalProject(doc, caseIndex=0, label="") {
 export async function listLocalProjects() {
   const db=await resultDB();
   return new Promise((resolve,reject)=>{
-    const req=db.transaction(PROJECT_STORE,"readonly").objectStore(PROJECT_STORE).getAll();
-    req.onsuccess=()=>resolve(req.result.sort((a,b)=>b.savedAt-a.savedAt));
-    req.onerror=()=>reject(req.error);
+    const tx=db.transaction(PROJECT_STORE,"readonly");
+    const projects=[];
+    const req=tx.objectStore(PROJECT_STORE).openCursor();
+    req.onsuccess=()=>{
+      const cursor=req.result;
+      if(cursor){projects.push({...cursor.value,key:cursor.primaryKey});cursor.continue();}
+    };
+    tx.oncomplete=()=>resolve(projects.sort((a,b)=>b.savedAt-a.savedAt));
+    tx.onerror=tx.onabort=()=>reject(tx.error||Error("Project list read aborted"));
+  });
+}
+// Delete exactly one saved revision (including labeled imports). Results use a
+// separate, shared resolved-input cache and must not be deleted with a snapshot.
+export async function deleteLocalProject(key) {
+  if(typeof key!=="string"||!key)throw Error("Invalid local project key");
+  const db=await resultDB();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(PROJECT_STORE,"readwrite");
+    tx.oncomplete=()=>resolve();
+    tx.onerror=tx.onabort=()=>reject(tx.error||Error("Project deletion aborted"));
+    tx.objectStore(PROJECT_STORE).delete(key);
   });
 }
 // Imported results are stored under their own exact resolved input, never
@@ -848,6 +866,19 @@ export function renderResults(box, ctx, run, caseId, stale) {
   const r = run.result;
   const s = summarize(r, r.input_config.excitation.center_hz);
   const latest=caseRunState(caseId);
+  const diagnostic = r.diagnostics?.solver ?? {};
+  const earlyExcitation = (Number.isFinite(diagnostic.executed_timesteps) &&
+    diagnostic.excitation_timesteps > diagnostic.executed_timesteps) ||
+    (r.solver_warnings ?? []).some(message => /before excitation finished/i.test(message));
+  const oldCriteria = Number(r.input_config?.solver?.end_criteria ?? 0.0001);
+  const tighterCriteria = Number.isFinite(oldCriteria) && oldCriteria > 0
+    ? Math.min(1e-6, oldCriteria / 10) : 1e-6;
+  const tighterDb = 10 * Math.log10(tighterCriteria);
+  const recommendation = diagnostic.termination === "aborted" || r.aborted
+    ? "Recommendation: rerun without stopping the solver and allow the excitation and energy decay to complete."
+    : diagnostic.termination === "max_timesteps" || (diagnostic.max_timesteps > 0 && diagnostic.max_timesteps < diagnostic.excitation_timesteps)
+      ? "Recommendation: increase Max timesteps in Simulation → Solver settings; allow enough time for the full excitation and subsequent energy decay, then rerun."
+      : "Recommendation: in Simulation → Solver settings, reduce End criteria to " + tighterCriteria.toExponential(1) + " (" + fmt(tighterDb, 1) + " dB), then rerun. Keep the mesh and excitation unchanged initially. Increase Max timesteps only if the new run reaches its timestep limit. Confirm excitation completion, convergence and radiation results before trusting S11.";
   const f = r.s11.frequency_hz.map(v => v / 1e9);
   const ports = r.input_config.ports ?? r.input_config.sources ?? [];
   const driven = ports.find(p => Number(p.id ?? p.port_number ?? 1) === Number(r.port_id)) ?? ports.find(p => p.excite ?? p.enabled);
@@ -869,6 +900,7 @@ export function renderResults(box, ctx, run, caseId, stale) {
     r.postprocessing_incomplete ? h("div",{class:"note warn",text:"Partial result: S11 and impedance are available, but some radiation results are unavailable."}) : null,
     r.aborted ? h("div", { class: "note warn", text: "Stopped early: the results use the time steps computed so far." }) : null,
     ...(r.solver_warnings ?? []).map(message=>h("div",{class:"note warn",text:message})),
+    earlyExcitation ? h("div",{class:"note warn",text:recommendation}) : null,
     h("div", { class: "sim-kpis" },
       kpi("Best S11", `${fmt(s.bestDb, 1)} dB`, ghz(s.bestHz)),
       kpi("−10 dB band", s.band ? `${fmt((s.band[1] - s.band[0]) / 1e6, 0)} MHz` : "none", s.band ? `${ghz(s.band[0])} – ${ghz(s.band[1])}` : ""),
