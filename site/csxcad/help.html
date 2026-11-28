@@ -161,7 +161,11 @@ figcaption {font-size:13px;color:var(--muted);line-height:1.6;border-top:1px sol
 .header-actions {display:flex;align-items:center;gap:8px;flex:none}
 .toc-toggle,.toc-dismiss,.toc-backdrop {display:none}
 @media(max-width:760px) {
-  .enhanced .site-header {z-index:40}
+  /* Fixed rather than sticky: focusing the contents toggle must not scroll the
+     sticky header's original position into view on mobile Chromium. */
+  body.enhanced {padding-top:var(--header-height);overflow-anchor:none}
+  .enhanced .site-header {position:fixed;inset:0 0 auto;z-index:40;height:var(--header-height)}
+  .enhanced .site-header .top {height:100%;min-height:0}
   .enhanced .toc-toggle {display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel-soft);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
   .enhanced .toc-toggle[aria-expanded="true"] {background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
   .enhanced .toc-toggle svg {width:17px;height:17px;flex:none}
@@ -174,7 +178,8 @@ figcaption {font-size:13px;color:var(--muted);line-height:1.6;border-top:1px sol
   .enhanced .contents summary {position:sticky;top:0;background:var(--panel);z-index:1;border-bottom:1px solid var(--line);padding:12px 8px}
   .enhanced .contents nav a {min-height:44px}
   .enhanced .toc-backdrop:not([hidden]) {display:block;position:fixed;inset:0;z-index:30;background:rgb(0 0 0 / .48)}
-  .enhanced.toc-open {overflow:hidden}
+  .enhanced.toc-open {overscroll-behavior:none}
+  .enhanced .toc-backdrop {touch-action:none}
 }
 @media(max-width:340px) {
   .enhanced .brand small {display:none}
@@ -375,7 +380,7 @@ function generate(a) {
 <section class="section" id="solver" aria-labelledby="solver-title">
   <div class="section-head"><span class="section-no" aria-hidden="true">08</span><h2 id="solver-title">Excitation, solver and outputs</h2></div>
   <p>The Gaussian excitation supplies a frequency band around center_hz. bandwidth_hz is the half-width (fc), so the nominal band is center ± bandwidth. Put requested S11 frequencies inside this band and ensure useful incident energy at radiation frequencies. An S11 frequency grid is post-processing of a broadband time-domain run, not a separate FDTD run for every sample.</p>
-<div class="table-wrap"><table><thead><tr><th>Setting</th><th>Meaning</th></tr></thead><tbody><tr><td>max_timesteps</td><td>Hard limit on updates. Larger values allow more simulated time but may cost more CPU.</td></tr><tr><td>end_criteria</td><td>Energy-decay stopping threshold; 0.0001 (−40 dB relative energy) is the supplied Yagi criterion; 0.000001 (−60 dB) is a stricter alternative. Smaller is stricter; resonant models may need longer.</td></tr><tr><td>outputs.s11</td><td>One or more inclusive start/step/end sweeps in Hz.</td></tr><tr><td>radiation_frequencies_hz</td><td>Frequencies at which NF2FF (near-to-far-field transformation) is requested.</td></tr><tr><td>radiation_grid</td><td>theta_step_deg and phi_step_deg. Smaller angle steps increase far-field sampling and output size; not FDTD mesh resolution.</td></tr><tr><td>include_impedance / include_realized_gain / include_polarization</td><td>Optional output quantities, when supported by the chosen solver path.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Setting</th><th>Meaning</th></tr></thead><tbody><tr><td>max_timesteps</td><td>Hard limit on updates. Larger values allow more simulated time but may cost more CPU.</td></tr><tr><td>end_criteria</td><td>Energy-decay stopping threshold; 0.0001 (−40 dB relative energy) is the supplied Yagi criterion; 0.000001 (−60 dB) is a stricter alternative. Smaller is stricter; resonant models may need longer. The single End criteria field accepts a bare linear ratio (0.0001) or a number with an explicit dB suffix (-40 dB or -40dB). JSON stores the linear ratio, not mW or dBm. If convergence occurs before excitation finishes, tighten to −60 dB (or 10 dB below an already stricter threshold), rerun and verify excitation completion and energy convergence. If the timestep limit is reached instead, increase max_timesteps.</td></tr><tr><td>outputs.s11</td><td>One or more inclusive start/step/end sweeps in Hz.</td></tr><tr><td>radiation_frequencies_hz</td><td>Frequencies at which NF2FF (near-to-far-field transformation) is requested.</td></tr><tr><td>radiation_grid</td><td>theta_step_deg and phi_step_deg. Smaller angle steps increase far-field sampling and output size; not FDTD mesh resolution.</td></tr><tr><td>include_impedance / include_realized_gain / include_polarization</td><td>Optional output quantities, when supported by the chosen solver path.</td></tr></tbody></table></div>
 <div class="code-block">
 <div class="code-bar"><span>JSON · Solver and outputs</span><button class="copy-code" type="button" aria-label="Copy JSON · Solver and outputs">Copy</button></div>
 <pre><code>"excitation": {"center_hz": 2450000000, "bandwidth_hz": 350000000},

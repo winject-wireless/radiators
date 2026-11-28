@@ -123,6 +123,27 @@ try {
   await openConfig(original);
   await page.waitForFunction(()=>!(window.__csxcad.state.doc.probes??[]).length);
   console.log("Current probe plane editor: PASS");
+  // A single input accepts explicit dB or a bare linear ratio.
+  await page.locator('[data-dock="sim"]').click();
+  const solverSettings=page.locator('#sim details[data-sim-section="Solver settings"]');
+  if(!await solverSettings.evaluate(el=>el.open)) await solverSettings.locator("summary").click();
+  const criteria=solverSettings.getByLabel("End criteria",{exact:true});
+  assert.equal(await criteria.count(),1);
+  assert.equal(await solverSettings.getByLabel("End criteria (dB)",{exact:true}).count(),0);
+  await criteria.fill("-60 dB"); await criteria.press("Tab");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.solver.end_criteria),1e-6);
+  assert.equal(await criteria.inputValue(),"-60 dB");
+  await criteria.fill("0.00001"); await criteria.press("Tab");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.solver.end_criteria),1e-5);
+  assert.equal(Number(await criteria.inputValue()),1e-5);
+  await criteria.fill("-40"); await criteria.press("Tab");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.solver.end_criteria),1e-5);
+  assert.ok(await solverSettings.locator(".field.invalid").count());
+  await criteria.fill("-40dB"); await criteria.press("Tab");
+  assert.equal(await page.evaluate(()=>window.__csxcad.state.doc.solver.end_criteria),1e-4);
+  await openConfig(original);
+  await page.waitForFunction(value=>JSON.stringify(window.__csxcad.state.doc.solver)===JSON.stringify(value),original.solver);
+  console.log("Solver convergence units: PASS");
   await page.locator("#meshToggle").click();
   assert.match(await page.locator("#meshReadout").textContent(),/Generated mesh preview.*Min/);
   assert.ok(await page.evaluate(()=>window.__csxcad.viewport.meshView.children.length>0));

@@ -353,6 +353,27 @@ export function valueToField(v) {
   return typeof v === "number" ? String(+v.toPrecision(12)) : String(v);
 }
 
+// End criteria is dimensionless in schema v2. Only an explicit dB suffix
+// changes the interpretation; bare values are always linear energy ratios.
+export function parseEndCriteria(text) {
+  const s=String(text).trim().replace(/^−/,"-");
+  if(!s)return undefined; // optional solver setting
+  const db=s.match(/^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*dB$/i);
+  let value;
+  if(db){
+    const level=Number(db[1]);
+    if(!Number.isFinite(level)||level>0)throw Error("dB must be finite and at or below 0");
+    value=10**(level/10);
+  }else{
+    if(/\s*dB(?:m|W)\s*$/i.test(s)||/\s*mW\s*$/i.test(s))
+      throw Error("Use relative dB, not an absolute power unit");
+    value=fieldToValue(s);
+  }
+  if(typeof value==="number"&&(!Number.isFinite(value)||value<=0||value>1))
+    throw Error("Use a linear ratio above 0 and at most 1, or add dB (e.g. -60 dB)");
+  return value;
+}
+
 // Workspace preferences are presentation-only. Canonical units match the
 // schema fields (geometry mm, frequencies Hz, angles degrees, etc.).
 export const UNIT_GROUPS = {
