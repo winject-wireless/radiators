@@ -448,6 +448,11 @@ assert.equal(starterCases.length, 1);
 const starter = resolveCase(STARTER, starterCases[0].parameters);
 assert.deepEqual(checkCase(starter).filter(x => x.level === "error"), []);
 assert.deepEqual(STARTER, JSON.parse(fs.readFileSync(path.join(repo, "examples/parametric_yagi.json"), "utf8")));
+// The bundled result must use precisely the resolved input used by the editor cache.
+const bundledYagi = JSON.parse(fs.readFileSync(path.join(repo, "examples/results/parametric_yagi.result.json"), "utf8"));
+assert.equal(JSON.stringify(starter), JSON.stringify(bundledYagi.editor_resolved_config ?? bundledYagi.input_config), "Bundled Yagi cache key mismatch");
+assert.ok(bundledYagi.s11.frequency_hz.length > 0 && bundledYagi.patterns.length > 0);
+assert.equal(bundledYagi.aborted, false);
 assert.deepEqual(STARTER.parameters, {gap:2,len:50,dist_ref:0.95,dist_dir:0.36,el_rad:2,len_ref:1.06,len_dir:0.84});
 assert.equal(starter.solver.end_criteria, 1e-4);
 assert.equal(starter.solver.max_timesteps, 50000);
