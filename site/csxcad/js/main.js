@@ -10,7 +10,7 @@ import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { currentDirection, currentPlaneAxis, currentPlaneLinked, setCurrentPosition, setCurrentDirection, moveCurrentCorner } from "./current-plane.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
-import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects, deleteLocalProject, importResultArchive, importResultFile, clearResultCache, resultCacheUsage } from "./sim/panel.js";
+import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects, deleteLocalProject, importResultArchive, importResultFile, seedExampleResult, clearResultCache, resultCacheUsage } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
@@ -2551,6 +2551,22 @@ function openDialog(title, body, actions = []) {
   dlg.showModal();
 }
 
+async function fetchExample(file, entry) {
+  const r=await fetch("./examples/"+encodeURIComponent(file));
+  if(!r.ok)throw Error("Example HTTP "+r.status);
+  const doc=normalizeDoc(await r.json());
+  let resultMessage="";
+  if(entry?.result){
+    try{
+      const response=await fetch("./examples/"+encodeURIComponent(entry.result));
+      if(!response.ok)throw Error("Result HTTP "+response.status);
+      await seedExampleResult(await response.json());
+      resultMessage=" · bundled simulation available";
+    }catch(error){resultMessage=" · bundled result unavailable: "+error.message;}
+  }
+  return {doc,resultMessage};
+}
+
 async function showExamples() {
   let index;
   try {
@@ -2566,10 +2582,10 @@ async function showExamples() {
     index.map(e => h("button", { type: "button", onclick: async () => {
       $("dialog").close();
       try {
-        const r = await fetch("./examples/" + e.file);
-        loadDoc(await r.json(), `Loaded ${e.source}`);
+        const {doc,resultMessage}=await fetchExample(e.file,e);
+        loadDoc(doc, `Loaded ${e.source}${resultMessage}`);
       } catch (err) { setStatus("Could not load example: " + err.message, true); }
-    } }, h("strong", { text: e.name }), h("small", { text: `${e.source}${e.sweep ? " · sweep" : ""}${e.generator ? " · Python generator" : ""}${e.description ? " — " + e.description : ""}` })))));
+    } }, h("strong", { text: e.name }), h("small", { text: `${e.source}${e.sweep ? " · sweep" : ""}${e.generator ? " · Python generator" : ""}${e.result ? " · simulation included" : ""}${e.description ? " — " + e.description : ""}` })))));
 }
 
 const slug = () => (state.doc?.name || "antenna").toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "antenna";
@@ -3061,9 +3077,11 @@ async function boot() {
       catch { kept = " · previous draft could not be kept (local storage unavailable)"; }
     }
     try {
-      const r = await fetch("./examples/" + encodeURIComponent(params.get("example")));
-      initial = await r.json();
-      message = "Loaded example " + params.get("example") + kept;
+      let entry;
+      try { const index=await fetch("./examples/index.json"); if(index.ok)entry=(await index.json()).find(e=>e.file===params.get("example")); } catch {}
+      const loaded=await fetchExample(params.get("example"),entry);
+      initial=loaded.doc;
+      message = "Loaded example " + params.get("example") + loaded.resultMessage + kept;
     } catch { message = "Example not found; starter loaded" + kept; }
   } else if (draft?.doc) {
     initial = draft.doc;
