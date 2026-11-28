@@ -127,37 +127,61 @@ class RemoteTests(unittest.TestCase):
                 self.assertEqual(self.runner.jobs["1"*32]["state"],"done")
             finally:gate.set()
 
-    def test_expired_leases_cancel_running_and_queued(self):
-        entered = threading.Event()
+    def test_detached_batch_survives_missing_polls_and_respects_pool(self):
+        gate = threading.Event()
+        entered = []
         def fake(j, cpus):
             with self.runner.lock:
                 j["state"] = "running"
-            entered.set()
-            j["cancel"].wait(3)
+                entered.append(j["id"])
+            gate.wait(3)
             with self.runner.lock:
-                j.update(state="cancelled", seconds=.01)
+                j.update(state="done", seconds=.01)
+        jobs = [{"id": str(n)*32, "config": copy.deepcopy(CONFIG)} for n in (1,2,3)]
+        with patch.object(self.runner, "execute", side_effect=fake):
+            try:
+                self.assertEqual(self.runner.submit_many(jobs, "a"*32, 2), [j["id"] for j in jobs])
+                self.assertEqual(self.runner.submit_many(jobs, "a"*32, 2), [j["id"] for j in jobs])
+                with self.runner.lock:
+                    for j in self.runner.jobs.values():
+                        j["last_contact"] -= 86400
+                    self.runner.dispatch_locked()
+                self.assertEqual(self.runner.jobs["2"*32]["state"], "queued")
+                self.assertFalse(self.runner.jobs[ID]["cancel"].is_set())
+                gate.set()
+                for _ in range(200):
+                    if len(entered)==3 and all("finished_at" in j for j in self.runner.jobs.values()):break
+                    time.sleep(.01)
+                self.assertEqual(entered, [j["id"] for j in jobs])
+                self.assertTrue(all(j["state"]=="done" for j in self.runner.jobs.values()))
+                restored = Runner(self.args, [], Path(self.temp.name))
+                self.assertEqual(len(restored.list_jobs()), 3)
+                self.assertTrue(all(j["state"]=="done" for j in restored.list_jobs()))
+            finally: gate.set()
+
+    def test_queued_job_recovers_on_restart(self):
         cfg = copy.deepcopy(CONFIG)
         cfg["solver"]["resources"]["cpus"] = 4
-        with patch.object(self.runner, "execute", side_effect=fake):
-            self.runner.submit({"id":ID,"config":copy.deepcopy(cfg)})
-            self.assertTrue(entered.wait(2))
-            self.runner.submit({"id":"2"*32,"config":copy.deepcopy(cfg)})
-            self.runner.submit({"id":"3"*32,"config":copy.deepcopy(cfg)})
-            with self.runner.lock:
-                for j in self.runner.jobs.values():
-                    j["last_contact"] -= self.runner.lease_timeout+1
-            self.runner.snapshot(self.runner.jobs["3"*32])
-            self.assertEqual(len(self.runner.list_jobs()),3)
-            self.runner.expire_leases()
-            self.assertTrue(self.runner.jobs[ID]["cancel"].is_set())
-            self.assertEqual(self.runner.jobs["2"*32]["state"],"cancelled")
-            self.assertEqual(self.runner.jobs["2"*32]["error"],"Client lease expired")
-            self.assertFalse(self.runner.jobs["3"*32]["cancel"].is_set())
-            self.runner.cancel(self.runner.jobs["3"*32])
+        with patch.object(self.runner, "dispatch_locked"):
+            self.runner.submit_many([{"id": ID, "config": cfg, "case_key": "test", "case_id": "default"}], "a"*32, 4)
+        restored = Runner(self.args, [], Path(self.temp.name))
+        self.assertEqual(restored.list_jobs()[0]["state"], "queued")
+        self.assertEqual(restored.list_jobs()[0]["case_key"], "test")
+        with patch.object(restored, "execute", side_effect=lambda j, cpus: j.update(state="done", seconds=.01)):
+            with restored.lock: restored.dispatch_locked()
             for _ in range(200):
-                if all(j["state"]=="cancelled" for j in self.runner.jobs.values()):break
+                if "finished_at" in restored.jobs[ID]: break
                 time.sleep(.01)
-            self.assertTrue(all(j["state"]=="cancelled" for j in self.runner.jobs.values()))
+            self.assertEqual(restored.jobs[ID]["state"], "done")
+            restored.purge(restored.jobs[ID])
+        self.assertEqual(Runner(self.args, [], Path(self.temp.name)).list_jobs(), [])
+
+    def test_batch_rejects_all_on_invalid_case(self):
+        good = {"id": ID, "config": copy.deepcopy(CONFIG)}
+        bad = {"id": "2"*32, "config": {}}
+        with self.assertRaises(ValueError):
+            self.runner.submit_many([good, bad], "a"*32, 4)
+        self.assertEqual(self.runner.jobs, {})
 
     def test_docker_has_cpu_limit_but_no_memory_limit(self):
         from unittest.mock import MagicMock
@@ -209,7 +233,8 @@ class RemoteTests(unittest.TestCase):
             request("/v1/health",origin="https://wrong.example")
         self.assertEqual(json.load(e.exception)["error"],"Origin not allowed by runner")
         self.assertEqual(request("/v1/health")["api_version"],1)
-        self.assertEqual(request("/v1/health")["lease_timeout"],300)
+        self.assertIsNone(request("/v1/health")["lease_timeout"])
+        self.assertTrue(request("/v1/health")["detached_jobs"])
         self.assertIs(request("/v1/health")["memory_limit"],False)
         self.assertIsNone(request("/v1/health")["max_memory_gib"])
         self.assertEqual(request("/v1/jobs"),{"jobs":[]})
@@ -221,6 +246,20 @@ class RemoteTests(unittest.TestCase):
             r=request("/v1/jobs/"+ID+"/result")
             self.assertEqual(r["generator"],"remote native openEMS")
             self.assertTrue(r["patterns"][0]["record"]["radiation_valid"])
+            self.assertEqual(request("/v1/jobs")["jobs"][0]["state"], "done")
+            for _ in range(200):
+                if "finished_at" in self.runner.jobs[ID]: break
+                time.sleep(.01)
+            self.assertEqual(request("/v1/jobs/"+ID+"/result","DELETE")["deleted"], True)
+            self.assertEqual(request("/v1/jobs"), {"jobs":[]})
+            batch = {"id":"a"*32,"pool":2,"jobs":[{"id":str(n)*32,"config":CONFIG,"case_id":"case-"+str(n),"case_key":"hash-"+str(n)} for n in (2,3)]}
+            self.assertEqual(request("/v1/batches","POST",batch)["ids"],["2"*32,"3"*32])
+            self.assertEqual(request("/v1/batches","POST",batch)["ids"],["2"*32,"3"*32])
+            for _ in range(200):
+                if all("finished_at" in j for j in self.runner.jobs.values()):break
+                time.sleep(.01)
+            self.assertEqual(len(request("/v1/jobs")["jobs"]),2)
+            self.assertTrue(all(j["state"]=="done" for j in request("/v1/jobs")["jobs"]))
 
 
 if __name__ == "__main__":

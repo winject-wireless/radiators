@@ -82,7 +82,9 @@ try {
       const req=route.request(), path=new URL(req.url()).pathname, method=req.method();
       seen.push({method,path,authorization:req.headers().authorization});
       let data;
-      if(path.endsWith("/health"))data={api_version:1,max_cpus:8,memory_limit:false,max_memory_gib:null};
+      if(path.endsWith("/health"))data={api_version:1,max_cpus:8,memory_limit:false,max_memory_gib:null,detached_jobs:true,batch_submission:true};
+      else if(method==="GET"&&path.endsWith("/jobs"))data={jobs:[]};
+      else if(method==="POST"&&path.endsWith("/batches"))data={ids:req.postDataJSON().jobs.map(j=>j.id)};
       else if(method==="POST")data={id:req.postDataJSON().id};
       else if(path.endsWith("/result"))data={s11:{logmag_db:[-12]}};
       else data={state:"done"};
@@ -93,15 +95,31 @@ try {
     await blockedPage.getByLabel("Remote runner URL").fill(endpoint);
     await blockedPage.getByLabel("Remote runner token").fill("  test-token  ");
     await blockedPage.getByRole("button",{name:"Test connection"}).click();
-    await blockedPage.getByText("Connected · 8 CPUs · No RAM cap").waitFor();
+    await blockedPage.getByText("Connected · 8 CPUs · Detached jobs").waitFor();
+    await blockedPage.waitForFunction(()=>!document.querySelector("button[disabled]") || [...document.querySelectorAll("button")].some(b=>b.textContent==="Test connection"&&!b.disabled));
     const received=await blockedPage.evaluate(async endpoint=>{
       const {RemoteRunner}=await import("./js/sim/remote.js");
       return new RemoteRunner(endpoint,"test-token").run({schema_version:2});
     },endpoint);
     assert.deepEqual(received,{s11:{logmag_db:[-12]}});
-    assert.deepEqual(seen.map(x=>x.method),["GET","POST","GET","GET"]);
+    assert.deepEqual(seen.map(x=>x.method),["GET","GET","POST","GET","GET"]);
     assert.ok(seen.every(x=>x.authorization==="Bearer test-token"));
     console.log("Remote runner native fetch / health / submission / polling / result: PASS");
+    const batchIds=await blockedPage.evaluate(async endpoint=>{
+      const {RemoteRunner}=await import("./js/sim/remote.js");
+      const ids=["1".repeat(32),"2".repeat(32)];
+      const c=new RemoteRunner(endpoint,"test-token");
+      return (await c.submitBatch("a".repeat(32),4,ids.map(id=>({id,config:{schema_version:2}})))).ids;
+    },endpoint);
+    assert.deepEqual(batchIds,["1".repeat(32),"2".repeat(32)]);
+    await blockedPage.reload();
+    const afterReload=await blockedPage.evaluate(async ({endpoint,id})=>{
+      const {RemoteRunner}=await import("./js/sim/remote.js");
+      return new RemoteRunner(endpoint,"test-token").attach(id);
+    },{endpoint,id:batchIds[1]});
+    assert.deepEqual(afterReload,{s11:{logmag_db:[-12]}});
+    assert.equal(seen.filter(x=>x.method==="POST").length,2,"reattach does not submit another job");
+    console.log("Remote batch submission / attachment after reload: PASS");
     // A transient network loss must not cancel a job that may be hours in:
     // the client backs off and keeps polling, and sends no DELETE.
     const flaky=[];

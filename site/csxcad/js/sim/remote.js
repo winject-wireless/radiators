@@ -26,13 +26,23 @@ export class RemoteRunner {
     if(!response.ok){
       let detail="";
       try{detail=json?String((await response.json())?.error??""):(await response.text()).replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim().slice(0,160);}catch{/* body unreadable */}
-      throw Error("Runner HTTP "+response.status+(detail?": "+detail:""));
+      const error=Error("Runner HTTP "+response.status+(detail?": "+detail:""));error.status=response.status;throw error;
     }
     if(!json)throw Error("Runner returned "+(type||"no content type")+" instead of JSON (HTTP "+response.status+")");
     return response.json();
   }
   health(){return this.request("/v1/health");}
   jobs(){return this.request("/v1/jobs");}
+  async submitBatch(id,pool,jobs){
+    // Repeating the same IDs is safe if the HTTP response was lost.
+    for(let attempt=0;;attempt++){
+      try{return await this.request("/v1/batches","POST",{id,pool,jobs},{timeout:120000});}
+      catch(e){if(e.status&&e.status<500)throw e;
+        if(attempt>=2)throw Error("Submission unconfirmed; reconnect to recover any accepted jobs: "+e.message);
+        await new Promise(r=>setTimeout(r,1000*2**attempt));}
+    }
+  }
+  purgeJob(id){if(!/^[a-f0-9]{32}$/.test(id))throw Error("Invalid job ID");return this.request("/v1/jobs/"+id+"/result","DELETE");}
   cancelJob(id){if(!/^[a-f0-9]{32}$/.test(id))throw Error("Invalid job ID");return this.request("/v1/jobs/"+id,"DELETE");}
   abort(){
     this.cancelled=true;
@@ -47,21 +57,29 @@ export class RemoteRunner {
       await this.request("/v1/jobs","POST",{id:this.id,config,...(requireCapacity?{require_capacity:true}:{})});
       this.submitted=true;
     }catch(e){
-      // The POST may have reached the server before its response was lost.
-      try{await this.cancelJob(this.id);}catch{}
-      throw Error("Remote submission failed ("+this.id+"): "+e.message);
+      // The POST may have reached the server. Never cancel an ambiguous submission.
+      throw Error("Remote submission unconfirmed ("+this.id+"): "+e.message);
     }
-    // A native run can take hours. A phone changing network, or a sleeping tab,
-    // must never cancel it: poll with backoff and keep the job on the host.
-    // Only abort() (the Stop button) cancels, and the job ID stays available so
-    // the client can reattach after the connection comes back.
+    return this.attach(this.id,{onStatus});
+  }
+  async attach(id,{onStatus}={}){
+    if(!/^[a-f0-9]{32}$/.test(id))throw Error("Invalid job ID");
+    this.id=id;this.submitted=true;
+    const path="/v1/jobs/"+id;
     let failures=0,downloads=0;
     for(;;){
-      if(this.cancelled)await this.abort();
+      if(this.cancelled){
+        try{await this.abort();}
+        catch(e){
+          if(e.status===404||e.status===403||e.status===401)throw e;
+          onStatus?.({state:"unreachable",message:"Cancellation not confirmed; retrying.",error:e.message});
+          await new Promise(r=>setTimeout(r,3000));continue;
+        }
+      }
       let state;
       try{state=await this.request(path);failures=0;}
       catch(e){
-        if(this.cancelled){await this.abort();throw Error("Remote job cancelled");}
+        if(e.status===404||e.status===403||e.status===401)throw e;
         const wait=Math.min(30000,1500*2**Math.min(failures++,4));
         onStatus?.({state:"unreachable",attempts:failures,retry_ms:wait,error:e.message,
           message:`Connection lost (${e.message}); retrying in ${Math.round(wait/1000)} s. The remote job keeps running — press Stop to cancel it.`});
@@ -69,7 +87,7 @@ export class RemoteRunner {
         continue;
       }
       onStatus?.(state);
-      if(state.state==="cancelled")throw Error(state.error||"Remote job cancelled");
+      if(state.state==="cancelled"){const e=Error(state.error||"Remote job cancelled");e.jobState="cancelled";throw e;}
       if(state.state==="failed")throw Error(state.error||"Remote solver failed");
       if(state.state==="done"){
         // A failed download is retried a bounded number of times with its own
@@ -79,7 +97,7 @@ export class RemoteRunner {
         // connection would hang with no retry at all.
         try{return await this.request(path+"/result","GET",undefined,{timeout:RESULT_TIMEOUT});}
         catch(e){
-          if(this.cancelled)throw Error("Remote job cancelled");
+          if(e.status===404||e.status===403||e.status===401)throw e;
           if(++downloads>=RESULT_ATTEMPTS)throw Error("Remote result download failed after "+downloads+" attempts ("+this.id+"): "+e.message);
           const wait=Math.min(30000,1500*2**Math.min(downloads-1,4));
           onStatus?.({state:"unreachable",attempts:downloads,retry_ms:wait,error:e.message,
