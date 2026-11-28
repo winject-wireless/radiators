@@ -649,6 +649,48 @@ try {
     });
     await mobilePage.waitForFunction(()=>window.__csxcad.viewport.camera.near<.001,{}, {timeout:5000});
   } finally {await phone.close();}
+  // Deletion is scoped to one exact revision, survives reload, and does not
+  // recreate a deleted active draft during automatic archive on navigation.
+  const deletionPage=await browser.newPage();
+  try{
+    await deletionPage.goto(new URL("?debug=1",base).href);
+    await deletionPage.waitForFunction(()=>window.__csxcad?.state.doc,{},{timeout:90000});
+    const name=await deletionPage.evaluate(async()=>{
+      const {saveLocalProject}=await import("./js/sim/panel.js");
+      const current=structuredClone(window.__csxcad.state.doc);
+      await saveLocalProject(current);
+      await saveLocalProject({...current,description:"Other revision"},0,"Keep this revision");
+      return current.name;
+    });
+    const show=async()=>{
+      await deletionPage.locator("#menuButton").click();
+      await deletionPage.locator('[data-action="local-projects"]').click();
+      await deletionPage.getByRole("heading",{name:"Local projects"}).waitFor();
+    };
+    await show();
+    const button=deletionPage.getByRole("button",{name:"Delete "+name,exact:true});
+    deletionPage.once("dialog",d=>d.dismiss());
+    await button.click();
+    assert.equal(await button.count(),1,"Cancellation must retain the project");
+    deletionPage.once("dialog",d=>d.accept());
+    await button.click();
+    await deletionPage.getByText("Deleted local project",{exact:true}).waitFor();
+    assert.equal(await button.count(),0,"Deleted revision must disappear");
+    assert.equal(await deletionPage.getByRole("button",{name:"Delete Keep this revision",exact:true}).count(),1);
+    await deletionPage.locator("#dialogActions").getByRole("button",{name:"Close",exact:true}).click();
+    await deletionPage.reload();
+    await deletionPage.waitForFunction(()=>window.__csxcad?.state.doc,{},{timeout:90000});
+    await deletionPage.locator("#menuButton").click();
+    await deletionPage.locator('[data-action="new"]').click();
+    await show();
+    assert.equal(await button.count(),0,"Auto archive must not resurrect deleted active revision after reload");
+    assert.equal(await deletionPage.getByRole("button",{name:"Delete Keep this revision",exact:true}).count(),1);
+    await deletionPage.getByRole("button",{name:"Save current project",exact:true}).click();
+    await deletionPage.getByText("Saved to local projects",{exact:true}).waitFor();
+    await show();
+    assert.equal(await button.count(),1,"Explicit save may recreate a deleted revision");
+    console.log("Local project deletion, cancellation and persistence: PASS");
+  }finally{await deletionPage.close();}
   console.log("Browser CSXCAD + streaming sweep + mobile navigation: PASS");
 } finally {
   await browser.close();

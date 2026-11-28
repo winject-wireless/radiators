@@ -10,7 +10,7 @@ import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { currentDirection, currentPlaneAxis, currentPlaneLinked, setCurrentPosition, setCurrentDirection, moveCurrentCorner } from "./current-plane.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
-import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects, importResultArchive, importResultFile } from "./sim/panel.js";
+import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects, deleteLocalProject, importResultArchive, importResultFile } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
@@ -108,6 +108,7 @@ const mobile = () => matchMedia("(max-width: 760px), (max-height: 520px) and (ma
 // ---------------------------------------------------------------- state
 const state = {
   doc: null,
+  deletedArchiveKey: null, // suppress auto-saving an explicitly deleted active revision
   sel: null,            // {kind:"geometry"|"port"|"material", index}
   hidden: new Set(),
   caseIndex: 0,
@@ -268,6 +269,7 @@ function loadDoc(cfg, message, caseIndex = 0) {
   const next=normalizeDoc(cfg);
   if(state.doc)void archiveProject();
   state.doc = next;
+  state.deletedArchiveKey = null;
   jsonDraft = jsonBase = null;
   clearResults();
   for (const [k, v] of scriptRT.cache) if (!v.ok && /^timed out/.test(v.error)) scriptRT.cache.delete(k); // retry slow scripts
@@ -287,7 +289,7 @@ function persist() {
   // example query overwrite that draft on refresh; retain other query flags.
   const url=new URL(location.href);
   if(url.searchParams.has("example")){url.searchParams.delete("example");historyReplaceURL(url);}
-  storage.set(DRAFT_KEY, { doc: state.doc, caseIndex: state.caseIndex, savedAt: new Date().toISOString() });
+  storage.set(DRAFT_KEY, { doc: state.doc, caseIndex: state.caseIndex, savedAt: new Date().toISOString(), skipArchive: state.deletedArchiveKey === JSON.stringify(state.doc) });
 }
 function historyReplaceURL(url){ window.history.replaceState(window.history.state,"",url); }
 
@@ -2458,9 +2460,12 @@ const slug = () => (state.doc?.name || "antenna").toLowerCase().replace(/[^a-z0-
 
 async function archiveProject({explicit=false}={}) {
   if(!state.doc)return false;
+  const key=JSON.stringify(state.doc);
+  if(!explicit&&state.deletedArchiveKey===key)return false;
   try{
     await saveLocalProject(state.doc,state.caseIndex);
     if(explicit){
+      if(state.deletedArchiveKey===key){state.deletedArchiveKey=null;persist();}
       try{await navigator.storage?.persist?.();}catch{}
       setStatus("Saved to local projects");
     }
@@ -2470,12 +2475,34 @@ async function archiveProject({explicit=false}={}) {
 async function showLocalProjects() {
   try{
     const projects=await listLocalProjects();
-    const list=h("div",{class:"example-list"},projects.map(project=>h("button",{type:"button",onclick:()=>{
-      $("dialog").close();
-      loadDoc(project.doc,"Opened local project",project.caseIndex);
-      void restoreResults(simContext);
-    }},h("strong",{text:project.label||project.doc.name||"Untitled antenna"}),h("small",{text:new Date(project.savedAt).toLocaleString()+" · "+(project.doc.geometry?.length??0)+" parts"}))));
-    openDialog("Local projects",h("div",{},h("p",{class:"hint",text:"Saved project revisions and matching simulation results are stored on this device. Opening a project does not rerun it. Export important files for backup."}),projects.length?list:h("p",{class:"hint",text:"No saved projects yet. Use Save locally or run a simulation."})),[["Save current project",()=>void archiveProject({explicit:true})]]);
+    const list=h("div",{class:"example-list project-list"},projects.map(project=>{
+      const name=project.label||project.doc.name||"Untitled antenna";
+      const details=new Date(project.savedAt).toLocaleString()+" · "+(project.doc.geometry?.length??0)+" parts";
+      const open=h("button",{type:"button",class:"project-open",onclick:()=>{
+        $("dialog").close();
+        loadDoc(project.doc,"Opened local project",project.caseIndex);
+        void restoreResults(simContext);
+      }},h("strong",{text:name}),h("small",{text:details}));
+      const remove=iconBtn("trash","Delete "+name,async()=>{
+        if(!window.confirm("Delete saved project revision '"+name+"'?\n"+details+"\n\nThe current workspace and shared cached simulation results will be retained."))return;
+        remove.disabled=true;open.disabled=true;
+        try{
+          await deleteLocalProject(project.key);
+          if(state.doc&&project.key===JSON.stringify(state.doc)){
+            state.deletedArchiveKey=project.key;
+            persist();
+          }
+          $("dialog").close();
+          await showLocalProjects();
+          setStatus("Deleted local project");
+        }catch(e){
+          remove.disabled=false;open.disabled=false;
+          setStatus("Local project deletion failed: "+e.message,true);
+        }
+      },{danger:true});
+      return h("div",{class:"project-row"},open,remove);
+    }));
+    openDialog("Local projects",h("div",{},h("p",{class:"hint",text:"Saved project revisions and matching simulation results are stored on this device. Delete removes the selected saved revision, not the current workspace or shared result cache. Export important files for backup."}),projects.length?list:h("p",{class:"hint",text:"No saved projects yet. Use Save locally or run a simulation."})),[["Save current project",()=>void archiveProject({explicit:true})]]);
   }catch(e){setStatus("Local projects unavailable: "+e.message,true);}
 }
 async function save() {
@@ -2890,6 +2917,7 @@ async function boot() {
     message = `Restored local draft (${new Date(draft.savedAt).toLocaleString()})`;
   }
   try { state.doc = normalizeDoc(initial); } catch { state.doc = normalizeDoc(STARTER); }
+  if(!params.get("example")&&draft?.skipArchive&&JSON.stringify(draft.doc)===JSON.stringify(state.doc))state.deletedArchiveKey=JSON.stringify(state.doc);
   state.sel = null; // open showing the whole model; selecting a part fades the rest
 
   // 3D (WebGL may be unavailable in some WebViews; the editor still works).
