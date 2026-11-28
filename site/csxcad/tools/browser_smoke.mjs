@@ -237,7 +237,7 @@ try {
       const s=window.__csxcad?.state;
       return s?.doc.name==="2.45 GHz Helical" && s.dock==="results" && resultFor(s.derived.case.id)?.result?.s11?.frequency_hz?.length===401;
     },{}, {timeout:30000});
-    assert.ok(await examplePage.locator("#resultCharts").getByText("Best S11",{exact:true}).isVisible());
+    await examplePage.locator("#resultCharts").getByText("Best S11",{exact:true}).waitFor({state:"visible",timeout:30000});
     console.log("Bundled helix picker loads results even without IndexedDB: PASS");
   } finally { await exampleContext.close(); }
   const original=structuredClone(dipoleFixture);
