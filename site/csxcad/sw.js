@@ -41,7 +41,7 @@ self.addEventListener("fetch", e => {
   // freshness lifetime. Large immutable vendor assets keep normal caching.
   const scope = new URL(self.registration.scope);
   const relative = url.pathname.slice(scope.pathname.length);
-  const request = e.request.mode === "navigate" || relative === "app.css" || relative.startsWith("js/")
+  const request = e.request.mode === "navigate" || relative === "app.css" || relative.startsWith("js/") || relative.startsWith("examples/")
     ? new Request(e.request, { cache: "no-cache" }) : e.request;
   e.respondWith(fetch(request).then(r => {
     if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }

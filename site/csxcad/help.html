@@ -161,7 +161,11 @@ figcaption {font-size:13px;color:var(--muted);line-height:1.6;border-top:1px sol
 .header-actions {display:flex;align-items:center;gap:8px;flex:none}
 .toc-toggle,.toc-dismiss,.toc-backdrop {display:none}
 @media(max-width:760px) {
-  .enhanced .site-header {z-index:40}
+  /* Fixed rather than sticky: focusing the contents toggle must not scroll the
+     sticky header's original position into view on mobile Chromium. */
+  body.enhanced {padding-top:var(--header-height);overflow-anchor:none}
+  .enhanced .site-header {position:fixed;inset:0 0 auto;z-index:40;height:var(--header-height)}
+  .enhanced .site-header .top {height:100%;min-height:0}
   .enhanced .toc-toggle {display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel-soft);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
   .enhanced .toc-toggle[aria-expanded="true"] {background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
   .enhanced .toc-toggle svg {width:17px;height:17px;flex:none}
@@ -174,7 +178,8 @@ figcaption {font-size:13px;color:var(--muted);line-height:1.6;border-top:1px sol
   .enhanced .contents summary {position:sticky;top:0;background:var(--panel);z-index:1;border-bottom:1px solid var(--line);padding:12px 8px}
   .enhanced .contents nav a {min-height:44px}
   .enhanced .toc-backdrop:not([hidden]) {display:block;position:fixed;inset:0;z-index:30;background:rgb(0 0 0 / .48)}
-  .enhanced.toc-open {overflow:hidden}
+  .enhanced.toc-open {overscroll-behavior:none}
+  .enhanced .toc-backdrop {touch-action:none}
 }
 @media(max-width:340px) {
   .enhanced .brand small {display:none}
