@@ -10,11 +10,11 @@ import { SHAPES, MATERIALS, PORTS, BOUNDARIES, STARTER } from "./schema.js";
 import { currentDirection, currentPlaneAxis, currentPlaneLinked, setCurrentPosition, setCurrentDirection, moveCurrentCorner } from "./current-plane.js";
 import { checkCase } from "./checks.js";
 import { upgradeTextarea } from "./code-editor.js";
-import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects, importResultArchive, importResultFile } from "./sim/panel.js";
+import { renderRunPanel, resultFor, clearResults, renderResults, caseRunState, restoreResults, syncSweepDownload, saveLocalProject, listLocalProjects, importResultArchive, importResultFile, clearResultCache, resultCacheUsage } from "./sim/panel.js";
 import { ARG_TYPES, SCRIPT_TEMPLATE, SCRIPT_NAME, SCRIPT_LIMITS, BUILTIN_SCRIPTS, isBuiltinScript, scriptSource,
   normalizeSpec, prepareArgs, normalizeObjects, isScriptInstance } from "./scriptcore.js";
 import { solverBounds, displayBounds, transformer, rotationMatrix } from "./geometry.js";
-import { storage, saveFile, registerServiceWorker, isNative, installAppViewport } from "./platform.js";
+import { storage, saveFile, registerServiceWorker, onUpdateReady, isNative, installAppViewport } from "./platform.js";
 import { sampleDirection, defaultProbe } from "./sim/radiation.js";
 import { buildModel } from "./sim/model.js";
 import { meshSegments, meshMinima, nearestLine, planeAxes, validMeshLines } from "./sim/mesh-view.js";
@@ -101,7 +101,12 @@ const icon = (name, extra = "") => {
   return s;
 };
 const add = (el, ...kids) => el.append(...kids.flat().filter(k => k !== null && k !== undefined && k !== false));
-const DRAFT_KEY = "radiators-csxcad-draft-v1";
+const DRAFT_KEY = "radiators-csxcad-draft-v1";      // legacy single slot (migrated on first save)
+const DRAFT_PREFIX = "radiators-csxcad-draft-v2:";  // one slot per tab, so two tabs never overwrite each other
+const DRAFT_TAB_KEY = "radiators-csxcad-tab";
+const DRAFT_SLOTS = 3;                              // keep a few recent drafts; prune the rest
+const DRAFT_DEBOUNCE = 500;
+const UNDO_LIMIT = 200, UNDO_BYTES = 32 << 20;      // cap history by size too: 200 snapshots of a 2 MB model is 400 MB
 const PREFS_KEY = "radiators-csxcad-prefs-v1";
 const mobile = () => matchMedia("(max-width: 760px), (max-height: 520px) and (max-width: 1000px)").matches;
 
@@ -276,35 +281,89 @@ function loadDoc(cfg, message, caseIndex = 0) {
   state.caseIndex = Math.max(0,Math.trunc(Number(caseIndex)||0));
   history.undo = []; history.redo = [];
   if (viewport) viewport._fitted = false;
-  persist();
+  persist({ now: true });
   refresh();
   renderJson(true);
   if (message) setStatus(message);
 }
 
-function persist() {
+// This tab's own draft slot. sessionStorage is per tab, so two tabs editing
+// different models keep separate drafts; a new tab restores the newest one.
+function tabId() {
+  try {
+    let id = sessionStorage.getItem(DRAFT_TAB_KEY);
+    if (!id) { id = (crypto.randomUUID?.() || Math.random().toString(36).slice(2)).slice(0, 8); sessionStorage.setItem(DRAFT_TAB_KEY, id); }
+    return id;
+  } catch { return "single"; } // storage blocked: behave like the old single slot
+}
+const draftKey = () => DRAFT_PREFIX + tabId();
+function draftSlots() { // newest first, including the legacy single slot
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(DRAFT_PREFIX)) { const v = storage.get(key); if (v?.doc) out.push({ key, ...v }); }
+    }
+  } catch { /* storage blocked */ }
+  const legacy = storage.get(DRAFT_KEY);
+  if (legacy?.doc) out.push({ key: DRAFT_KEY, ...legacy });
+  return out.sort((a, b) => Date.parse(b.savedAt || 0) - Date.parse(a.savedAt || 0));
+}
+const otherDrafts = () => draftSlots().filter(d => d.key !== draftKey());
+
+let persistTimer = 0, persistWarned = false;
+function writeDraft() {
+  persistTimer = 0;
+  if (!state.doc) return;
+  const entry = { doc: state.doc, caseIndex: state.caseIndex, savedAt: new Date().toISOString() };
+  if (storage.set(draftKey(), entry)) {
+    storage.remove(DRAFT_KEY);
+    for (const d of otherDrafts().slice(DRAFT_SLOTS - 1)) storage.remove(d.key);
+    persistWarned = false;
+    return;
+  }
+  // localStorage is full (~5 MB). Reclaim the other slots, then say so: the
+  // user must not believe a draft was saved when it was not.
+  for (const d of otherDrafts()) storage.remove(d.key);
+  if (storage.set(draftKey(), entry)) { persistWarned = false; return; }
+  storage.remove(draftKey()); // a partial/stale draft is worse than none
+  if (!persistWarned) {
+    persistWarned = true;
+    setStatus("Local draft not saved: this model exceeds the browser's localStorage quota. Use Save locally or export the JSON.", true);
+  }
+}
+function persist({ now = false } = {}) {
   // A loaded/edited example is now the user's draft. Do not let its original
   // example query overwrite that draft on refresh; retain other query flags.
   const url=new URL(location.href);
   if(url.searchParams.has("example")){url.searchParams.delete("example");historyReplaceURL(url);}
-  storage.set(DRAFT_KEY, { doc: state.doc, caseIndex: state.caseIndex, savedAt: new Date().toISOString() });
+  // Serializing a large model into localStorage on every slider frame is the
+  // editor's worst hot path; coalesce writes and flush on gesture end/unload.
+  if (now) { clearTimeout(persistTimer); persistTimer = 0; writeDraft(); return; }
+  if (!persistTimer) persistTimer = setTimeout(writeDraft, DRAFT_DEBOUNCE);
 }
 function historyReplaceURL(url){ window.history.replaceState(window.history.state,"",url); }
 
 // Structural edit with undo. fn mutates state.doc.
 function edit(fn, opts = {}) {
+  const live = history.live !== null;
   const before = JSON.stringify(state.doc);
   try { fn(state.doc); }
   catch (e) { state.doc = JSON.parse(before); setStatus(e.message, true); return false; }
-  if (JSON.stringify(state.doc) === before) return true;
-  if (history.live === null) pushUndo(before);
+  // During a live gesture the snapshot is taken once by beginLive, so the only
+  // reason to serialize again would be the no-op test; a drag always redraws.
+  if (!live && JSON.stringify(state.doc) === before) return true;
+  if (!live) pushUndo(before);
   persist();
   refresh(opts);
   return true;
 }
 function pushUndo(snapshot) {
   history.undo.push(snapshot);
-  if (history.undo.length > 200) history.undo.shift();
+  // Cap by bytes as well as count: dense polyhedra or scripted arrays make
+  // every snapshot megabytes, and 200 of them would exhaust phone memory.
+  let bytes = history.undo.reduce((n, s) => n + s.length, 0);
+  while (history.undo.length > UNDO_LIMIT || (history.undo.length > 1 && bytes > UNDO_BYTES)) bytes -= history.undo.shift().length;
   history.redo = [];
 }
 // Live edits (sliders): one undo step per gesture.
@@ -313,7 +372,7 @@ function endLive() {
   if (history.live === null) return;
   if (history.live !== JSON.stringify(state.doc)) pushUndo(history.live);
   history.live = null;
-  persist();
+  persist({ now: true });
   refresh({ params: false, inspector: false });
 }
 function undo() {
@@ -2490,8 +2549,22 @@ async function openFile(file){
     openFromText(text,file.name);
   }catch(e){setStatus("Open failed: "+e.message,true);}
 }
+// Geometry scripts in a document are code, and opening a file is not consent
+// to run someone else's code. Ask once per opened document; scripts written in
+// this editor go through the Scripts tab and never reach here.
 function openFromText(text, label) {
-  try { loadDoc(JSON.parse(text), "Opened " + label); }
+  let cfg;
+  try { cfg = JSON.parse(text); }
+  catch (e) { setStatus("Open failed: " + e.message, true); return; }
+  const scripts = Object.keys(cfg?.scripts && typeof cfg.scripts === "object" && !Array.isArray(cfg.scripts) ? cfg.scripts : {})
+    .filter(name => typeof cfg.scripts[name]?.source === "string");
+  if (scripts.length && !window.confirm(
+      `${label} contains ${scripts.length} geometry script(s): ${scripts.join(", ")}.\n\n` +
+      "Geometry scripts run as code in this editor. Open and run them?")) {
+    setStatus("Open cancelled — " + label + " contains geometry scripts", true);
+    return;
+  }
+  try { loadDoc(cfg, "Opened " + label); }
   catch (e) { setStatus("Open failed: " + e.message, true); }
 }
 
@@ -2517,6 +2590,17 @@ async function menuAction(action) {
     case "examples": showExamples(); break;
     case "local-projects": await showLocalProjects(); break;
     case "save-local": await archiveProject({explicit:true}); break;
+    case "clear-result-cache":
+      try {
+        const { count, bytes } = await resultCacheUsage();
+        if (!count) { setStatus("No cached simulation results on this device"); break; }
+        if (!window.confirm(`Delete ${count} cached simulation result(s) (${(bytes / (1 << 20)).toFixed(1)} MB) from this device? Saved local projects are kept.`)) break;
+        const gone = await clearResultCache();
+        clearResults();
+        refresh();
+        setStatus(`Cleared ${gone.count} cached result(s) · ${(gone.bytes / (1 << 20)).toFixed(1)} MB freed`);
+      } catch (e) { setStatus("Result cache unavailable: " + e.message, true); }
+      break;
     case "json": openSheet("json"); break;
     case "export-case":
       try {
@@ -2847,6 +2931,11 @@ async function boot() {
     else if (e.key === "Escape") { if (state.handle) { state.handle = null; syncHandles(); } else { closeMenus(); closeSheet(); } }
     else if (e.key === "f" || e.key === "F") viewport?.view("fit");
   });
+  // A debounced draft must still reach localStorage when the tab goes away.
+  const flushDraft = () => { if (state.doc) persist({ now: true }); };
+  window.addEventListener("pagehide", flushDraft);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flushDraft(); });
+
   // Drag & drop a JSON file anywhere.
   document.addEventListener("dragover", e => {
     if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
@@ -2859,15 +2948,22 @@ async function boot() {
   });
 
   // Initial document: ?example=<file>, else local draft, else starter.
-  const draft = storage.get(DRAFT_KEY);
+  const draft = storage.get(draftKey()) ?? draftSlots()[0];
   const params = new URLSearchParams(location.search);
   let initial = STARTER, message = "Parametric starter loaded";
   if (params.get("example")) {
+    // A shared example link must not quietly discard the draft it replaces:
+    // keep it as a local project revision the user can reopen.
+    let kept = "";
+    if (draft?.doc) {
+      try { await saveLocalProject(draft.doc, draft.caseIndex || 0, (draft.doc.name || "Untitled") + " · draft replaced by example"); kept = " · previous draft kept in Local projects"; }
+      catch { kept = " · previous draft could not be kept (local storage unavailable)"; }
+    }
     try {
       const r = await fetch("./examples/" + encodeURIComponent(params.get("example")));
       initial = await r.json();
-      message = "Loaded example " + params.get("example");
-    } catch { message = "Example not found; starter loaded"; }
+      message = "Loaded example " + params.get("example") + kept;
+    } catch { message = "Example not found; starter loaded" + kept; }
   } else if (draft?.doc) {
     initial = draft.doc;
     state.caseIndex = Math.max(0,Math.trunc(Number(draft.caseIndex)||0));
@@ -2901,4 +2997,16 @@ async function boot() {
 
 // Start isolation before the editor loads its examples and WebGL viewport.
 registerServiceWorker();
+// A new build is live: this session keeps running its own, consistent build
+// until the user reloads, so offer the reload rather than switching under it.
+onUpdateReady(reload => {
+  const bar = h("div", { class: "toast", role: "status" },
+    "A new editor build is available.",
+    h("button", { type: "button", class: "primary", onclick: reload }, "Reload"));
+  Object.assign(bar.style, { position: "fixed", left: "50%", bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
+    transform: "translateX(-50%)", background: "var(--panel)", border: "1px solid var(--line-2)",
+    padding: "8px 12px", borderRadius: "18px", zIndex: 101, display: "flex", gap: "10px", alignItems: "center",
+    fontSize: "13px", boxShadow: "0 6px 18px rgb(0 0 0 / .3)" });
+  document.body.append(bar);
+});
 boot();

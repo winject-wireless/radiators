@@ -1,6 +1,6 @@
 // Offline cache for the CSXCAD editor (browser / installed PWA only; the
 // Capacitor Android build serves files from the APK and skips this).
-// CACHE_VERSION is replaced by prepare.py with a content hash.
+// CACHE_VERSION is replaced by prepare.py with a content hash of the build.
 const CACHE = "csxcad-CACHE_VERSION";
 const SHELL = [
   "./", "./index.html", "./help.html", "./app.css", "./manifest.webmanifest", "./icon.svg",
@@ -14,9 +14,21 @@ const SHELL = [
   "./vendor/openems/openems-worker.js", "./vendor/openems/openems.mjs", "./vendor/openems/openems.wasm",
   "./vendor/three.module.min.js", "./vendor/addons/controls/OrbitControls.js", "./vendor/addons/environments/RoomEnvironment.js", "./vendor/addons/controls/TransformControls.js",
 ];
+const SHELL_PATHS = new Set(SHELL.map(p => p.replace(/^\.\//, "")));
+// One missing file must not fail the whole install: this worker also supplies
+// cross-origin isolation, without which in-browser simulation is unavailable.
+// (site/csxcad/check.mjs verifies every SHELL path exists in the build.)
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(async c => {
+    const results = await Promise.allSettled(SHELL.map(p => c.add(new Request(p, { cache: "reload" }))));
+    const missing = SHELL.filter((_, i) => results[i].status === "rejected");
+    if (missing.length) console.warn("sw: not cached for offline use:", missing.join(" "));
+  }));
 });
+// No skipWaiting: an open session keeps the worker and the cache of the build
+// it started with, so it can never mix old and new modules. The page offers a
+// reload instead and sends "skip-waiting" when the user accepts.
+self.addEventListener("message", e => { if (e.data?.type === "skip-waiting") self.skipWaiting(); });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith("csxcad-") && k !== CACHE)
     .map(k => caches.delete(k)))).then(() => self.clients.claim()));
@@ -32,19 +44,32 @@ function isolate(r) {
   headers.set("Cross-Origin-Resource-Policy", "same-origin");
   return new Response(r.body, { status: r.status, statusText: r.statusText, headers });
 }
-// Network first (fresh after deploys), cache fallback when offline.
+// Write to Cache Storage only when the entry is new or the validators changed:
+// openems.wasm alone is 4 MB, and re-writing it on every load is pure cost.
+async function store(request, response, cached) {
+  const fresh = h => (h.get("etag") || "") + "|" + (h.get("last-modified") || "") + "|" + (h.get("content-length") || "");
+  if (cached && fresh(cached.headers) === fresh(response.headers) && fresh(response.headers) !== "||") return;
+  try { (await caches.open(CACHE)).put(request, response); } catch { /* quota or opaque response */ }
+}
+// The versioned shell is served cache-first (consistent build, no repeated
+// writes); everything else is network-first with a cache fallback offline.
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   if (e.request.cache === "only-if-cached" && e.request.mode !== "same-origin") return;
-  // Revalidate the small app shell instead of trusting the browser's HTTP
-  // freshness lifetime. Large immutable vendor assets keep normal caching.
   const scope = new URL(self.registration.scope);
   const relative = url.pathname.slice(scope.pathname.length);
-  const request = e.request.mode === "navigate" || relative === "app.css" || relative.startsWith("js/")
-    ? new Request(e.request, { cache: "no-cache" }) : e.request;
-  e.respondWith(fetch(request).then(r => {
-    if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
-    return isolate(r);
-  }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(isolate)));
+  const shell = e.request.mode === "navigate" || SHELL_PATHS.has(relative) || relative === "";
+  e.respondWith((async () => {
+    const cached = await caches.match(e.request, { ignoreSearch: true });
+    if (shell && cached) return isolate(cached);
+    try {
+      const response = await fetch(shell ? new Request(e.request, { cache: "no-cache" }) : e.request);
+      if (response.ok) await store(e.request, response.clone(), cached);
+      return isolate(response);
+    } catch (error) {
+      if (cached) return isolate(cached);
+      throw error;
+    }
+  })());
 });

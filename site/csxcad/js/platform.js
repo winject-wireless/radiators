@@ -75,6 +75,23 @@ export function isolationUnavailableReason() {
   return null;
 }
 
+// Ask a newly installed worker to activate at once. Used only when this page
+// has no isolation yet (nothing to keep consistent, and the page reloads right
+// after): with isolation already working, a new build waits for the reload the
+// user accepts in onUpdateReady instead.
+function claimWhenReady(registration) {
+  const push = worker => {
+    if (!worker) return;
+    if (worker.state === "installed") worker.postMessage({ type: "skip-waiting" });
+    else worker.addEventListener("statechange", () => {
+      if (worker.state === "installed") worker.postMessage({ type: "skip-waiting" });
+    });
+  };
+  push(registration.installing);
+  push(registration.waiting);
+  registration.addEventListener("updatefound", () => push(registration.installing));
+}
+
 async function waitForController(registration) {
   const sw = navigator.serviceWorker;
   const deadline = Date.now() + 30000;
@@ -98,6 +115,7 @@ export function registerServiceWorker({ manual = false } = {}) {
         try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch { /* storage blocked */ }
         return null;
       }
+      claimWhenReady(registration);
       // Explicitly check for an updated worker if an older one is already active.
       if (!registration.installing && !registration.waiting && registration.active) {
         try { await registration.update(); } catch { /* offline: use the active worker */ }
@@ -119,6 +137,32 @@ export function registerServiceWorker({ manual = false } = {}) {
     }
   })().finally(() => { isolationSetup = null; });
   return isolationSetup;
+}
+
+// A deploy installs a new service worker with its own content-hashed cache.
+// It deliberately does not skipWaiting: this session keeps the worker, and so
+// the exact build, it started with — otherwise a module loaded later (a script
+// worker, the openEMS worker) could come from the new build and run against an
+// old main.js. Offer a reload instead, and switch over only when accepted.
+export function onUpdateReady(notify) {
+  if (isNative() || !("serviceWorker" in navigator)) return;
+  const sw = navigator.serviceWorker;
+  let accepted = false;
+  sw.addEventListener("controllerchange", () => { if (accepted) location.reload(); });
+  const offer = worker => {
+    if (!worker || !sw.controller) return; // first install: nothing is replaced
+    notify(() => { accepted = true; worker.postMessage({ type: "skip-waiting" }); });
+  };
+  sw.getRegistration().then(registration => {
+    if (!registration) return;
+    offer(registration.waiting);
+    registration.addEventListener("updatefound", () => {
+      const installing = registration.installing;
+      installing?.addEventListener("statechange", () => {
+        if (installing.state === "installed") offer(registration.waiting || installing);
+      });
+    });
+  }).catch(() => { /* storage or registration unavailable */ });
 }
 
 // Installed Android PWAs and WebViews can report a CSS viewport taller than
