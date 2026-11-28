@@ -5,7 +5,7 @@ import { buildModel } from "./model.js";
 import { runSimulation, summarize, hasValidS11 } from "./run.js";
 import { lineChart, polarChart, smithChart } from "./plot.js";
 import { makeZip, openZip } from "./zip.js";
-import { resolveCase } from "../params.js";
+import { resolveCase, sameResolvedInput } from "../params.js";
 import { diagnosticFrame } from "./probe-playback.js";
 import { updateSolverDiagnostics } from "./diagnostics.js";
 import { registerServiceWorker, isolationUnavailableReason, storage } from "../platform.js";
@@ -344,7 +344,16 @@ export async function restoreResults(ctx) {
   const cached=await Promise.all(jobs.map(async j=>{
     let entry;
     try { entry=await cacheGet(j.key); } catch { /* bundled result does not depend on storage */ }
-    return {...j,entry:entry??bundledResults.get(j.key)};
+    if(!entry){
+      entry=bundledResults.get(j.key);
+      if(!entry){
+        const resolved=JSON.parse(j.key);
+        for(const [sourceKey,bundle] of bundledResults){
+          if(sameResolvedInput(resolved,JSON.parse(sourceKey))){entry=bundle;break;}
+        }
+      }
+    }
+    return {...j,entry};
   }));
   if(runs!==target)return;
   const current=new Map(ctx.getCases().filter(c=>c.config).map(c=>[c.id,JSON.stringify(c.config)]));
