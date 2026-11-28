@@ -304,19 +304,48 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
   assert.throws(() => buildModel({ ...cfg, ports: [{ ...cfg.ports[0], type: "msl" }] }), /not supported in the browser/);
 }
 
+const MONOPOLE_FIXTURE = {
+  schema_version: 2,
+  name: "Parametric monopole",
+  description: "Quarter-wave monopole over a disk. Parametric starter; review feed, domain and mesh before simulation.",
+  units: "mm",
+  parameters: { f_ghz: 2.45, ground_r: 35, wire_r: 1, gap: 3 },
+  domain: { start: [-120, -120, -100], stop: [120, 120, 120], boundary: Array(6).fill("PML_8") },
+  mesh: { max_cell_mm: 3, growth_ratio: 1.4, max_cells: 5000000 },
+  solver: { max_timesteps: 20000, end_criteria: 0.0001, resources: { cpus: 2, memory_gib: 5 } },
+  excitation: { center_hz: 2450000000, bandwidth_hz: 350000000 },
+  materials: [{ name: "pec-metal", type: "pec" }],
+  geometry: [
+    { name: "ground-disk", material: "pec-metal", shape: "cylinder",
+      start: [0, 0, -0.5], stop: [0, 0, 0], radius: { $param: "ground_r" } },
+    { name: "radiator", material: "pec-metal", shape: "cylinder",
+      start: [0, 0, { $param: "gap" }],
+      stop: [0, 0, { $expr: "gap + 0.95 * 299.792458 / f_ghz / 4" }],
+      radius: { $param: "wire_r" } },
+  ],
+  ports: [{ id: 1, name: "feed", type: "lumped", start: [0, 0, 0], stop: [0, 0, { $param: "gap" }],
+    direction: "z", impedance_ohm: 50, excite: true }],
+  outputs: {
+    s11: [{ start: 2300000000, step: 10000000, end: 2600000000 }],
+    radiation_frequencies_hz: [2450000000],
+    radiation_grid: { theta_step_deg: 5, phi_step_deg: 5 },
+    include_realized_gain: true,
+  },
+};
+
 // Compact two-arm model: the coarse X mesh used to place the PML_8 dump
 // faces past each other. All six faces must enclose the translated strips.
 {
   const cfg = {
-    ...STARTER,
-    domain: { ...STARTER.domain, start: [-43, -39, -72], stop: [43, 39, 72] },
+    ...MONOPOLE_FIXTURE,
+    domain: { ...MONOPOLE_FIXTURE.domain, start: [-43, -39, -72], stop: [43, 39, 72] },
     mesh: { max_cell_mm: 6, growth_ratio: 1.4 },
     geometry: [1, -1].map(sign => ({
       shape: "box", material: "pec-metal",
       start: [-5, -0.25, Math.min(0, sign * 31)], stop: [5, 0.25, Math.max(0, sign * 31)],
       transform: { translate: [0, 0, sign * 2.5] },
     })),
-    ports: [{ ...STARTER.ports[0], start: [0, 0, -2.6], stop: [0, 0, 2.6] }],
+    ports: [{ ...MONOPOLE_FIXTURE.ports[0], start: [0, 0, -2.6], stop: [0, 0, 2.6] }],
   };
   const model = buildModel(cfg);
   [5, 0.25, 33.5].forEach((extent, i) => {
@@ -357,12 +386,15 @@ const starterCases = parameterSets(STARTER);
 assert.equal(starterCases.length, 1);
 const starter = resolveCase(STARTER, starterCases[0].parameters);
 assert.deepEqual(checkCase(starter).filter(x => x.level === "error"), []);
-assert.ok(Math.abs(starter.geometry[1].stop[2] - (3 + 0.95 * 299.792458 / 2.45 / 4)) < 1e-9);
+assert.deepEqual(STARTER, JSON.parse(fs.readFileSync(path.join(repo, "examples/dipole_2450.json"), "utf8")));
+assert.equal(starter.solver.end_criteria, 1e-6);
+assert.equal(starter.solver.max_timesteps, 100000);
+assert.ok(buildModel(starter).patterns.includes(2450000000));
 for (const [shape, def] of Object.entries(SHAPES)) assert.ok(tessellate({ shape, ...def.template }).indices.length > 0, shape);
 
 // Feed connectivity checks: actual conductor, not just an enclosing AABB.
 {
-  const good=structuredClone(starter);
+  const good=resolveCase(MONOPOLE_FIXTURE,parameterSets(MONOPOLE_FIXTURE)[0].parameters);
   const feedWarnings=c=>checkCase(c).filter(x=>x.where==="port feed").map(x=>x.msg);
   assert.equal(feedWarnings(good).length,0,"Flush planar monopole feed must pass");
   const gap=structuredClone(good);

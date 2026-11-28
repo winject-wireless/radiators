@@ -27,7 +27,7 @@ Published at `https://winject-wireless.github.io/radiators/csxcad/`.
   port, unique IDs, geometry and ports inside the domain, materials, coax
   radii, S11 inside the excitation band…), run for every sweep case.
 - Source / resolved JSON view, undo/redo, local draft autosave, drag & drop,
-  bundled examples from `antennas/` and `examples/`.
+  one bundled 2.45 GHz dipole example (also the default starter). Other repository designs can still be opened as JSON.
 - Configs that use a Python `generator` open, but their generated geometry only
   exists when the radiators scripts run.
 
