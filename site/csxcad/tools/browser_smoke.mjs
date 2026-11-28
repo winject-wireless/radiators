@@ -700,7 +700,7 @@ try {
     await mobilePage.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event("resize"));});
     await mobilePage.waitForFunction(()=>Math.abs(document.body.getBoundingClientRect().height-innerHeight)<=1);
     await mobilePage.locator("#panelJson .sheet-close").click();
-    // The only bundled example is the Yagi. Check its layout, then use
+    // Check the bundled Yagi and helix layout, then use
     // temporary test-only rows to keep regression coverage of long lists.
     await mobilePage.locator("#menuButton").click();
     await mobilePage.locator('[data-action="examples"]').click();
@@ -717,9 +717,11 @@ try {
         contained:rects.every(r=>r.contained),
         separated:rects.every((r,i)=>i===0||r.top>=rects[i-1].bottom+2)};
     });
-    assert.equal(layout.count,1,"Only the Yagi should be bundled");
+    assert.equal(layout.count,2,"The Yagi and helical examples should be bundled");
+    assert.match(await picker.innerText(),/2\.45 GHz Helical/);
     assert.match(await picker.innerText(),/Parametric Yagi/);
     assert.ok(layout.contained,"Example text escapes its row");
+    assert.ok(layout.separated,"Example rows overlap");
     const overflow=await picker.evaluate(el=>{
       const row=el.querySelector(":scope > button");
       const clones=Array.from({length:12},()=>row.cloneNode(true));

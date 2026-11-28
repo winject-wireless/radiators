@@ -134,7 +134,7 @@ print(json.dumps([{"id": c["case_id"], "name": c["case_name"], "parameters": c["
     close(c.parameters, pyCases[i].parameters, `${rel} ${c.id} parameters`);
     if (cfg.generator) return; // Python generators run only in the simulator
     let resolved = resolveCase(cfg, c.parameters);
-    if (cfg.scripts) resolved = expandScripts(resolved, editorRun);
+    if (cfg.scripts || resolved.geometry?.some(g => g.script)) resolved = expandScripts(resolved, editorRun);
     close(resolved, pyCases[i].config, `${rel} ${c.id}`);
     for (const g of resolved.geometry) {
       const t = tessellate(g);
