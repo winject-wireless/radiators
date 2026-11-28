@@ -91,6 +91,7 @@ class RemoteTests(unittest.TestCase):
                 for ident in ("1"*32, "2"*32):
                     self.runner.submit({"id":ident,"config":copy.deepcopy(CONFIG),"require_capacity":True})
                 self.assertEqual(sum(j["cpus"] for j in self.runner.jobs.values() if j["state"]=="starting"),4)
+                self.assertEqual(self.runner.cpu_capacity(), {"ncpu":4,"free_cpu":0})
                 with self.assertRaisesRegex(RuntimeError,"CPU capacity unavailable"):
                     self.runner.submit({"id":"3"*32,"config":copy.deepcopy(CONFIG),"require_capacity":True})
                 self.assertNotIn("3"*32,self.runner.jobs)
@@ -99,6 +100,7 @@ class RemoteTests(unittest.TestCase):
                 for _ in range(200):
                     if all(j["state"]=="done" for j in self.runner.jobs.values()):break
                     time.sleep(.01)
+                self.assertEqual(self.runner.cpu_capacity(), {"ncpu":4,"free_cpu":4})
 
     def test_cpu_budget_and_cancel_queued_job(self):
         gate=threading.Event()
@@ -234,6 +236,8 @@ class RemoteTests(unittest.TestCase):
             request("/v1/health",origin="https://wrong.example")
         self.assertEqual(json.load(e.exception)["error"],"Origin not allowed by runner")
         self.assertEqual(request("/v1/health")["api_version"],1)
+        self.assertEqual(request("/v1/health")["ncpu"],4)
+        self.assertEqual(request("/v1/health")["free_cpu"],4)
         self.assertIsNone(request("/v1/health")["lease_timeout"])
         self.assertTrue(request("/v1/health")["detached_jobs"])
         self.assertIs(request("/v1/health")["memory_limit"],False)
@@ -253,7 +257,7 @@ class RemoteTests(unittest.TestCase):
                 time.sleep(.01)
             self.assertEqual(request("/v1/jobs/"+ID+"/result","DELETE")["deleted"], True)
             self.assertEqual(request("/v1/jobs"), {"jobs":[]})
-            batch = {"id":"a"*32,"pool":2,"jobs":[{"id":str(n)*32,"config":CONFIG,"case_id":"case-"+str(n),"case_key":"hash-"+str(n)} for n in (2,3)]}
+            batch = {"id":"a"*32,"jobs":[{"id":str(n)*32,"config":CONFIG,"case_id":"case-"+str(n),"case_key":"hash-"+str(n)} for n in (2,3)]}
             self.assertEqual(request("/v1/batches","POST",batch)["ids"],["2"*32,"3"*32])
             self.assertEqual(request("/v1/batches","POST",batch)["ids"],["2"*32,"3"*32])
             for _ in range(200):
