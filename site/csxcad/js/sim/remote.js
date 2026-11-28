@@ -37,7 +37,8 @@ export class RemoteRunner {
     // Repeating the same IDs is safe if the HTTP response was lost.
     for(let attempt=0;;attempt++){
       try{return await this.request("/v1/batches","POST",{id,pool,jobs},{timeout:120000});}
-      catch(e){if((e.status&&e.status<500)||attempt>=2)throw e;
+      catch(e){if(e.status&&e.status<500)throw e;
+        if(attempt>=2)throw Error("Submission unconfirmed; reconnect to recover any accepted jobs: "+e.message);
         await new Promise(r=>setTimeout(r,1000*2**attempt));}
     }
   }
@@ -67,11 +68,17 @@ export class RemoteRunner {
     const path="/v1/jobs/"+id;
     let failures=0,downloads=0;
     for(;;){
-      if(this.cancelled)await this.abort();
+      if(this.cancelled){
+        try{await this.abort();}
+        catch(e){
+          if(e.status===404||e.status===403||e.status===401)throw e;
+          onStatus?.({state:"unreachable",message:"Cancellation not confirmed; retrying.",error:e.message});
+          await new Promise(r=>setTimeout(r,3000));continue;
+        }
+      }
       let state;
       try{state=await this.request(path);failures=0;}
       catch(e){
-        if(this.cancelled){await this.abort();throw Error("Remote job cancelled");}
         if(e.status===404||e.status===403||e.status===401)throw e;
         const wait=Math.min(30000,1500*2**Math.min(failures++,4));
         onStatus?.({state:"unreachable",attempts:failures,retry_ms:wait,error:e.message,
@@ -80,7 +87,7 @@ export class RemoteRunner {
         continue;
       }
       onStatus?.(state);
-      if(state.state==="cancelled")throw Error(state.error||"Remote job cancelled");
+      if(state.state==="cancelled"){const e=Error(state.error||"Remote job cancelled");e.jobState="cancelled";throw e;}
       if(state.state==="failed")throw Error(state.error||"Remote solver failed");
       if(state.state==="done"){
         // A failed download is retried a bounded number of times with its own
@@ -90,7 +97,7 @@ export class RemoteRunner {
         // connection would hang with no retry at all.
         try{return await this.request(path+"/result","GET",undefined,{timeout:RESULT_TIMEOUT});}
         catch(e){
-          if(this.cancelled)throw Error("Remote job cancelled");
+          if(e.status===404||e.status===403||e.status===401)throw e;
           if(++downloads>=RESULT_ATTEMPTS)throw Error("Remote result download failed after "+downloads+" attempts ("+this.id+"): "+e.message);
           const wait=Math.min(30000,1500*2**Math.min(downloads-1,4));
           onStatus?.({state:"unreachable",attempts:downloads,retry_ms:wait,error:e.message,

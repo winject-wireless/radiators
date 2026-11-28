@@ -98,7 +98,7 @@ journalctl --user -u radiators-runner -f
 
 For startup before login, enable lingering for the service user if supported
 and appropriate. Stop the service before git pull; restart afterwards.
-A Ctrl+C or SIGTERM requests cancellation of active containers.
+A Ctrl+C or SIGTERM requests cancellation of active containers; queued jobs remain on disk for the next runner start.
 
 ## Limits and verification
 

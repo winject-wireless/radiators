@@ -725,7 +725,7 @@ async function start(ctx, all = false, id = ctx.getCase().id, recovery=null) {
         });
         }
         if(remote&&c.config.probes?.some(p=>p.enabled!==false)&&!Array.isArray(result.diagnostic_probes))throw Error("Runner did not return diagnostic data; update the native runner checkout");
-        result.aborted=!!(result.aborted||sim.aborting);
+        result.aborted=!!(result.aborted||(!remote&&sim.aborting));
         const firstValid=result.patterns.findIndex(p=>p.record.radiation_valid);
         const run={...partialRun,result,key,remoteJobId:c.remoteId,log:job.log.slice(-2000),frequency:partialRun?.frequency>=0?partialRun.frequency:firstValid};
         const keepPrevious=!!retained&&(result.aborted||result.postprocessing_incomplete);
@@ -743,6 +743,10 @@ async function start(ctx, all = false, id = ctx.getCase().id, recovery=null) {
         if(c.immediate&&/CPU capacity unavailable/.test(e.message)){
           const old=previous.get(c.id);if(old)states.set(c.id,old);else states.delete(c.id);
           job.notStarted=true;notStarted++;sim.error=e.message;ctx.notify(sim.error,true);
+        } else if(e.jobState==="cancelled"){
+          if(retained)runCases.set(c.id,retained);
+          states.set(c.id,{status:sim.aborting?"stopped":"cancelled",key,error:e.message});
+          if(sim.aborting)stopped++;
         } else if(retained){
           runCases.set(c.id,retained);
           states.set(c.id,{status:sim.aborting?"stopped":"failed",key,error:e.message});
@@ -794,17 +798,18 @@ async function start(ctx, all = false, id = ctx.getCase().id, recovery=null) {
       if(sim.aborting){await Promise.allSettled(queue.map(c=>client.cancelJob(c.remoteId)));throw Error("Stopped");}
       for(const c of queue)track(runCase(c));
       const slots=Math.max(1,Math.floor(limit/cpu.perJob));
-      sim.batch.canAdd=id=>!recovery&&!sim.aborting&&runs===runCases&&tasks.size<slots&&!sim.active.has(id);
+      const submitting=new Set();
+      sim.batch.canAdd=id=>!recovery&&!sim.aborting&&runs===runCases&&tasks.size<slots&&!sim.active.has(id)&&!submitting.has(id);
       sim.batch.add=c=>{
         if(!sim.batch.canAdd(c.id))return;
         ctx.archiveProject?.();
-        const copy=snapshot(c,true);queue.push(copy);markQueued(copy);sim.batch.total++;
+        const copy=snapshot(c,true);queue.push(copy);markQueued(copy);sim.batch.total++;submitting.add(copy.id);
         track((async()=>{
           try{await submit([copy]);await runCase(copy);}
           catch(e){
             const old=previous.get(copy.id);if(old)states.set(copy.id,old);else states.delete(copy.id);
             notStarted++;sim.error=e.message;ctx.notify(e.message,true);publish();
-          }
+          }finally{submitting.delete(copy.id);}
         })());publish();
       };
       publish();

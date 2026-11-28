@@ -159,6 +159,23 @@ class RemoteTests(unittest.TestCase):
                 self.assertTrue(all(j["state"]=="done" for j in restored.list_jobs()))
             finally: gate.set()
 
+    def test_queued_job_recovers_on_restart(self):
+        cfg = copy.deepcopy(CONFIG)
+        cfg["solver"]["resources"]["cpus"] = 4
+        with patch.object(self.runner, "dispatch_locked"):
+            self.runner.submit_many([{"id": ID, "config": cfg, "case_key": "test", "case_id": "default"}], "a"*32, 4)
+        restored = Runner(self.args, [], Path(self.temp.name))
+        self.assertEqual(restored.list_jobs()[0]["state"], "queued")
+        self.assertEqual(restored.list_jobs()[0]["case_key"], "test")
+        with patch.object(restored, "execute", side_effect=lambda j, cpus: j.update(state="done", seconds=.01)):
+            with restored.lock: restored.dispatch_locked()
+            for _ in range(200):
+                if "finished_at" in restored.jobs[ID]: break
+                time.sleep(.01)
+            self.assertEqual(restored.jobs[ID]["state"], "done")
+            restored.purge(restored.jobs[ID])
+        self.assertEqual(Runner(self.args, [], Path(self.temp.name)).list_jobs(), [])
+
     def test_batch_rejects_all_on_invalid_case(self):
         good = {"id": ID, "config": copy.deepcopy(CONFIG)}
         bad = {"id": "2"*32, "config": {}}
@@ -229,6 +246,20 @@ class RemoteTests(unittest.TestCase):
             r=request("/v1/jobs/"+ID+"/result")
             self.assertEqual(r["generator"],"remote native openEMS")
             self.assertTrue(r["patterns"][0]["record"]["radiation_valid"])
+            self.assertEqual(request("/v1/jobs")["jobs"][0]["state"], "done")
+            for _ in range(200):
+                if "finished_at" in self.runner.jobs[ID]: break
+                time.sleep(.01)
+            self.assertEqual(request("/v1/jobs/"+ID+"/result","DELETE")["deleted"], True)
+            self.assertEqual(request("/v1/jobs"), {"jobs":[]})
+            batch = {"id":"a"*32,"pool":2,"jobs":[{"id":str(n)*32,"config":CONFIG,"case_id":"case-"+str(n),"case_key":"hash-"+str(n)} for n in (2,3)]}
+            self.assertEqual(request("/v1/batches","POST",batch)["ids"],["2"*32,"3"*32])
+            self.assertEqual(request("/v1/batches","POST",batch)["ids"],["2"*32,"3"*32])
+            for _ in range(200):
+                if all("finished_at" in j for j in self.runner.jobs.values()):break
+                time.sleep(.01)
+            self.assertEqual(len(request("/v1/jobs")["jobs"]),2)
+            self.assertTrue(all(j["state"]=="done" for j in request("/v1/jobs")["jobs"]))
 
 
 if __name__ == "__main__":

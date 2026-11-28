@@ -92,8 +92,8 @@ class Runner:
             if not ID.fullmatch(path.name) or not (path / "state.json").is_file():
                 continue
             data = json.loads((path / "state.json").read_text())
-            ident, cfg, cpus = validate({"id": path.name, "config": json.loads((path / "config.json").read_text())}, self.args)
-            if data["id"] != ident or data["state"] not in TERMINAL | {"queued", "starting", "running"}:
+            ident, cpus = path.name, data["cpus"]
+            if data["id"] != ident or type(cpus) is not int or cpus < 1 or data["state"] not in TERMINAL | {"queued", "starting", "running"}:
                 raise ValueError("Invalid stored job " + ident)
             j = dict(data, path=path, cancel=threading.Event(), created=time.monotonic(),
                      last_contact=time.monotonic(), cpus=cpus)
@@ -103,6 +103,12 @@ class Runner:
                 self.remove_container("radiators-remote-" + ident)
                 j.update(state="failed", seconds=0, error="Runner restarted during simulation; rerun this case")
                 self.persist(j)
+            if j["state"] == "queued":
+                try:
+                    validate({"id": ident, "config": json.loads((path / "config.json").read_text())}, self.args)
+                except (ValueError, OSError) as exc:
+                    j.update(state="failed", seconds=0, error="Stored job exceeds current runner limits or is invalid: " + str(exc))
+                    self.persist(j)
             if j["state"] in TERMINAL:
                 j["finished_at"] = time.monotonic()
             self.jobs[ident] = j
