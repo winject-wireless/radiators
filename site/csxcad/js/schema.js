@@ -162,22 +162,31 @@ export const PORTS = {
 
 export const BOUNDARIES = ["PML_8", "PML_6", "PML_4", "MUR", "PEC", "PMC"];
 
-// Keep this offline fallback identical to examples/dipole_2450.json (checked in CI).
+// Keep this offline fallback identical to examples/parametric_yagi.json (checked in CI).
 export const STARTER = {
   "schema_version": 2,
-  "name": "Half-wave dipole 2.45 GHz (fast)",
-  "description": "Compact half-wave dipole for a quick browser simulation with a stricter energy-decay criterion.",
+  "name": "Parametric Yagi",
+  "description": "Three-element parametric Yagi-Uda with a split driven element, reflector, director and current probes. Single simulation; edit parameters or add a sweep as needed.",
   "units": "mm",
+  "parameters": {
+    "gap": 2,
+    "len": 58,
+    "dist_ref": 0.75,
+    "dist_dir": 0.36,
+    "el_rad": 2,
+    "len_ref": 1.06,
+    "len_dir": 0.94
+  },
   "domain": {
     "start": [
-      -90,
-      -90,
-      -110
+      -200,
+      -200,
+      -100
     ],
     "stop": [
-      90,
-      90,
-      110
+      200,
+      200,
+      100
     ],
     "boundary": [
       "PML_8",
@@ -189,56 +198,177 @@ export const STARTER = {
     ]
   },
   "mesh": {
-    "max_cell_mm": 6,
-    "local_min_cell_mm": 1,
-    "auto_refine_max_span_mm": 40,
+    "max_cell_mm": 8,
     "growth_ratio": 1.4,
-    "max_cells": 2000000
+    "max_cells": 5000000,
+    "refinements": [
+      {
+        "start": [
+          -10,
+          -55,
+          -32.5
+        ],
+        "stop": [
+          10,
+          35,
+          32.5
+        ],
+        "resolution_mm": 1
+      },
+      {
+        "start": [
+          -3,
+          -3,
+          -3
+        ],
+        "stop": [
+          3,
+          3,
+          3
+        ],
+        "resolution_mm": 0.5,
+        "enabled": true
+      }
+    ]
   },
   "solver": {
-    "max_timesteps": 100000,
-    "end_criteria": 0.000001
+    "max_timesteps": 50000,
+    "end_criteria": 0.0001,
+    "resources": {
+      "cpus": 12,
+      "memory_gib": 24
+    }
   },
   "excitation": {
-    "center_hz": 2450000000,
-    "bandwidth_hz": 750000000
+    "center_hz": 2500000000,
+    "bandwidth_hz": 500000000
   },
   "materials": [
     {
-      "name": "pec",
+      "name": "copper",
       "type": "pec"
     }
   ],
   "geometry": [
     {
-      "name": "arm-top",
-      "shape": "box",
-      "material": "pec",
+      "name": "driven",
+      "shape": "cylinder",
+      "material": "copper",
       "start": [
-        -1,
-        -1,
-        1
+        0,
+        0,
+        0
       ],
       "stop": [
-        1,
-        1,
-        28
-      ]
+        0,
+        0,
+        {
+          "$expr": "len/2-gap/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          0,
+          {
+            "$expr": "gap/2"
+          }
+        ]
+      }
     },
     {
-      "name": "arm-bottom",
-      "shape": "box",
-      "material": "pec",
+      "name": "gnd",
+      "shape": "cylinder",
+      "material": "copper",
       "start": [
-        -1,
-        -1,
-        -28
+        0,
+        0,
+        0
       ],
       "stop": [
-        1,
-        1,
-        -1
-      ]
+        0,
+        0,
+        {
+          "$expr": "-len/2+gap/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          0,
+          {
+            "$expr": "-gap/2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reflector",
+      "shape": "cylinder",
+      "material": "copper",
+      "start": [
+        0,
+        0,
+        {
+          "$expr": "-len*len_ref/2"
+        }
+      ],
+      "stop": [
+        0,
+        0,
+        {
+          "$expr": "len*len_ref/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "-dist_ref*len"
+          },
+          0
+        ]
+      }
+    },
+    {
+      "name": "director1",
+      "shape": "cylinder",
+      "material": "copper",
+      "start": [
+        0,
+        0,
+        {
+          "$expr": "-len*len_dir/2"
+        }
+      ],
+      "stop": [
+        0,
+        0,
+        {
+          "$expr": "len*len_dir/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "dist_dir*len"
+          },
+          0
+        ]
+      }
     }
   ],
   "ports": [
@@ -249,34 +379,142 @@ export const STARTER = {
       "start": [
         0,
         0,
-        -1
+        {
+          "$expr": "-gap/2-0.5"
+        }
       ],
       "stop": [
         0,
         0,
-        1
+        {
+          "$expr": "gap/2+0.5"
+        }
       ],
       "direction": "z",
-      "impedance_ohm": 73,
+      "impedance_ohm": 50,
       "excite": true
     }
   ],
   "outputs": {
     "s11": [
       {
-        "start": 1900000000,
-        "step": 25000000,
+        "start": 2000000000,
+        "step": 10000000,
         "end": 3000000000
       }
     ],
     "radiation_frequencies_hz": [
       2450000000
     ],
-    "include_impedance": true,
     "radiation_grid": {
-      "theta_step_deg": 10,
-      "phi_step_deg": 15
+      "theta_step_deg": 5,
+      "phi_step_deg": 5
     },
-    "include_realized_gain": true
-  }
+    "include_realized_gain": true,
+    "include_polarization": true
+  },
+  "probes": [
+    {
+      "name": "current_driven",
+      "type": "current",
+      "enabled": true,
+      "start": [
+        -5,
+        -5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "stop": [
+        5,
+        5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "time_domain": {
+        "enabled": true
+      },
+      "frequency_domain": {
+        "enabled": false,
+        "frequencies_hz": [
+          2500000000
+        ]
+      }
+    },
+    {
+      "name": "current_dir1",
+      "type": "current",
+      "enabled": true,
+      "start": [
+        -5,
+        -5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "stop": [
+        5,
+        5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "time_domain": {
+        "enabled": true
+      },
+      "frequency_domain": {
+        "enabled": false,
+        "frequencies_hz": [
+          2500000000
+        ]
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "dist_dir*len"
+          },
+          0
+        ]
+      }
+    },
+    {
+      "name": "current_ref",
+      "type": "current",
+      "enabled": true,
+      "start": [
+        -5,
+        -5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "stop": [
+        5,
+        5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "time_domain": {
+        "enabled": true
+      },
+      "frequency_domain": {
+        "enabled": false,
+        "frequencies_hz": [
+          2500000000
+        ]
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "-dist_ref*len"
+          },
+          0
+        ]
+      }
+    }
+  ]
 };

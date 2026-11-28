@@ -207,7 +207,7 @@ figcaption {font-size:13px;color:var(--muted);line-height:1.6;border-top:1px sol
       <section class="section" id="quick-start" aria-labelledby="quick-start-title">
   <div class="section-head"><span class="section-no" aria-hidden="true">01</span><h2 id="quick-start-title">Quick start</h2></div>
   <p>Radiators combines a parametric CSXCAD geometry editor with the openEMS finite-difference time-domain (FDTD) solver. CSXCAD describes geometry, materials, feeds and the computational grid; openEMS solves the electromagnetic fields. You can design, inspect, simulate and compare antennas without installing desktop CAD software.</p>
-<ol><li>Open the <a href="./">CSXCAD editor</a>. Choose <strong>More → Open example… → Half-wave dipole 2.45 GHz (fast)</strong>. Start with this known small example before building your own model.</li><li>Inspect the two dipole arms, feed, materials and domain in Model. Turn on Ports and Mesh in the viewport; check the feed gap.</li><li>Open Checks. Resolve errors and evaluate warnings. Open Simulation, choose Browser, and start with a small CPU allocation, such as two threads.</li><li>Choose Run in browser. Watch the progress and solver log. When complete, open Results and inspect S11, input impedance and radiation.</li><li>Save the antenna JSON and Download result.json. Change one dimension, rerun, and compare; do not assume a pretty radiation plot proves a good match.</li></ol>
+<ol><li>Open the <a href="./">CSXCAD editor</a>. Choose <strong>More → Open example… → Parametric Yagi</strong>. Start with the single-case example before building your own model.</li><li>Inspect the split driven element, reflector, director, feed, current probes and domain in Model. Turn on Ports and Mesh in the viewport; check the feed gap.</li><li>Open Checks. Resolve errors and evaluate warnings. Open Simulation, choose Browser, and start with a small CPU allocation, such as two threads.</li><li>Choose Run in browser. Watch the progress and solver log. When complete, open Results and inspect S11, input impedance and radiation.</li><li>Save the antenna JSON and Download result.json. Change one dimension, rerun, and compare; do not assume a pretty radiation plot proves a good match.</li></ol>
 <p class="note"><strong>First run:</strong> Browser mode needs a compatible browser and cross-origin isolation. The app may reload once to activate its service worker. Use Chrome on HTTPS or localhost if an embedded browser cannot run the solver. Remote mode is useful on mobile or for larger jobs.</p>
   <div class="section-top"><a href="#top">↑ Back to top</a><a href="#workspace">Next: Workspace and viewport →</a></div>
 </section>
@@ -345,7 +345,7 @@ function generate(a) {
 <section class="section" id="solver" aria-labelledby="solver-title">
   <div class="section-head"><span class="section-no" aria-hidden="true">08</span><h2 id="solver-title">Excitation, solver and outputs</h2></div>
   <p>The Gaussian excitation supplies a frequency band around center_hz. bandwidth_hz is the half-width (fc), so the nominal band is center ± bandwidth. Put requested S11 frequencies inside this band and ensure useful incident energy at radiation frequencies. An S11 frequency grid is post-processing of a broadband time-domain run, not a separate FDTD run for every sample.</p>
-<div class="table-wrap"><table><thead><tr><th>Setting</th><th>Meaning</th></tr></thead><tbody><tr><td>max_timesteps</td><td>Hard limit on updates. Larger values allow more simulated time but may cost more CPU.</td></tr><tr><td>end_criteria</td><td>Energy-decay stopping threshold; 0.000001 (−60 dB relative energy) is the bundled dipole criterion. Smaller is stricter; resonant models may need longer.</td></tr><tr><td>outputs.s11</td><td>One or more inclusive start/step/end sweeps in Hz.</td></tr><tr><td>radiation_frequencies_hz</td><td>Frequencies at which NF2FF (near-to-far-field transformation) is requested.</td></tr><tr><td>radiation_grid</td><td>theta_step_deg and phi_step_deg. Smaller angle steps increase far-field sampling and output size; not FDTD mesh resolution.</td></tr><tr><td>include_impedance / include_realized_gain / include_polarization</td><td>Optional output quantities, when supported by the chosen solver path.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Setting</th><th>Meaning</th></tr></thead><tbody><tr><td>max_timesteps</td><td>Hard limit on updates. Larger values allow more simulated time but may cost more CPU.</td></tr><tr><td>end_criteria</td><td>Energy-decay stopping threshold; 0.0001 (−40 dB relative energy) is the supplied Yagi criterion; 0.000001 (−60 dB) is a stricter alternative. Smaller is stricter; resonant models may need longer.</td></tr><tr><td>outputs.s11</td><td>One or more inclusive start/step/end sweeps in Hz.</td></tr><tr><td>radiation_frequencies_hz</td><td>Frequencies at which NF2FF (near-to-far-field transformation) is requested.</td></tr><tr><td>radiation_grid</td><td>theta_step_deg and phi_step_deg. Smaller angle steps increase far-field sampling and output size; not FDTD mesh resolution.</td></tr><tr><td>include_impedance / include_realized_gain / include_polarization</td><td>Optional output quantities, when supported by the chosen solver path.</td></tr></tbody></table></div>
 <div class="code-block">
 <div class="code-bar"><span>JSON · Solver and outputs</span><button class="copy-code" type="button" aria-label="Copy JSON · Solver and outputs">Copy</button></div>
 <pre><code>"excitation": {"center_hz": 2450000000, "bandwidth_hz": 350000000},
@@ -384,9 +384,9 @@ cd radiators
 <div class="code-bar"><span>Shell · Native simulation</span><button class="copy-code" type="button" aria-label="Copy Shell · Native simulation">Copy</button></div>
 <pre><code>docker build -t radiators-openems:ci -f docker/openems/Dockerfile .
 docker run --rm -v "$PWD:/work" radiators-openems:ci \
-  python antennas/simulate.py examples/dipole_2450.json \
-  --output results/dipole_2450</code></pre>
-</div><p>To list expanded cases without solving: <code>python3 scripts/sweep.py examples/helix_sweep.json</code>. See the <a href="https://github.com/winject-wireless/radiators/blob/main/antennas/README.md">native schema and simulation guide</a> for CI and generators.</p>
+  python antennas/simulate.py examples/parametric_yagi.json \
+  --output results/parametric_yagi</code></pre>
+</div><p>To list expanded cases without solving: <code>python3 scripts/sweep.py tests/fixtures/helix_sweep.json</code>. See the <a href="https://github.com/winject-wireless/radiators/blob/main/antennas/README.md">native schema and simulation guide</a> for CI and generators.</p>
   <div class="section-top"><a href="#top">↑ Back to top</a><a href="#results">Next: Interpret simulation results →</a></div>
 </section>
 
@@ -434,24 +434,33 @@ docker run --rm -v "$PWD:/work" radiators-openems:ci \
   <div class="section-head"><span class="section-no" aria-hidden="true">13</span><h2 id="schema-title">Schema-v2 reference and example</h2></div>
   <p>JSON is strict: double-quoted keys and strings, no comments or trailing commas. The source is the editable antenna definition; the resolved config is numerical input for one case. Use <code>schema_version: 2</code>.</p>
 <div class="table-wrap"><table><thead><tr><th>Top-level key</th><th>Role</th></tr></thead><tbody><tr><td><code>schema_version / name / description / units</code></td><td>Version 2, project identity, notes and mm coordinate units.</td></tr><tr><td><code>parameters / sweep</code></td><td>Named scalars and case expansion.</td></tr><tr><td><code>domain / mesh</code></td><td>Start/stop, six boundaries, grid and refinements.</td></tr><tr><td><code>materials / geometry</code></td><td>Electrical property definitions, named primitives or script instances.</td></tr><tr><td><code>ports / probes</code></td><td>Active excitation, passive ports and optional diagnostics.</td></tr><tr><td><code>excitation / solver</code></td><td>Gaussian frequency band, stopping criteria and native resources.</td></tr><tr><td><code>outputs</code></td><td>S11 sampling, far-field frequencies, angular grid and optional quantities.</td></tr><tr><td><code>scripts / generator</code></td><td>JavaScript geometry definitions; native-only trusted Python generator.</td></tr><tr><td><code>workspace_units</code></td><td>Display preferences, not physical solver inputs.</td></tr></tbody></table></div>
-<p>The following is a complete, compact configuration based on the bundled dipole example. It intentionally uses a 73 Ω reference, not 50 Ω; change impedance_ohm if evaluating a 50 Ω system.</p>
+<p>The following is the complete bundled Parametric Yagi. It uses a 50 Ω reference and three current probes. The parameters are editable, but no sweep is enabled by default.</p>
 <div class="code-block">
-<div class="code-bar"><span>JSON · Complete dipole configuration</span><button class="copy-code" type="button" aria-label="Copy JSON · Complete dipole configuration">Copy</button></div>
-<pre><code id="dipole-example">{
+<div class="code-bar"><span>JSON · Complete Parametric Yagi configuration</span><button class="copy-code" type="button" aria-label="Copy JSON · Complete Parametric Yagi configuration">Copy</button></div>
+<pre><code id="yagi-example">{
   "schema_version": 2,
-  "name": "Half-wave dipole 2.45 GHz (fast)",
-  "description": "Compact half-wave dipole for a quick browser simulation with a stricter energy-decay criterion.",
+  "name": "Parametric Yagi",
+  "description": "Three-element parametric Yagi-Uda with a split driven element, reflector, director and current probes. Single simulation; edit parameters or add a sweep as needed.",
   "units": "mm",
+  "parameters": {
+    "gap": 2,
+    "len": 58,
+    "dist_ref": 0.75,
+    "dist_dir": 0.36,
+    "el_rad": 2,
+    "len_ref": 1.06,
+    "len_dir": 0.94
+  },
   "domain": {
     "start": [
-      -90,
-      -90,
-      -110
+      -200,
+      -200,
+      -100
     ],
     "stop": [
-      90,
-      90,
-      110
+      200,
+      200,
+      100
     ],
     "boundary": [
       "PML_8",
@@ -463,56 +472,177 @@ docker run --rm -v "$PWD:/work" radiators-openems:ci \
     ]
   },
   "mesh": {
-    "max_cell_mm": 6,
-    "local_min_cell_mm": 1,
-    "auto_refine_max_span_mm": 40,
+    "max_cell_mm": 8,
     "growth_ratio": 1.4,
-    "max_cells": 2000000
+    "max_cells": 5000000,
+    "refinements": [
+      {
+        "start": [
+          -10,
+          -55,
+          -32.5
+        ],
+        "stop": [
+          10,
+          35,
+          32.5
+        ],
+        "resolution_mm": 1
+      },
+      {
+        "start": [
+          -3,
+          -3,
+          -3
+        ],
+        "stop": [
+          3,
+          3,
+          3
+        ],
+        "resolution_mm": 0.5,
+        "enabled": true
+      }
+    ]
   },
   "solver": {
-    "max_timesteps": 100000,
-    "end_criteria": 0.000001
+    "max_timesteps": 50000,
+    "end_criteria": 0.0001,
+    "resources": {
+      "cpus": 12,
+      "memory_gib": 24
+    }
   },
   "excitation": {
-    "center_hz": 2450000000,
-    "bandwidth_hz": 750000000
+    "center_hz": 2500000000,
+    "bandwidth_hz": 500000000
   },
   "materials": [
     {
-      "name": "pec",
+      "name": "copper",
       "type": "pec"
     }
   ],
   "geometry": [
     {
-      "name": "arm-top",
-      "shape": "box",
-      "material": "pec",
+      "name": "driven",
+      "shape": "cylinder",
+      "material": "copper",
       "start": [
-        -1,
-        -1,
-        1
+        0,
+        0,
+        0
       ],
       "stop": [
-        1,
-        1,
-        28
-      ]
+        0,
+        0,
+        {
+          "$expr": "len/2-gap/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          0,
+          {
+            "$expr": "gap/2"
+          }
+        ]
+      }
     },
     {
-      "name": "arm-bottom",
-      "shape": "box",
-      "material": "pec",
+      "name": "gnd",
+      "shape": "cylinder",
+      "material": "copper",
       "start": [
-        -1,
-        -1,
-        -28
+        0,
+        0,
+        0
       ],
       "stop": [
-        1,
-        1,
-        -1
-      ]
+        0,
+        0,
+        {
+          "$expr": "-len/2+gap/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          0,
+          {
+            "$expr": "-gap/2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reflector",
+      "shape": "cylinder",
+      "material": "copper",
+      "start": [
+        0,
+        0,
+        {
+          "$expr": "-len*len_ref/2"
+        }
+      ],
+      "stop": [
+        0,
+        0,
+        {
+          "$expr": "len*len_ref/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "-dist_ref*len"
+          },
+          0
+        ]
+      }
+    },
+    {
+      "name": "director1",
+      "shape": "cylinder",
+      "material": "copper",
+      "start": [
+        0,
+        0,
+        {
+          "$expr": "-len*len_dir/2"
+        }
+      ],
+      "stop": [
+        0,
+        0,
+        {
+          "$expr": "len*len_dir/2"
+        }
+      ],
+      "radius": {
+        "$param": "el_rad"
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "dist_dir*len"
+          },
+          0
+        ]
+      }
     }
   ],
   "ports": [
@@ -523,38 +653,146 @@ docker run --rm -v "$PWD:/work" radiators-openems:ci \
       "start": [
         0,
         0,
-        -1
+        {
+          "$expr": "-gap/2-0.5"
+        }
       ],
       "stop": [
         0,
         0,
-        1
+        {
+          "$expr": "gap/2+0.5"
+        }
       ],
       "direction": "z",
-      "impedance_ohm": 73,
+      "impedance_ohm": 50,
       "excite": true
     }
   ],
   "outputs": {
     "s11": [
       {
-        "start": 1900000000,
-        "step": 25000000,
+        "start": 2000000000,
+        "step": 10000000,
         "end": 3000000000
       }
     ],
     "radiation_frequencies_hz": [
       2450000000
     ],
-    "include_impedance": true,
     "radiation_grid": {
-      "theta_step_deg": 10,
-      "phi_step_deg": 15
+      "theta_step_deg": 5,
+      "phi_step_deg": 5
     },
-    "include_realized_gain": true
-  }
+    "include_realized_gain": true,
+    "include_polarization": true
+  },
+  "probes": [
+    {
+      "name": "current_driven",
+      "type": "current",
+      "enabled": true,
+      "start": [
+        -5,
+        -5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "stop": [
+        5,
+        5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "time_domain": {
+        "enabled": true
+      },
+      "frequency_domain": {
+        "enabled": false,
+        "frequencies_hz": [
+          2500000000
+        ]
+      }
+    },
+    {
+      "name": "current_dir1",
+      "type": "current",
+      "enabled": true,
+      "start": [
+        -5,
+        -5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "stop": [
+        5,
+        5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "time_domain": {
+        "enabled": true
+      },
+      "frequency_domain": {
+        "enabled": false,
+        "frequencies_hz": [
+          2500000000
+        ]
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "dist_dir*len"
+          },
+          0
+        ]
+      }
+    },
+    {
+      "name": "current_ref",
+      "type": "current",
+      "enabled": true,
+      "start": [
+        -5,
+        -5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "stop": [
+        5,
+        5,
+        {
+          "$expr": "len/3"
+        }
+      ],
+      "time_domain": {
+        "enabled": true
+      },
+      "frequency_domain": {
+        "enabled": false,
+        "frequencies_hz": [
+          2500000000
+        ]
+      },
+      "transform": {
+        "translate": [
+          0,
+          {
+            "$expr": "-dist_ref*len"
+          },
+          0
+        ]
+      }
+    }
+  ]
 }</code></pre>
-</div><p>Copy the example into JSON Source and Apply, or open the bundled example from More. This is a starting model, not a guaranteed tuned antenna. See the <a href="https://github.com/winject-wireless/radiators/blob/main/examples/dipole_2450.json">original dipole</a>, <a href="https://github.com/winject-wireless/radiators/blob/main/examples/helix_sweep.json">helix sweep</a>, <a href="https://github.com/winject-wireless/radiators/blob/main/examples/script_radials_sweep.json">scripted radials</a> and <a href="https://github.com/winject-wireless/radiators/blob/main/antennas/README.md">native schema reference</a>.</p>
+</div><p>Copy the example into JSON Source and Apply, or open the bundled example from More. This is a starting model, not a guaranteed tuned antenna. See the <a href="https://github.com/winject-wireless/radiators/blob/main/examples/parametric_yagi.json">Parametric Yagi</a>, <a href="https://github.com/winject-wireless/radiators/blob/main/tests/fixtures/helix_sweep.json">helix sweep</a>, <a href="https://github.com/winject-wireless/radiators/blob/main/tests/fixtures/script_radials_sweep.json">scripted radials</a> and <a href="https://github.com/winject-wireless/radiators/blob/main/antennas/README.md">native schema reference</a>.</p>
   <div class="section-top"><a href="#top">↑ Back to top</a><a href="#troubleshooting">Next: Troubleshooting and engineering checklist →</a></div>
 </section>
 

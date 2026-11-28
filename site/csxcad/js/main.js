@@ -2425,7 +2425,7 @@ async function showExamples() {
     index = await r.json();
   } catch {
     return openDialog("Open example", h("div", { class: "example-list" },
-      h("button", { type: "button", onclick: () => { $("dialog").close(); loadDoc(STARTER, "Loaded dipole example"); } },
+      h("button", { type: "button", onclick: () => { $("dialog").close(); loadDoc(STARTER, "Loaded example"); } },
         h("strong", { text: STARTER.name }), h("small", { text: "Built-in offline fallback" }))));
   }
   openDialog("Open example", h("div", { class: "example-list" },
@@ -2861,7 +2861,7 @@ async function boot() {
   // Initial document: ?example=<file>, else local draft, else starter.
   const draft = storage.get(DRAFT_KEY);
   const params = new URLSearchParams(location.search);
-  let initial = STARTER, message = "Dipole starter loaded";
+  let initial = STARTER, message = "Parametric Yagi starter loaded";
   if (params.get("example")) {
     try {
       const r = await fetch("./examples/" + encodeURIComponent(params.get("example")));
