@@ -675,7 +675,7 @@ try {
   const deletionPage=await browser.newPage();
   try{
     await deletionPage.goto(new URL("?debug=1",base).href);
-    await deletionPage.waitForFunction(()=>window.__csxcad?.state.doc,{},{timeout:90000});
+    await deletionPage.waitForFunction(()=>crossOriginIsolated&&window.__csxcad?.state.doc&&document.querySelector("#sim .sim-controls"),{},{timeout:90000});
     const name=await deletionPage.evaluate(async()=>{
       const {saveLocalProject}=await import("./js/sim/panel.js");
       const current=structuredClone(window.__csxcad.state.doc);
@@ -700,7 +700,7 @@ try {
     assert.equal(await deletionPage.getByRole("button",{name:"Delete Keep this revision",exact:true}).count(),1);
     await deletionPage.locator("#dialogActions").getByRole("button",{name:"Close",exact:true}).click();
     await deletionPage.reload();
-    await deletionPage.waitForFunction(()=>window.__csxcad?.state.doc,{},{timeout:90000});
+    await deletionPage.waitForFunction(()=>crossOriginIsolated&&window.__csxcad?.state.doc&&document.querySelector("#sim .sim-controls"),{},{timeout:90000});
     await deletionPage.locator("#menuButton").click();
     await deletionPage.locator('[data-action="new"]').click();
     await show();
