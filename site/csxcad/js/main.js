@@ -3091,7 +3091,7 @@ async function boot() {
   const draft = storage.get(draftKey()) ?? draftSlots()[0];
   pruneDrafts();
   const params = new URLSearchParams(location.search);
-  let initial = STARTER, message = "Parametric Yagi starter loaded", showInitialResult=false;
+  let initial = STARTER, message = "2.45 GHz Dipole starter loaded", showInitialResult=false;
   if (params.get("example")) {
     // A shared example link must not quietly discard the draft it replaces:
     // keep it as a local project revision the user can reopen.

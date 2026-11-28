@@ -27,7 +27,7 @@ Published at `https://winject-wireless.github.io/radiators/csxcad/`.
   port, unique IDs, geometry and ports inside the domain, materials, coax
   radii, S11 inside the excitation band…), run for every sweep case.
 - Source / resolved JSON view, undo/redo, local draft autosave, drag & drop,
-  one bundled Parametric Yagi example (also the default starter). Additional examples are added individually under `examples/`; research configs and test fixtures are not published.
+  a center-fed 2.45 GHz dipole as the New Project starter (L = 58 mm tip-to-tip, r = 1 mm, gap = 2 mm), independently of the bundled Parametric Yagi example. Additional examples are added individually under `examples/`; research configs and test fixtures are not published.
 - Configs that use a Python `generator` open, but their generated geometry only
   exists when the radiators scripts run.
 
