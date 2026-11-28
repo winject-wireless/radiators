@@ -352,6 +352,51 @@ assert.throws(() => expandScripts({ materials: [], scripts: { t: { source: SCRIP
   assert.equal(shared.length,6);
 }
 
+// Mesh checks: dielectric wavelength, slab cells, thin wires, uniform snapping
+// (issues #43 and #44). Warnings only; none of these may become errors.
+{
+  const cfg = resolveCase(STARTER, parameterSets(STARTER)[0].parameters);
+  const msgs = c => checkCase(c).filter(x => x.level === "warn").map(x => x.msg);
+  const errs = c => checkCase(c).filter(x => x.level === "error").map(x => x.msg);
+  // 6 mm cells are inside free-space λ/10 (≈11 mm at 2.45 GHz + bw) but far
+  // outside λ/10 in FR4, and 1.6 mm of substrate is under one cell thick.
+  const fr4 = { ...cfg,
+    mesh: { max_cell_mm: 6, growth_ratio: 1.4 },
+    materials: [...cfg.materials, { name: "fr4", type: "dielectric", epsilon: 4.3 }],
+    geometry: [...cfg.geometry, { name: "substrate", shape: "box", material: "fr4", start: [-20, -20, 0], stop: [20, 20, 1.6] }] };
+  assert.ok(msgs(fr4).some(m => /substrate.*exceed.*λ\/10.*εr 4.3/.test(m)), "dielectric λ/10 limit uses √εr");
+  assert.ok(msgs(fr4).some(m => /substrate.*cells through the slab/.test(m)), "thin slab cell count");
+  assert.deepEqual(errs(fr4), []);
+  const fine = { ...fr4, mesh: { max_cell_mm: 6, growth_ratio: 1.4,
+    refinements: [{ start: [-21, -21, -1], stop: [21, 21, 2], resolution_mm: 0.5 }] } };
+  assert.ok(!msgs(fine).some(m => /substrate/.test(m)), "a refinement covering the slab clears both warnings");
+  // A wire thinner than its cell: the mesh, not the geometry, sets the radius.
+  const wire = { ...cfg, mesh: { max_cell_mm: 4, growth_ratio: 1.4 },
+    geometry: [...cfg.geometry, { name: "thin", shape: "wire", material: "pec-metal", wire_diameter: 0.4, points: [[-10, 0, 10], [10, 0, 10]] }] };
+  assert.ok(msgs(wire).some(m => /thin: wire Ø 0.4 mm is thinner than the local cell/.test(m)), "thin wire vs cell size");
+  // Uniform mode: geometry off the grid, and a feed shorter than one cell.
+  const uni = { ...cfg, mesh: { max_cell_mm: 2, growth_ratio: 1.4, grid_mode: "uniform", uniform_step_mm: 2 },
+    geometry: [...cfg.geometry, { name: "rod", shape: "box", material: "pec-metal", start: [-1.3, -0.5, 5.7], stop: [1.3, 0.5, 27.3] }] };
+  assert.ok(msgs(uni).some(m => /part\(s\) are off the uniform grid.*rod/.test(m)), "off-grid parts in uniform mode");
+  const short = { ...uni, ports: [{ ...cfg.ports[0], start: [0, 0, 0], stop: [0, 0, 0.5] }] };
+  assert.ok(errs(short).some(m => /shorter than the uniform cell/.test(m)), "feed shorter than one uniform cell");
+  console.log("Mesh checks: dielectric λ, slab cells, thin wire, uniform grid snapping: PASS");
+}
+
+// Realized gain is withheld when the radiation efficiency is non-physical (#42).
+{
+  const base = { radiation_valid: true, theta_deg: [0, 90, 180], phi_deg: [0, 90, 180, 270],
+    directivity_dbi: [[0,0,0,0],[0,10,0,10],[0,0,0,0]], max_directivity_dbi: 10,
+    radiation_efficiency: 1.4, mismatch_efficiency: 0.8, radiated_power_w: 1, efficiency_valid: false };
+  const bad = sampleDirection(base, [0, 20, 0]);
+  assert.equal(bad.gain, null);
+  assert.equal(bad.realizedGain, null);
+  assert.equal(bad.radiationEfficiency, 1.4); // still reported, so the user can see why
+  const ok = sampleDirection({ ...base, radiation_efficiency: 0.9, efficiency_valid: true }, [0, 20, 0]);
+  assert.ok(Math.abs(ok.realizedGain - (10 + 10 * Math.log10(0.9 * 0.8))) < 1e-9);
+  console.log("Efficiency above 100% withholds gain and realized gain: PASS");
+}
+
 // Starter and templates
 const starterCases = parameterSets(STARTER);
 assert.equal(starterCases.length, 1);

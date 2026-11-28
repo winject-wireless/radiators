@@ -46,9 +46,12 @@ export function sampleDirection(record, point) {
   const theta = Math.acos(clamp(point[2] / length, -1, 1)) / RAD;
   const phi = wrap(Math.atan2(point[1], point[0]) / RAD);
   const directivity = angularValue(record, record.directivity_dbi, theta, phi);
-  const gain = directivity !== null && eta > 0 && finite(eta) ? directivity + 10 * Math.log10(eta) : null;
+  const gain = directivity !== null && eta > 0 && finite(eta) && record.efficiency_valid !== false ? directivity + 10 * Math.log10(eta) : null;
   const derived = gain !== null && mismatch > 0 && finite(mismatch) ? gain + 10 * Math.log10(mismatch) : null;
-  const realizedGain = angularValue(record, record.realized_gain_dbi, theta, phi) ?? derived;
+  // An efficiency above 100% inflates gain and realized gain by the same
+  // factor; report directivity only rather than a confidently wrong number.
+  const realizedGain = record.efficiency_valid === false ? null
+    : angularValue(record, record.realized_gain_dbi, theta, phi) ?? derived;
   return { ...metrics, theta, phi, directivity, gain, realizedGain,
     relativeField: directivity !== null && finite(record.max_directivity_dbi) ? 10 ** ((directivity - record.max_directivity_dbi) / 20) : null };
 }
