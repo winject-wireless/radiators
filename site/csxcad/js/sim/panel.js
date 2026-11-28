@@ -301,6 +301,10 @@ export async function importResultArchive(file,{overwrite=false}={}){
   if(project)await saveLocalProject(project);
   return {doc:project??first,imported,kept,errors,grouped:!!project};
 }
+// Bundled results use the same exact resolved-input cache key and never replace local runs.
+export async function seedExampleResult(data){
+  return importOneResult(data,{overwrite:false});
+}
 export async function importResultFile(data, options={}){
   const {doc,written}=await importOneResult(data,options);
   await saveLocalProject(doc);
