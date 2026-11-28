@@ -13,7 +13,7 @@ from urllib.error import HTTPError
 from unittest.mock import patch
 
 from launch_remote_runner import load_config, server_command
-from remote_runner import Handler, Runner, validate
+from remote_runner import Handler, Runner, validate, failure_reason
 
 TOKEN = "a" * 32
 ORIGIN = "https://editor.example"
@@ -202,6 +202,37 @@ class RemoteTests(unittest.TestCase):
         self.assertIn("RADIATORS_OPENEMS_THREADS=2",cmd)
         self.assertIn("OPENEMS_ENGINE=cpu",cmd)
         self.assertFalse(any(a.startswith(("--memory","--memory-swap")) for a in cmd))
+
+    def test_failure_reason(self):
+        fallback = "Native openEMS exited with code 1; inspect log"
+        message = "Mesh exceeds cell budget: 7932232 > 7500000"
+        log = 'Traceback (most recent call last):\n  File "simulate_v2.py", line 258\n    raise ValueError(message)\nValueError: ' + message + '\n'
+        self.assertEqual(failure_reason(log, fallback), message)
+        self.assertEqual(failure_reason("ValueError: first\nRuntimeError: final\n", fallback), "final")
+        self.assertEqual(failure_reason("ERROR: Invalid mesh\n", fallback), "Invalid mesh")
+        self.assertEqual(failure_reason("WARNING: mesh is coarse\n", fallback), fallback)
+        self.assertEqual(failure_reason("", fallback), fallback)
+
+    def test_failed_executor_reports_cause(self):
+        from unittest.mock import MagicMock
+        self.args.image = "radiators-openems:ci"
+        path = Path(self.temp.name) / "job"
+        path.mkdir()
+        j = {"id": ID, "path": path, "state": "starting", "cancel": threading.Event(),
+             "created": time.monotonic(), "error": None}
+        process = MagicMock()
+        process.poll.return_value = 1
+        process.returncode = 1
+        def launch(*args, **kwargs):
+            kwargs["stdout"].write(b"Traceback (most recent call last):\nValueError: Mesh exceeds cell budget: 7932232 > 7500000\n")
+            return process
+        with patch("remote_runner.subprocess.Popen", side_effect=launch):
+            self.runner.execute(j, 2)
+        self.assertEqual(j["state"], "failed")
+        self.assertEqual(j["error"], "Mesh exceeds cell budget: 7932232 > 7500000")
+        self.assertIn("Traceback", self.runner.snapshot(j)["log"])
+        j["error"] = "Native openEMS exited with code 1; inspect log"
+        self.assertEqual(self.runner.snapshot(j)["error"], "Mesh exceeds cell budget: 7932232 > 7500000")
 
     def test_api(self):
         def fake(j, cpus):

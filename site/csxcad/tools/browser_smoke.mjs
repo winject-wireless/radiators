@@ -129,6 +129,17 @@ try {
     assert.deepEqual(afterReload,{s11:{logmag_db:[-12]}});
     assert.equal(seen.filter(x=>x.method==="POST").length,2,"reattach does not submit another job");
     console.log("Remote batch submission / attachment after reload: PASS");
+    const failureMessage=await blockedPage.evaluate(async endpoint=>{
+      const {RemoteRunner}=await import("./js/sim/remote.js");
+      const log='Traceback (most recent call last):\n  File "simulate_v2.py", line 258\nValueError: Mesh exceeds cell budget: 7932232 > 7500000\n';
+      let captured;
+      const client=new RemoteRunner(endpoint,"test-token",async()=>new Response(JSON.stringify({state:"failed",error:"Native openEMS exited with code 1; inspect log",log}),{headers:{"Content-Type":"application/json"}}));
+      try{await client.attach("3".repeat(32),{onStatus:s=>{captured=s.log;}});}catch(e){return {message:e.message,log:captured};}
+      throw Error("Expected failure");
+    },endpoint);
+    assert.equal(failureMessage.message,"Mesh exceeds cell budget: 7932232 > 7500000");
+    assert.match(failureMessage.log,/Traceback/);
+    console.log("Remote failure reason and complete log: PASS");
     // A transient network loss must not cancel a job that may be hours in:
     // the client backs off and keeps polling, and sends no DELETE.
     const flaky=[];

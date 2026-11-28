@@ -34,6 +34,31 @@ SHAPES = {"box", "cylinder", "cylindrical_shell", "sphere", "spherical_shell",
           "wire", "polyhedron", "helix", "hemisphere", "hemispherical_shell"}
 
 
+def failure_reason(log, fallback):
+    """Prefer the actual exception or explicit solver error over an exit code."""
+    lines = log.splitlines()
+    # Python emits the exception type and message after its stack frames.
+    # Search from the end so chained exceptions report the final cause.
+    for line in reversed(lines):
+        match = re.match(r"^(?:[\w.]*\.)?(?:[A-Za-z_]\w*(?:Error|Exception)|Error|Exception|SystemExit|KeyboardInterrupt):\s*(.+)$", line)
+        if match:
+            return match.group(1).strip()[:1000]
+    for line in reversed(lines):
+        match = re.match(r"^\s*(?:fatal(?: error)?|error|docker: Error response from daemon)\s*:\s*(.+)$", line, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()[:1000]
+    return fallback
+
+
+def log_tail(path):
+    try:
+        with path.open("rb") as f:
+            f.seek(max(0, os.fstat(f.fileno()).st_size - 65536))
+            return f.read(65536).decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
 def checked_number(x, lo, hi, label, integer=False):
     if type(x) not in (int, float) or not math.isfinite(x) or not lo <= x <= hi or (integer and int(x) != x):
         raise ValueError("Invalid " + label)
@@ -290,7 +315,9 @@ class Runner:
             elif proc.returncode == 0 and (path / "out/result.json").is_file():
                 state, error = "done", None
             else:
-                error = f"Native openEMS exited with code {proc.returncode}; inspect log"
+                fallback = ("Native openEMS completed without a result file; inspect log" if proc.returncode == 0
+                            else f"Native openEMS exited with code {proc.returncode}; inspect log")
+                error = failure_reason(log_tail(path / "runner.log"), fallback)
         except Exception as exc:
             error = str(exc)
         finally:
@@ -314,13 +341,9 @@ class Runner:
                 j["last_contact"] = time.monotonic()
             out = {k: j[k] for k in ("id", "state", "error")}
             out["seconds"] = j.get("seconds", time.monotonic()-j["created"])
-        log = j["path"] / "runner.log"
-        try:
-            with log.open("rb") as f:
-                f.seek(max(0, os.fstat(f.fileno()).st_size-65536))
-                out["log"] = f.read(65536).decode("utf-8", errors="replace")
-        except FileNotFoundError:
-            out["log"] = ""
+        out["log"] = log_tail(j["path"] / "runner.log")
+        if out["state"] == "failed" and (out["error"] or "").startswith("Native openEMS exited with code "):
+            out["error"] = failure_reason(out["log"], out["error"])
         return out
 
     def result(self, j):
